@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Autotask Queue Monitor
 // @namespace    autotask
-// @version      0.9.1
+// @version      0.9.2
 // @description  Track any My Workspace & Queues queue (My queue by default) in its own tab, with a live overview on every Autotask page
 // @author       AdamConnell1565
 // @homepageURL  https://github.com/AdamConnell1565/Autotask-Queue-Monitor
@@ -177,7 +177,7 @@
     beepReq: P + 'beep',              // a tab that can't play sound asks another tab to
     beepClaims: P + 'beep:claims',
     healthPinged: P + 'health:pinged',// queue -> the outage we already sent a "stopped updating" alert for
-    launchPending: P + 'launch:pending',// a monitoring tab was just opened for this queue: { qKey, ts }
+    launchPending: P + 'launch:pending',// queue -> when a tab was opened to monitor it (it's on its way)
   };
 
   const CONFIG = { ...DEFAULTS };
@@ -458,7 +458,7 @@
     const now = Date.now(), l = get(q.lock, null);
     if (webLocks) {
       // A holder that stopped scanning (a frozen tab) loses the queue to a tab that can monitor it
-      const stuck = !l || now - l.ts >= staleMs();
+      const stuck = !!l && now - l.ts >= staleMs();
       if (!held.has(q.key) && !(await holdWebLock(q, false)) && !(stuck && await holdWebLock(q, true))) return false;
       set(q.lock, { id: ID, ts: now });
       return true;
@@ -1395,7 +1395,13 @@
       if (!list.includes(q.key)) sessionStorage.setItem(CONSENT_KEY, JSON.stringify([...list, q.key]));
     } catch { /* ignore */ }
   }
-  const mayMonitorHere = q => launchedTab() || !!launchKey() || consented().includes(q.key);
+  // A tab opened for a queue (Quick start, Start tracking) monitors only that queue while it's on its way
+  // there: it usually opens on whichever queue My Workspace shows first, and mustn't grab that one.
+  function mayMonitorHere(q) {
+    const going = launchKey();
+    if (going) return going === q.key;
+    return launchedTab() || consented().includes(q.key);
+  }
 
   // Open one queue's tab in this window; the window name tells the new tab which queue it's for
   function openQueueTab(q, url) {
@@ -1405,51 +1411,50 @@
   // menu if the page doesn't open on it. Meanwhile the page banner here says it's on its way.
   function openMonitorTab(q, url) {
     if (!q || !url || !openQueueTab(q, url)) return false;
-    set(K.launchPending, { qKey: q.key, ts: Date.now() });
+    const now = Date.now(), pending = {};
+    for (const [k, ts] of Object.entries(get(K.launchPending, {}))) if (now - ts < 60000) pending[k] = ts;
+    set(K.launchPending, { ...pending, [q.key]: now });
     return true;
   }
-  const launchPending = q => {
-    const p = get(K.launchPending, null);
-    return !!p && p.qKey === q.key && Date.now() - p.ts < 60000;
-  };
+  const launchPending = q => Date.now() - (+get(K.launchPending, {})[q.key] || 0) < 60000;
 
   // Where Quick start opens a queue: the address it was last monitored at, or any My Workspace & Queues
   // page (the new tab then clicks the queue in the menu itself)
   const queueUrl = q => get(q.state, {}).url || get(K.wsUrl, null);
 
-  // Queues nobody is monitoring right now (excluding the one this tab shows)
+  // Queues nobody is monitoring and no tab is on its way to. The one this tab shows counts too unless
+  // this tab monitors it: ordinary tabs only monitor when asked, so Quick start opens it a tab of its own.
   function idleQueues() {
-    const here = pageInfo().q?.key;
-    return activeQueues().filter(q => q.key !== here && !foreignActive(q) && !ownsLock(q));
+    const pg = pageInfo();
+    const mine = pg.q && pg.owns ? pg.q.key : null;
+    return activeQueues().filter(q => q.key !== mine && !foreignActive(q) && !ownsLock(q) && !launchPending(q));
   }
 
   // Tracked queues currently monitored by some other tab
   const busyElsewhere = () => activeQueues().filter(q => foreignActive(q));
 
-  // Quick start / move here. Opens a tab in THIS window for every tracked queue; when queues are
-  // already monitored elsewhere, those tabs are asked to stop and close themselves first.
+  // Quick start / move here. Opens a tab in THIS window for every tracked queue, including the one this
+  // tab shows (this tab is never taken over). When queues are already monitored elsewhere, those tabs
+  // are asked to stop and close themselves first; a queue this tab monitors itself stays here.
   function quickStart() {
     const moving = busyElsewhere().length > 0;
     const here = pageInfo(true);
-    if (moving) {
-      set(K.moveReq, { ts: Date.now(), tab: tabId() });
-      // This tab keeps (or takes over) the queue it's showing
-      if (here.q) {
-        if (here.remote) postToFrame(here.remote, { atqm: 'takeover', qKey: here.q.key });
-        else takeOver(here.q);
-      }
-    }
-    const idle = moving ? activeQueues().filter(q => q.key !== here.q?.key) : idleQueues();
+    const mine = here.q && here.owns ? here.q.key : null;
+    if (moving) set(K.moveReq, { ts: Date.now(), tab: tabId() });
+    const idle = moving ? activeQueues().filter(q => q.key !== mine && !ownsLock(q) && !launchPending(q)) : idleQueues();
     const ready = idle.filter(queueUrl);
-    let blocked = 0;
-    for (const q of ready) {
-      if (!openQueueTab(q, queueUrl(q))) blocked++;
-    }
+    // Unless pop-ups are allowed for the site, browsers let one click open one tab and block the rest
+    let opened = 0;
+    for (const q of ready) if (openMonitorTab(q, queueUrl(q))) opened++;
+    const blocked = ready.length - opened;
     if (!get(K.enabled, false)) set(K.enabled, true);
-    set(K.qsSnooze, Date.now() + 3 * 60000); // give the new tabs time to start monitoring
+    if (!blocked) set(K.qsSnooze, Date.now() + 3 * 60000); // give the new tabs time to start monitoring
     const notes = [];
-    if (ready.length - blocked) notes.push(`${moving ? 'Moving' : 'Opening'} ${ready.length - blocked} queue tab${ready.length - blocked > 1 ? 's' : ''} ${moving ? 'to' : 'in'} this window…`);
-    if (blocked) notes.push(`Your browser blocked ${blocked}. Allow pop-ups for autotask.net and press Quick start again.`);
+    if (opened) notes.push(`${moving ? 'Moving' : 'Opening'} ${opened} queue tab${opened > 1 ? 's' : ''} ${moving ? 'to' : 'in'} this window…`);
+    if (blocked) {
+      notes.push(`Your browser only let ${opened} of ${ready.length} tabs open. Allow pop-ups for autotask.net ` +
+        '(the icon at the right of the address bar), then press Quick start again for the rest.');
+    }
     const unknown = idle.filter(q => !queueUrl(q));
     if (unknown.length) notes.push(`Monitoring is on. Open My Workspace & Queues once so Quick start can open ${unknown.map(qWhere).join(', ')} for you.`);
     flashNote(notes.join(' '), 15000);
@@ -2234,7 +2239,12 @@
         pageCache.t = 0;
         flashNote(note, 2500);
       };
-      if (pg.owns) {
+      const going = launchKey();
+      if (going && going !== pg.q.key && !pg.owns) {
+        const target = trackedQueues().find(x => x.key === going);
+        box.className = 'here';
+        box.append(el('b', null, `Opening ${target ? qName(target) : 'its queue'} in this tab…`));
+      } else if (pg.owns) {
         box.className = 'here';
         box.append(el('b', null, `This tab is monitoring ${qName(pg.q)}.`), ' Keep it open.');
       } else if (pg.foreign) {
@@ -3166,7 +3176,7 @@
       const note = el('button', 'atqm-mnote', `${pg.cur.nav} isn't tracked. Expand to track it.`);
       note.onclick = () => { w.classList.remove('min'); render(); };
       mini.append(note);
-    } else if (pg.q && pg.choose && !launchPending(pg.q)) {
+    } else if (pg.q && pg.choose && !launchPending(pg.q) && !launchKey()) {
       const note = el('button', 'atqm-mnote', `Nobody is monitoring ${qName(pg.q)}. Expand to choose where.`);
       note.onclick = () => { w.classList.remove('min'); render(); };
       mini.append(note);

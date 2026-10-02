@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.9.2 (2026-10-02)
+
+### Fixed
+
+- Quick start skipped the queue the current tab was showing, so with two tracked queues it opened only one tab. It now opens a tab for every queue nobody is monitoring, and never takes over or locks the tab you pressed it in (moving queues to this window used to).
+- A tab opened by Quick start could monitor whichever queue My Workspace opened on before it reached its own queue, getting in the way of the other new tabs. It now waits for its own queue.
+- Pressing Quick start again while its tabs were still starting opened duplicates. When the browser lets only some tabs open, the message says how many, and the next press opens the rest.
+
 ## 0.9.1 (2026-10-02)
 
 ### Changed

@@ -35,7 +35,9 @@ Tampermonkey checks the same link for new versions, so updates arrive by themsel
 4. Allow notifications when the browser asks.
 5. To track another queue, open it and press **Start tracking** in the window. It opens a copy of the page in a new tab to do the monitoring, so the tab you're in isn't locked. (If your browser blocks the new tab, allow pop-ups for autotask.net.)
 
-After that, **Quick start** (in the window, or at the top of Settings) opens a monitoring tab for every tracked queue in one go. Press it from another window later to move them all there, for example to a window you keep minimised.
+After that, **Quick start** (in the window, or at the top of Settings) opens a monitoring tab for every tracked queue in one go, and leaves the tab you're in alone. Press it from another window later to move them all there, for example to a window you keep minimised.
+
+Quick start opens several tabs from one click, which browsers block unless pop-ups are allowed: click the pop-up icon at the right of the address bar and choose to always allow pop-ups from autotask.net. Until you do, each press opens one more tab.
 
 ## Next up
 

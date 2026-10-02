@@ -66,6 +66,18 @@ test('ordinary tabs need a go-ahead to monitor; Quick start tabs do not', () => 
   launched.close();
 });
 
+test('a tab opened for one queue does not monitor another queue it passes on the way', () => {
+  const { api, window, close } = load();
+  const my = api.trackedQueues()[0];
+  window.sessionStorage.setItem('atqm:launched', '1');
+  window.sessionStorage.setItem('atqm:launchKey', 'first-line'); // opened for the 1st line queue
+  assert.equal(api.mayMonitorHere(my), false);
+  assert.equal(api.mayMonitorHere({ key: 'first-line' }), true);
+  window.sessionStorage.removeItem('atqm:launchKey'); // arrived
+  assert.equal(api.mayMonitorHere(my), true);
+  close();
+});
+
 test('import checks everything in the file', () => {
   const { api, close } = load();
   const file = {

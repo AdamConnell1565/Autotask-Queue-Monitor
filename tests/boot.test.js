@@ -85,6 +85,57 @@ test('boot: if the browser blocks the new tab, the banner offers both choices ag
   }
 });
 
+const TWO_QUEUES = {
+  'atqm:enabled': true,
+  'atqm:queues': [
+    { key: 'my', nav: 'Open Tickets', section: 'My Workspace', mode: 'full' },
+    { key: 'first-line', nav: 'Support 1st Line', section: 'All', mode: 'intake' },
+  ],
+};
+
+test('boot: Quick start opens a tab for every queue, including the one this tab shows', async () => {
+  const { window, close } = load({ boot: true, html: fixture('queue-grid.html'), storage: TWO_QUEUES });
+  try {
+    const doc = window.document;
+    const opened = [];
+    window.open = (url, name) => { opened.push({ url, name }); return {}; };
+    await sleep(400);
+    const qs = doc.getElementById('atqm-qs');
+    assert.match(qs.textContent, /2 tracked queues aren't being monitored/);
+    button(qs, /^Quick start$/).click();
+    assert.deepEqual(opened.map(o => o.name.split('~')[0]), ['atqm-my', 'atqm-first-line']);
+    await sleep(600);
+    assert.equal(window.localStorage.getItem('atqm:lock:my-open-tickets'), null, 'this tab does not take My queue');
+    assert.equal(doc.getElementById('atqm-lock'), null, 'this tab is not locked');
+  } finally {
+    close();
+  }
+});
+
+test('boot: when the browser lets only one tab open, Quick start says so and opens the rest next time', async () => {
+  const { window, close } = load({ boot: true, html: fixture('queue-grid.html'), storage: TWO_QUEUES });
+  try {
+    const doc = window.document;
+    const opened = [];
+    let allowed = 1;
+    window.open = (url, name) => { if (!allowed) return null; allowed--; opened.push(name.split('~')[0]); return {}; };
+    await sleep(400);
+    button(doc.getElementById('atqm-qs'), /^Quick start$/).click();
+    assert.deepEqual(opened, ['atqm-my']);
+    assert.match(doc.getElementById('atqm-health').textContent, /only let 1 of 2 tabs open/);
+
+    // Press again: only the queue that didn't get a tab is opened, not My queue a second time
+    allowed = 5;
+    await sleep(200);
+    const qs = doc.getElementById('atqm-qs');
+    assert.match(qs.textContent, /Support 1st Line/);
+    button(qs, /^Quick start$/).click();
+    assert.deepEqual(opened, ['atqm-my', 'atqm-first-line']);
+  } finally {
+    close();
+  }
+});
+
 test('boot: tabs and the minimise button are labelled for assistive tech', async () => {
   const { window, close } = load({ boot: true });
   try {

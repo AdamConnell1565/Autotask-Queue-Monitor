@@ -1,8 +1,14 @@
 // ==UserScript==
 // @name         Autotask Queue Monitor
 // @namespace    autotask
-// @version      0.7.1
+// @version      0.8.0
 // @description  Track any My Workspace & Queues queue (My queue by default) in its own tab, with a live overview on every Autotask page
+// @author       AdamConnell1565
+// @homepageURL  https://github.com/AdamConnell1565/Autotask-Queue-Monitor
+// @supportURL   https://github.com/AdamConnell1565/Autotask-Queue-Monitor/issues
+// @updateURL    https://raw.githubusercontent.com/AdamConnell1565/Autotask-Queue-Monitor/main/autotaskQueueMonitor.user.js
+// @downloadURL  https://raw.githubusercontent.com/AdamConnell1565/Autotask-Queue-Monitor/main/autotaskQueueMonitor.user.js
+// @icon         data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2016%2016'%3E%3Crect%20width='16'%20height='16'%20rx='3'%20fill='%231e1f22'/%3E%3Crect%20x='3'%20y='4'%20width='10'%20height='2'%20rx='1'%20fill='%234ea1ff'/%3E%3Crect%20x='3'%20y='7'%20width='7'%20height='2'%20rx='1'%20fill='%233fb950'/%3E%3Crect%20x='3'%20y='10'%20width='8'%20height='2'%20rx='1'%20fill='%23e3b341'/%3E%3C/svg%3E
 // @match        *://*.autotask.net/*
 // @grant        none
 // @run-at       document-idle
@@ -10,8 +16,105 @@
 
 (function () {
   'use strict';
-  const VERSION = '0.7.1';
+  // The version lives in the header above only; Tampermonkey hands it over in GM_info
+  const VERSION = typeof GM_info !== 'undefined' && GM_info.script ? GM_info.script.version : 'dev';
   const W = typeof unsafeWindow !== 'undefined' ? unsafeWindow : window;
+
+  // ---------------------------------------------------------------------------
+  // Autotask page details. Everything that depends on how Autotask builds its pages is collected
+  // here, so an Autotask update usually means changing this section only. Text matching assumes
+  // Autotask is in English.
+  // ---------------------------------------------------------------------------
+  const AT = {
+    sel: {
+      row: 'tr.Display',                       // a data row in any grid
+      nonRow: 'tr:not(.Display)',              // header rows (and anything else that isn't data)
+      gridRows: 'tr.Display, tr.Heading',
+      grid: '.Grid',
+      tabBox: '.TabContainer',                 // My Workspace keeps one per page tab
+      activeTabBox: '.TabContainer.Active',
+      inactiveTabBox: '.TabContainer:not(.Active)',
+      pager: '.Pager',
+      pagerRows: '.VisibleRows',               // "1 - 18 of 18"
+      pageSize: 'select[id$="PageSizeDropDownList"], .PageSizeStatus select',
+      refreshIcon: '.StandardButtonIcon.Refresh',
+      clickable: '.Button2, button, [tabindex]',
+      callGridId: 'ServiceCallIndexGrid',
+      callRowKey: 'data-row-key',
+      callIdInHtml: /service_call_id['"]?\s*,\s*['"](\d+)/i,
+      chooser: '.ListMover2',                  // the Column Chooser's two lists
+      chooserBox: '.VerticalContainer',
+      chooserTitle: '.TitleBar1 .Title, .Title',
+      chooserLeft: '.Left select',
+      chooserRight: '.Right select',
+      chooserMoveRight: '.StandardButtonIcon.MoveRight',
+      chooserSave: '.StandardButtonIcon.Save',
+      dialogClose: '.DialogTitleBarIcon.Close',
+    },
+    text: {
+      myQueueNav: 'Open Tickets',
+      mySection: 'My Workspace',
+      workspaceTitle: /workspace\s*&\s*queues/i,
+      workspaceNav: /^My Workspace\b/i,
+      sections: ['My Workspace', 'All', 'Not Assigned', 'Assigned'],
+      refreshTitles: ['Refresh grid only', 'Refresh'],
+      columnChooserTitle: 'Column Chooser',
+      columnChooserDialog: /column\s*chooser/i,
+      statuses: [                              // fallback only, if no Status column header is found
+        'New', 'In Progress', 'Waiting Customer', 'Waiting Materials', 'Waiting Vendor',
+        'Scheduled', 'Escalate', 'Dispatched', 'Customer Note Added', 'Complete',
+      ],
+    },
+    path: {
+      ticketDetail: '/Mvc/ServiceDesk/TicketDetail.mvc',
+      command: '/Autotask/AutotaskExtend/ExecuteCommand.aspx',
+      serviceCall: '/Autotask/Popups/TechScheduling/service_call.aspx',
+    },
+  };
+
+  // Grid column headers
+  const HEADERS = {
+    ticket: /^ticket\s*(number|#|no\.?)?$/i,
+    status: /^status$/i,
+    title: /^(ticket\s*)?title$/i,
+    priority: /^priority$/i,
+    account: /^account(\s*name)?$/i,
+    created: /^create(d)?(\s*(date|on|time))?$/i,
+    slaEvent: /^(next\s*)?(sla\s*)?event$/i,
+    slaDue: /sla.*due|event\s*due/i,
+    frDue: /first\s*response.*(due|by)|response\s*due/i,
+    due: /^due(\s*date)?(\s*\/?\s*time)?$/i,
+  };
+  const CALL_HEADERS = {
+    account: /^account(\s*name)?$/i,
+    start: /^start(\s*(date|time))*$/i,
+    end: /^end(\s*(date|time))*$/i,
+    status: /^status$/i,
+    resources: /resources/i,
+    priority: /^priority$/i,
+    createdBy: /^created\s*by$/i,
+    created: /^create(d)?\s*date$/i,
+    description: /^description$/i,
+  };
+  // Columns as the Column Chooser names them, and how to find them there (most specific first)
+  const COLUMN_NAMES = {
+    ticket: 'Ticket Number', title: 'Title', status: 'Status', account: 'Account', priority: 'Priority',
+    created: 'Created', slaEvent: 'Next SLA Event', slaDue: 'Next SLA Event Due',
+    start: 'Start Date', end: 'End Date', description: 'Description',
+  };
+  const CHOOSER_MATCH = {
+    ticket: [/^ticket\s*number$/i, /^ticket\s*(#|no\.?)$/i],
+    title: [/^title$/i, /^ticket\s*title$/i],
+    status: [/^status$/i],
+    account: [/^account$/i, /^account\s*name$/i],
+    priority: [/^priority$/i],
+    created: [/^created$/i, /^create(d)?\s*(date|on|time)/i],
+    slaEvent: [/^next\s*sla\s*event$/i, /^sla\s*event$/i],
+    slaDue: [/^next\s*sla\s*event\s*due/i, /sla.*event.*due/i],
+    start: [/^start\s*date$/i, /^start(\s*time)?$/i],
+    end: [/^end\s*date$/i, /^end(\s*time)?$/i],
+    description: [/^description$/i],
+  };
 
   // ---------------------------------------------------------------------------
   // Default settings (editable in the widget's Settings tab; saved per browser)
@@ -27,8 +130,10 @@
     dueSoonMinutes: 60,           // "SLA due soon" threshold (all-changes queues)
     frSoonMinutes: 15,            // "first response due soon" threshold (new-ticket queues)
     pausedStatuses: 'Scheduled',  // ticket statuses where the SLA clock is paused (e.g. waiting for a service call)
-    autoColumns: true,            // add missing columns via the grid's Column Chooser
-    dateOrder: 'DMY',             // 'DMY' (UK) or 'MDY' (US)
+    autoColumns: false,           // add missing columns via the grid's Column Chooser without asking
+    autoPageSize: false,          // switch the grid to its largest page size without asking
+    dateOrder: 'auto',            // 'auto', 'DMY' (UK), 'MDY' (US) or 'YMD' (year first)
+    timeZone: '',                 // time zone Autotask shows times in; '' = the same as this PC
     linkStyle: 'detail',          // 'detail' = normal ticket page; 'command' = Autotask open-ticket command; 'grid' = grid's own link
     serviceCalls: false,          // allow tracking My Workspace > Service Calls
     callReminders: true,          // ping before / during scheduled calls
@@ -40,10 +145,6 @@
     notify: true,
     sound: true,
     hideInPopups: true,
-    knownStatuses: [              // fallback only, if no Status column header is found
-      'New', 'In Progress', 'Waiting Customer', 'Waiting Materials', 'Waiting Vendor',
-      'Scheduled', 'Escalate', 'Dispatched', 'Customer Note Added', 'Complete',
-    ],
   };
 
   const MODES = {
@@ -68,26 +169,63 @@
     dismissed: P + 'calls:dismissed', // call id -> time you pressed Dismiss
     pings: P + 'calls:pings',         // call id -> last reminder sent
     colTried: P + 'columns:tried',    // queue + missing columns -> last time we tried to add them
+    gridFixReq: P + 'gridfix',        // "add the missing columns / show more rows" pressed in some tab
     qsSnooze: P + 'quickstart:snooze',// Quick start prompt hidden until this time
     moveReq: P + 'quickstart:move',   // "move all queue tabs to the window this request came from"
+    wsUrl: P + 'quickstart:wsurl',    // a My Workspace & Queues address, for queues Quick start hasn't opened yet
+    dateOrder: P + 'date:order',      // date order worked out from the grids: { order, ts }
+    tzHint: P + 'date:tzhint',        // Autotask's clock looks hours off this PC's: { hours, dir, recent, ts }
+    beepReq: P + 'beep',              // a tab that can't play sound asks another tab to
+    beepClaims: P + 'beep:claims',
+    healthPinged: P + 'health:pinged',// queue -> the outage we already sent a "stopped updating" alert for
   };
 
   const CONFIG = { ...DEFAULTS };
   const ID = Math.random().toString(36).slice(2);
   const TICKET_RE = /\bT\d{8}\.\d{3,5}(?:\.\d{3})?\b/;
-  const STATUS_SET = new Set(DEFAULTS.knownStatuses.map(s => s.toLowerCase()));
+  const STATUS_SET = new Set(AT.text.statuses.map(s => s.toLowerCase()));
   const RANK = { ok: 0, soon: 1, overdue: 2 };
   const staleMs = () => CONFIG.refreshMs * 2.5;
 
+  // Parsed values are cached against the stored text, so reading the same key again doesn't re-parse it.
+  // What get() returns may be shared: copy it before changing it.
+  const readCache = new Map();
   const get = (k, d) => {
-    try { const v = localStorage.getItem(k); return v === null ? d : JSON.parse(v); }
-    catch { return d; }
+    try {
+      const raw = localStorage.getItem(k);
+      if (raw === null) return d;
+      const hit = readCache.get(k);
+      if (hit && hit.raw === raw) return hit.v;
+      const v = JSON.parse(raw);
+      readCache.set(k, { raw, v });
+      return v;
+    } catch { return d; }
   };
-  const set = (k, v) => {
-    try { localStorage.setItem(k, JSON.stringify(v)); }
-    catch (e) { console.warn('[ATQM] storage write failed', e); }
-  };
-  const del = k => { try { localStorage.removeItem(k); } catch { /* ignore */ } };
+  let storageFail = null; // { ts, key } of the last write that failed
+  const isQuotaError = e => !!e && (e.name === 'QuotaExceededError' || e.name === 'NS_ERROR_DOM_QUOTA_REACHED' || e.code === 22);
+  // Returns false when the write failed. Storage is shared with Autotask itself, so when it's full the
+  // older half of the change history is dropped to make room and the write is tried once more.
+  function set(k, v) {
+    try { localStorage.setItem(k, JSON.stringify(v)); return true; }
+    catch (e) {
+      if (isQuotaError(e)) {
+        try {
+          const alerts = k === K.alerts ? v : get(K.alerts, []);
+          if (Array.isArray(alerts) && alerts.length >= 10) {
+            localStorage.setItem(K.alerts, JSON.stringify(alerts.slice(-Math.floor(alerts.length / 2))));
+            if (k !== K.alerts) localStorage.setItem(k, JSON.stringify(v));
+            return true;
+          }
+        } catch { /* still full */ }
+      }
+      console.warn('[ATQM] storage write failed', k, e);
+      storageFail = { ts: Date.now(), key: k };
+      return false;
+    }
+  }
+  // Snapshots that couldn't be saved stay in memory, so the next scan doesn't report the same changes again
+  const memSnap = new Map();
+  const del = k => { memSnap.delete(k); try { localStorage.removeItem(k); } catch { /* ignore */ } };
   const clean = s => (s || '').replace(/\s+/g, ' ').trim();
   const same = (a, b) => clean(a).toLowerCase() === clean(b).toLowerCase();
   const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -95,33 +233,23 @@
   const cellText = c => (c ? clean(c.innerText ?? c.textContent) : '');
 
   function loadSettings() { Object.assign(CONFIG, DEFAULTS, get(K.settings, {})); }
-  { // 5.11: the command link turned out to pop out too; move anyone on it to the ticket page link once
-    const st = get(K.settings, null);
-    if (st && st.linkStyle === 'command' && !st.linkV2) set(K.settings, { ...st, linkStyle: 'detail', linkV2: true });
-  }
   loadSettings();
 
   // ---------------------------------------------------------------------------
   // Tracked queues (per person / per browser). My queue is tracked by default.
   // ---------------------------------------------------------------------------
-  const MY_QUEUE = { key: 'my', nav: 'Open Tickets', section: 'My Workspace', mode: 'full' };
+  const MY_QUEUE = { key: 'my', nav: AT.text.myQueueNav, section: AT.text.mySection, mode: 'full' };
+  if (!get(K.queues, null)) set(K.queues, [MY_QUEUE]);
 
-  // Migrate from older versions (fixed My queue + optional first line mode)
-  if (localStorage.getItem('AT_QUEUE_MONITOR_ENABLED') === 'true' && get(K.enabled, null) === null) set(K.enabled, true);
-  ['AT_QUEUE_SNAPSHOT', 'AT_QUEUE_ALERTS', 'AT_QUEUE_MONITOR_ENABLED', P + 'meta:my-open-tickets'].forEach(del);
-  if (!get(K.queues, null)) {
-    const list = [MY_QUEUE];
-    if (get(K.settings, {}).firstLineMode) {
-      list.push({ key: 'first', nav: 'Support 1st Line', section: get(P + 'state:first-line', {}).section || '', mode: 'intake' });
-    }
-    set(K.queues, list);
-  }
-
-  // Storage keys per queue (older keys kept for My queue and 1st line so history carries over)
+  // Storage keys per queue (My queue keeps the key names it has always had)
   function qStore(q) {
     if (q.key === 'my') return { snap: P + 'snap:my-open-tickets', lock: P + 'lock:my-open-tickets', state: P + 'state', seen: P + 'seen:my' };
-    if (q.key === 'first') return { snap: P + 'snap:first-line', lock: P + 'lock:first-line', state: P + 'state:first-line', seen: P + 'seen:first-line' };
     return { snap: P + 'snap:q:' + q.key, lock: P + 'lock:q:' + q.key, state: P + 'state:q:' + q.key, seen: P + 'seen:q:' + q.key };
+  }
+  const readSnap = q => (memSnap.has(q.snap) ? memSnap.get(q.snap) : get(q.snap, null));
+  function writeSnap(q, v) {
+    if (set(q.snap, v)) memSnap.delete(q.snap);
+    else memSnap.set(q.snap, v);
   }
 
   function trackedQueues() {
@@ -190,20 +318,165 @@
   }
 
   // ---------------------------------------------------------------------------
+  // Reading Autotask dates. Autotask shows them in the date format and time zone set in each
+  // person's Autotask profile, which needn't match this PC.
+  // ---------------------------------------------------------------------------
+  // 02/10/2026, 2/10/26, 2026-10-02, optionally followed by 10:55, 10:55:00, 10:55 PM or 10:55 p.m.
+  const DATE_RE = /(?<!\d)(\d{4}|\d{1,2})[\/.-](\d{1,2})[\/.-](\d{4}|\d{1,2})(?:\s*,?\s*(\d{1,2}):(\d{2})(?::\d{2})?(?:\s*([ap])\.?\s?m\b\.?)?)?/i;
+  const ORDER_NAMES = { DMY: 'Day/month', MDY: 'Month/day', YMD: 'Year first' };
+
+  // The order in use: the setting, or (on auto) what the grids have shown, or a guess from the browser language
+  function dateOrder() {
+    if (CONFIG.dateOrder && CONFIG.dateOrder !== 'auto') return CONFIG.dateOrder;
+    return get(K.dateOrder, null)?.order || (/^en-US$/i.test(navigator.language || '') ? 'MDY' : 'DMY');
+  }
+  // A first number over 12 can only be a day (02/10 is ambiguous; 25/10 isn't)
+  function detectDateOrder(strings) {
+    let dmy = false, mdy = false;
+    for (const s of strings) {
+      const m = String(s || '').match(DATE_RE);
+      if (!m) continue;
+      if (m[1].length === 4) return 'YMD';
+      if (+m[1] > 12 && +m[2] <= 12) dmy = true;
+      if (+m[2] > 12 && +m[1] <= 12) mdy = true;
+    }
+    return dmy === mdy ? null : dmy ? 'DMY' : 'MDY';
+  }
+  function learnDateOrder(strings) {
+    const order = detectDateOrder(strings);
+    if (order && get(K.dateOrder, null)?.order !== order) set(K.dateOrder, { order, ts: Date.now() });
+  }
+
+  // Offset of a time zone from UTC at a given moment (ms), via the browser's time zone data
+  const zoneFormats = new Map();
+  function zoneOffset(ts, zone) {
+    if (!zoneFormats.has(zone)) {
+      zoneFormats.set(zone, new Intl.DateTimeFormat('en-US', { timeZone: zone, hourCycle: 'h23',
+        year: 'numeric', month: 'numeric', day: 'numeric', hour: 'numeric', minute: 'numeric', second: 'numeric' }));
+    }
+    const p = {};
+    for (const part of zoneFormats.get(zone).formatToParts(new Date(ts))) p[part.type] = part.value;
+    return Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour % 24, +p.minute, +p.second) - Math.floor(ts / 1000) * 1000;
+  }
+  // A wall-clock time in `zone` ('' = this PC's zone) as a timestamp
+  function wallClockToTs(y, mo, d, h, mi, zone) {
+    if (zone) {
+      try {
+        const guess = Date.UTC(y, mo - 1, d, h, mi);
+        // Second pass gets times near a daylight saving change right
+        return guess - zoneOffset(guess - zoneOffset(guess, zone), zone);
+      } catch { /* unknown zone name: fall back to this PC's zone */ }
+    }
+    return new Date(y, mo - 1, d, h, mi).getTime();
+  }
+  const validZone = z => { try { new Intl.DateTimeFormat('en-US', { timeZone: z }); return true; } catch { return false; } };
+
+  // Returns null for anything that isn't a real date, rather than guessing
+  function parseDate(s, order = dateOrder()) {
+    const m = String(s || '').match(DATE_RE);
+    if (!m) return null;
+    const [, p1, p2, p3, hh, mm, ap] = m;
+    let y, mo, d;
+    if (p1.length === 4) [y, mo, d] = [+p1, +p2, +p3];
+    else if (p3.length === 4 || p3.length === 2) {
+      y = +p3;
+      [d, mo] = order === 'MDY' ? [+p2, +p1] : [+p1, +p2];
+    } else return null;
+    if (y < 100) y += 2000;
+    let h = hh == null ? 0 : +hh;
+    const mi = mm == null ? 0 : +mm;
+    if (ap) {
+      if (h < 1 || h > 12) return null;
+      const pm = /p/i.test(ap);
+      if (pm && h < 12) h += 12;
+      if (!pm && h === 12) h = 0;
+    }
+    if (mo < 1 || mo > 12 || d < 1 || d > 31 || h > 23 || mi > 59) return null;
+    const probe = new Date(Date.UTC(y, mo - 1, d)); // rejects dates that don't exist, like 30/02
+    if (probe.getUTCMonth() !== mo - 1 || probe.getUTCDate() !== d) return null;
+    return wallClockToTs(y, mo, d, h, mi, CONFIG.timeZone);
+  }
+
+  // New arrivals were created moments ago. When their Created times sit a whole number of hours away
+  // from now, Autotask is showing times in a different zone from this PC.
+  function checkClock(arrivals, now = Date.now()) {
+    const gaps = arrivals.filter(t => t.created).map(t => (now - t.created) / 3600000);
+    if (!gaps.length) return;
+    const hint = get(K.tzHint, null) || {};
+    const recent = (hint.recent || []).slice();
+    let next = hint.hours ? { hours: hint.hours, dir: hint.dir, ts: hint.ts } : null;
+    for (const g of gaps) {
+      if (g < -1 / 3) { next = { hours: Math.max(1, Math.round(-g)), dir: 'ahead of', ts: now }; continue; } // created 20+ min in the future
+      if (Math.abs(g) < 1 / 3) next = null;                                                                // looks right
+      recent.push(g);
+    }
+    const last = recent.slice(-3);
+    const H = last.length === 3 ? Math.round(last[0]) : 0;
+    if (H >= 1 && last.every(g => Math.abs(g - H) <= 1 / 6)) next = { hours: H, dir: 'behind', ts: now };
+    set(K.tzHint, next ? { ...next, recent: last } : { recent: last });
+  }
+  function clockWarning() {
+    const h = get(K.tzHint, null);
+    if (!h || !h.hours || Date.now() - h.ts > 7 * 86400000) return null;
+    return `Autotask times look about ${h.hours} h ${h.dir} this PC's clock, so due times may be off. ` +
+      (CONFIG.timeZone ? 'Check "Autotask time zone" in Settings.' : 'Set "Autotask time zone" in Settings.');
+  }
+
+  // ---------------------------------------------------------------------------
   // Locks: one tab per queue refreshes and alerts
   // ---------------------------------------------------------------------------
-  function acquireLock(q) {
+  // Where the browser has Web Locks, they decide which tab monitors a queue: the browser frees one
+  // when its tab closes or crashes, and a takeover steals it outright. The { id, ts } record in
+  // localStorage is still written each scan so every tab can show who's monitoring.
+  const webLocks = typeof navigator !== 'undefined' && navigator.locks && typeof navigator.locks.request === 'function'
+    ? navigator.locks : null;
+  const held = new Map(); // queue key -> { release, token } for Web Locks this page holds
+
+  function holdWebLock(q, steal) {
+    return new Promise(resolve => {
+      const token = {};
+      let release;
+      const hold = new Promise(r => { release = r; });
+      webLocks.request(P + 'lock:' + q.key, steal ? { steal: true } : { ifAvailable: true }, lock => {
+        if (!lock) { resolve(false); return null; }
+        held.set(q.key, { release, token });
+        resolve(true);
+        return hold; // kept until release()
+      }).catch(() => {
+        // AbortError: another tab took this queue over
+        resolve(false);
+        if (held.get(q.key)?.token !== token) return;
+        held.delete(q.key);
+        owned.delete(q.key);
+        pageCache.t = 0;
+        renderSoon();
+      });
+    });
+  }
+
+  async function acquireLock(q) {
     const now = Date.now(), l = get(q.lock, null);
+    if (webLocks) {
+      // A holder that stopped scanning (a frozen tab) loses the queue to a tab that can monitor it
+      const stuck = !l || now - l.ts >= staleMs();
+      if (!held.has(q.key) && !(await holdWebLock(q, false)) && !(stuck && await holdWebLock(q, true))) return false;
+      set(q.lock, { id: ID, ts: now });
+      return true;
+    }
     if (l && l.id !== ID && now - l.ts < staleMs()) return false;
     set(q.lock, { id: ID, ts: now });
     return get(q.lock, null)?.id === ID;
   }
-  const ownsLock = q => get(q.lock, null)?.id === ID;
+  const ownsLock = q => (webLocks ? held.has(q.key) : get(q.lock, null)?.id === ID);
   function foreignActive(q) {
     const l = get(q.lock, null);
     return !!l && l.id !== ID && Date.now() - l.ts < staleMs();
   }
-  function releaseLock(q) { if (ownsLock(q)) del(q.lock); }
+  function releaseLock(q) {
+    const h = held.get(q.key);
+    if (h) { held.delete(q.key); h.release(); }
+    if (get(q.lock, null)?.id === ID) del(q.lock);
+  }
   addEventListener('pagehide', () => trackedQueues().forEach(releaseLock));
 
   function setState(q, patch) {
@@ -219,27 +492,55 @@
     try { if (W.top !== W && W.top.document) docs.push(W.top.document); } catch { /* cross-origin */ }
     return docs;
   }
-  const navCandidates = doc => [...doc.querySelectorAll('a, span, div, li, td, p, h1, h2, h3')]
-    .filter(el => el.childElementCount <= 3 && !el.closest('#atqm') && !el.closest('tr.Display'));
+  const navCandidates = root => [...root.querySelectorAll('a, span, div, li, td, p, h1, h2, h3')]
+    .filter(el => el.childElementCount <= 3 && !el.closest('#atqm') && !el.closest(AT.sel.row));
 
-  function isWorkspacePage() {
-    return searchDocs().some(doc => /workspace\s*&\s*queues/i.test(doc.title) ||
-      navCandidates(doc).some(el => el.textContent.length < 80 && /^My Workspace\b/i.test(clean(el.textContent))));
+  // Searching a whole page with a big grid is slow, so once the queue menu is found only that part
+  // of the page is searched, with a full search each minute in case the menu has grown.
+  const navRoots = new WeakMap(); // document -> { root, ts }
+  function menuRoot(doc) {
+    const r = navRoots.get(doc);
+    return r && r.root.isConnected && Date.now() - r.ts < 60000 ? r.root : null;
+  }
+  function commonAncestor(els) {
+    let a = els[0]?.parentElement;
+    while (a && !els.every(e => a.contains(e))) a = a.parentElement;
+    // A little wider, so groups added beside the current ones are still inside
+    for (let i = 0; i < 2 && a?.parentElement && a.parentElement !== a.ownerDocument.body; i++) a = a.parentElement;
+    return a || null;
   }
 
-  const KNOWN_SECTIONS = ['My Workspace', 'All', 'Not Assigned', 'Assigned'];
-  const SECTION_RE = new RegExp('^(' + KNOWN_SECTIONS.join('|') + ')\\s*\\(', 'i');
+  function isWorkspacePage() {
+    return searchDocs().some(doc => AT.text.workspaceTitle.test(doc.title) ||
+      navCandidates(menuRoot(doc) || doc).some(el => el.textContent.length < 80 && AT.text.workspaceNav.test(clean(el.textContent))));
+  }
+
+  const SECTION_RE = new RegExp('^(' + AT.text.sections.join('|') + ')\\s*\\(', 'i');
   const ITEM_RE = /^(.{2,60}?)\s*\(([\d\s+]+)\)$/;
+
+  function menuEntries(root) {
+    const out = [];
+    for (const el of navCandidates(root)) {
+      const m = clean(el.textContent).match(ITEM_RE);
+      if (!m || AT.text.sections.some(s => same(s, m[1]))) continue;
+      out.push({ el, name: clean(m[1]), count: m[2].split('+').reduce((s, x) => s + (parseInt(x, 10) || 0), 0) });
+    }
+    return out;
+  }
 
   // Queue entries in the left menu, e.g. "Support 1st Line (172 + 30)"
   function navItems() {
     const out = [];
     for (const doc of searchDocs()) {
-      for (const el of navCandidates(doc)) {
-        const m = clean(el.textContent).match(ITEM_RE);
-        if (!m || KNOWN_SECTIONS.some(s => same(s, m[1]))) continue;
-        out.push({ el, name: clean(m[1]), count: m[2].split('+').reduce((s, x) => s + (parseInt(x, 10) || 0), 0) });
+      const root = menuRoot(doc);
+      let found = root ? menuEntries(root) : [];
+      if (!found.length) {
+        found = menuEntries(doc);
+        const r = found.length >= 2 ? commonAncestor(found.map(i => i.el)) : null;
+        if (r) navRoots.set(doc, { root: r, ts: Date.now() });
+        else navRoots.delete(doc);
       }
+      out.push(...found);
     }
     return out.filter(a => !out.some(b => b !== a && a.el.contains(b.el)));
   }
@@ -252,7 +553,7 @@
         if (s.tagName === n.tagName && s.className.replace(/\b\w*State\b/g, '') === n.className.replace(/\b\w*State\b/g, '')) continue;
         const t = clean(s.textContent);
         const known = t.match(SECTION_RE);
-        if (known) return KNOWN_SECTIONS.find(k => same(k, known[1]));
+        if (known) return AT.text.sections.find(k => same(k, known[1]));
         // Unknown group names: a short "Name (n)" heading one level up from the item list
         if (depth >= 1 && t.length < 50) {
           const m = t.match(/^([^()]{2,40}?)\s*\(/);
@@ -290,7 +591,7 @@
     let hit = items.find(i => markedSelected(i.el)) || items.find(i => highlighted(i.el));
     if (!hit) {
       // Fallback: the only menu entry whose count matches the grid's row count
-      const rows = gridScope().querySelectorAll('tr.Display').length;
+      const rows = gridScope().querySelectorAll(AT.sel.row).length;
       const m = items.filter(i => i.count === rows);
       if (m.length === 1) hit = m[0];
     }
@@ -299,24 +600,35 @@
 
   // Autotask usually shows the queue inside a frame while the widget sits in the outer page,
   // so frames report what they're showing (see "Frame messaging" below).
-  let remotePage = null; // latest report from a frame in this tab: { cur, qKey, owns, foreign, ts, source }
+  let remotePage = null; // latest report from a frame in this tab: { cur, qKey, owns, foreign, choose, url, ts, source }
   let pageCache = { t: 0, v: {} };
+  // { cur, q, owns, foreign, choose, isCalls, url, remote }. choose: nobody monitors this tracked
+  // queue, and this tab should ask before it starts to.
   function pageInfo(fresh = false) {
     if (!fresh && Date.now() - pageCache.t < 1500) return pageCache.v;
     const v = {};
     if (gridPresent()) {
       v.cur = currentQueue();
       v.isCalls = isCallGrid();
+      v.url = location.href;
       if (v.cur) {
+        // Quick start opens queues it hasn't seen yet from here
+        if (!get(K.wsUrl, null)) set(K.wsUrl, location.href);
         v.q = findTracked(v.cur);
-        if (v.q) { v.owns = ownsLock(v.q); v.foreign = foreignActive(v.q); }
+        if (v.q) {
+          v.owns = ownsLock(v.q);
+          v.foreign = foreignActive(v.q);
+          v.choose = !v.owns && !v.foreign && !mayMonitorHere(v.q);
+        }
       }
     } else if (remotePage && remotePage.cur && Date.now() - remotePage.ts < 25000) {
       v.cur = remotePage.cur;
       v.q = findTracked(v.cur);
       v.owns = !!remotePage.owns;
       v.foreign = !!remotePage.foreign;
+      v.choose = !!remotePage.choose;
       v.isCalls = !!remotePage.isCalls;
+      v.url = remotePage.url;
       v.remote = remotePage.source;
     }
     pageCache = { t: Date.now(), v };
@@ -326,33 +638,20 @@
   // ---------------------------------------------------------------------------
   // Grid reading
   // ---------------------------------------------------------------------------
-  const HEADERS = {
-    ticket: /^ticket\s*(number|#|no\.?)?$/i,
-    status: /^status$/i,
-    title: /^(ticket\s*)?title$/i,
-    priority: /^priority$/i,
-    account: /^account(\s*name)?$/i,
-    created: /^create(d)?(\s*(date|on|time))?$/i,
-    slaEvent: /^(next\s*)?(sla\s*)?event$/i,
-    slaDue: /sla.*due|event\s*due/i,
-    frDue: /first\s*response.*(due|by)|response\s*due/i,
-    due: /^due(\s*date)?(\s*\/?\s*time)?$/i,
-  };
-
   // The grid the user is looking at. My Workspace keeps every tab's grid in the page
   // (Tasks & Tickets, To-Dos, Service Calls); only the one in the active tab counts.
   function activeGrid() {
-    const grids = [...document.querySelectorAll('.Grid')].filter(g => g.querySelector('tr.Display, tr.Heading'));
+    const grids = [...document.querySelectorAll(AT.sel.grid)].filter(g => g.querySelector(AT.sel.gridRows));
     if (!grids.length) return null;
-    return grids.find(g => g.closest('.TabContainer.Active'))
-      || grids.find(g => g.getClientRects().length && !g.closest('.TabContainer:not(.Active)'))
-      || grids.find(g => !g.closest('.TabContainer'))
+    return grids.find(g => g.closest(AT.sel.activeTabBox))
+      || grids.find(g => g.getClientRects().length && !g.closest(AT.sel.inactiveTabBox))
+      || grids.find(g => !g.closest(AT.sel.tabBox))
       || null;
   }
   const gridScope = () => activeGrid() || document;
 
   function findColumns(scope = gridScope()) {
-    for (const row of scope.querySelectorAll('tr:not(.Display)')) {
+    for (const row of scope.querySelectorAll(AT.sel.nonRow)) {
       const texts = [...row.cells].map(cellText);
       const ticket = texts.findIndex(t => HEADERS.ticket.test(t));
       if (ticket < 0) continue;
@@ -366,28 +665,11 @@
     return null;
   }
 
-  function gridPresent() { return !!document.querySelector('tr.Display') || !!findColumns(); }
-
-  function parseDate(s) {
-    const m = (s || '').match(/(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{4}|\d{2})(?:\s*(\d{1,2}):(\d{2})(?:\s*([AP]M))?)?/i);
-    if (!m) return null;
-    let [, a, b, y, h = '0', mi = '0', ap] = m;
-    let d = +a, mo = +b;
-    if (CONFIG.dateOrder === 'MDY') [d, mo] = [mo, d];
-    y = +y; if (y < 100) y += 2000;
-    h = +h;
-    if (ap) {
-      ap = ap.toUpperCase();
-      if (ap === 'PM' && h < 12) h += 12;
-      if (ap === 'AM' && h === 12) h = 0;
-    }
-    const t = new Date(y, mo - 1, d, h, +mi).getTime();
-    return Number.isNaN(t) ? null : t;
-  }
+  function gridPresent() { return !!document.querySelector(AT.sel.row) || !!findColumns(); }
 
   // Autotask's own deep link: works for any ticket number while you're logged in
   const commandUrl = (param, value) =>
-    `${location.origin}/Autotask/AutotaskExtend/ExecuteCommand.aspx?Code=OpenTicketDetail&${param}=${encodeURIComponent(value)}`;
+    `${location.origin}${AT.path.command}?Code=OpenTicketDetail&${param}=${encodeURIComponent(value)}`;
   // Link for a ticket. ref: { tid (Autotask's internal ticket ID), url (grid link), ids (queue's IDs, for next/prev) }
   // The grid link and the ExecuteCommand link both open Autotask's pop-out window; the normal
   // ticket page is TicketDetail.mvc with the internal ticket ID, like the address bar shows.
@@ -396,7 +678,7 @@
     if (CONFIG.linkStyle === 'grid' && r.url) return r.url;
     if (CONFIG.linkStyle === 'command' || !r.tid) return commandUrl('TicketNumber', id);
     const ids = (r.ids || []).map((x, i) => `ids%5B${i}%5D=${x}`).join('&');
-    return `${location.origin}/Mvc/ServiceDesk/TicketDetail.mvc?workspace=False&${ids ? ids + '&' : ''}ticketId=${r.tid}`;
+    return `${location.origin}${AT.path.ticketDetail}?workspace=False&${ids ? ids + '&' : ''}ticketId=${r.tid}`;
   }
 
   // Autotask's internal ticket ID is what the ticket page needs; look for it in the ticket cell's
@@ -427,7 +709,7 @@
 
   function readGrid() {
     const scope = gridScope();
-    const rows = [...scope.querySelectorAll('tr.Display')];
+    const rows = [...scope.querySelectorAll(AT.sel.row)];
     const cols = findColumns(scope);
     if (!rows.length && !cols) return null;
 
@@ -439,51 +721,43 @@
     const col = (cells, i) => (i == null ? '' : cellText(cells[i + offset]));
     const noneToEmpty = s => (/^(none|-)?$/i.test(s) ? '' : s);
 
-    const tickets = [];
+    // Text first: every date in the grid helps tell day/month from month/day before any is read
+    const raw = [];
     for (const r of rows) {
       const cells = [...r.cells];
       const byCol = cols ? cells[cols.ticket + offset] : null;
       const tCell = byCol && TICKET_RE.test(cellText(byCol)) ? byCol : cells.find(c => TICKET_RE.test(cellText(c)));
       if (!tCell) continue;
-      const id = cellText(tCell).match(TICKET_RE)[0];
-
       let status = col(cells, cols?.status);
       if (!status) status = cells.map(cellText).find(t => STATUS_SET.has(t.toLowerCase())) || '';
-
-      const slaEvent = noneToEmpty(col(cells, cols?.slaEvent));
-      const due = parseDate(col(cells, cols?.slaDue ?? cols?.due));
-      let frDue = parseDate(col(cells, cols?.frDue));
-      if (!frDue && /first\s*response/i.test(slaEvent)) frDue = due;
-
-      tickets.push({
-        id, status, slaEvent, due, frDue,
-        ...findTicketRef(r, tCell),
+      raw.push({
+        r, tCell, status,
+        id: cellText(tCell).match(TICKET_RE)[0],
+        slaEvent: noneToEmpty(col(cells, cols?.slaEvent)),
+        due: col(cells, cols?.slaDue ?? cols?.due),
+        frDue: col(cells, cols?.frDue),
+        created: col(cells, cols?.created),
         title: col(cells, cols?.title),
         priority: col(cells, cols?.priority),
         account: col(cells, cols?.account),
-        created: parseDate(col(cells, cols?.created)),
       });
     }
+    learnDateOrder(raw.flatMap(x => [x.due, x.frDue, x.created]));
+
+    const tickets = raw.map(({ r, tCell, ...x }) => {
+      const due = parseDate(x.due);
+      let frDue = parseDate(x.frDue);
+      if (!frDue && /first\s*response/i.test(x.slaEvent)) frDue = due;
+      return { ...x, due, frDue, created: parseDate(x.created), ...findTicketRef(r, tCell) };
+    });
     return { tickets, rowCount: rows.length };
   }
 
   // ---------------------------------------------------------------------------
   // Service calls grid (My Workspace > Service Calls)
   // ---------------------------------------------------------------------------
-  const CALL_HEADERS = {
-    account: /^account(\s*name)?$/i,
-    start: /^start(\s*(date|time))*$/i,
-    end: /^end(\s*(date|time))*$/i,
-    status: /^status$/i,
-    resources: /resources/i,
-    priority: /^priority$/i,
-    createdBy: /^created\s*by$/i,
-    created: /^create(d)?\s*date$/i,
-    description: /^description$/i,
-  };
-
   function findCallColumns(scope = gridScope()) {
-    for (const row of scope.querySelectorAll('tr:not(.Display)')) {
+    for (const row of scope.querySelectorAll(AT.sel.nonRow)) {
       const texts = [...row.cells].map(cellText);
       if (!texts.some(t => CALL_HEADERS.start.test(t))) continue;
       const cols = {};
@@ -498,39 +772,45 @@
 
   function isCallGrid() {
     const g = activeGrid();
-    if (g) return g.id === 'ServiceCallIndexGrid' || (!!findCallColumns(g) && !findColumns(g));
+    if (g) return g.id === AT.sel.callGridId || (!!findCallColumns(g) && !findColumns(g));
     return !!findCallColumns(document) && !findColumns(document);
   }
 
-  const callUrl = id => `${location.origin}/Autotask/Popups/TechScheduling/service_call.aspx?service_call_id=${encodeURIComponent(id)}`;
+  const callUrl = id => `${location.origin}${AT.path.serviceCall}?service_call_id=${encodeURIComponent(id)}`;
 
   function readCallGrid() {
     const g = activeGrid();
-    const scope = (g && isCallGrid() ? g : document.querySelector('#ServiceCallIndexGrid')) || document;
-    const rows = [...scope.querySelectorAll('tr.Display')];
+    const scope = (g && isCallGrid() ? g : document.getElementById(AT.sel.callGridId)) || document;
+    const rows = [...scope.querySelectorAll(AT.sel.row)];
     const cols = findCallColumns(scope);
     if (!cols) return null;
     const col = (cells, i) => (i == null ? '' : cellText(cells[i]));
-    const calls = [];
+    const raw = [];
     for (const r of rows) {
       const cells = [...r.cells];
-      let id = r.getAttribute('data-row-key');
-      if (!id) { const m = r.innerHTML.match(/service_call_id['"]?\s*,\s*['"](\d+)/i); id = m && m[1]; }
+      let id = r.getAttribute(AT.sel.callRowKey);
+      if (!id) { const m = r.innerHTML.match(AT.sel.callIdInHtml); id = m && m[1]; }
       if (!id) continue;
-      const start = parseDate(col(cells, cols.start));
-      let end = parseDate(col(cells, cols.end));
-      if (start && (!end || end < start)) end = start + 30 * 60000;
-      calls.push({
-        id, start, end, url: callUrl(id),
+      raw.push({
+        id,
+        start: col(cells, cols.start),
+        end: col(cells, cols.end),
+        created: col(cells, cols.created),
         account: col(cells, cols.account),
         status: col(cells, cols.status),
         resources: col(cells, cols.resources),
         priority: col(cells, cols.priority),
         createdBy: col(cells, cols.createdBy),
-        created: parseDate(col(cells, cols.created)),
         description: col(cells, cols.description),
       });
     }
+    learnDateOrder(raw.flatMap(x => [x.start, x.end, x.created]));
+    const calls = raw.map(x => {
+      const start = parseDate(x.start);
+      let end = parseDate(x.end);
+      if (start && (!end || end < start)) end = start + 30 * 60000;
+      return { ...x, start, end, created: parseDate(x.created), url: callUrl(x.id) };
+    });
     return { calls, rowCount: rows.length };
   }
 
@@ -540,8 +820,28 @@
   // ---------------------------------------------------------------------------
   // Alerts
   // ---------------------------------------------------------------------------
+  // Several tabs can see the same event (a reminder, a beep request, a queue going quiet). Each writes a
+  // claim; the one whose claim is still there after a short wait acts, so you get one ping, not one per tab.
+  async function claim(mapKey, id, slot) {
+    if (get(mapKey, {})[id]?.slot === slot) return false;
+    const now = Date.now(), map = {};
+    for (const [k, v] of Object.entries(get(mapKey, {}))) if (now - (v.ts || 0) < 86400000) map[k] = v;
+    map[id] = { slot, by: ID, ts: now };
+    set(mapKey, map);
+    await sleep(300);
+    const c = get(mapKey, {})[id];
+    return c?.by === ID && c?.slot === slot;
+  }
+
+  // Browsers only play sound in a page someone has clicked or typed in. Tabs opened by Quick start
+  // often never have been, so they hand the beep to a tab that has (see the storage listener).
+  let hadGesture = false;
+  for (const t of ['pointerdown', 'keydown']) addEventListener(t, () => { hadGesture = true; }, { capture: true, passive: true });
+  const canPlay = () => hadGesture || !!navigator.userActivation?.hasBeenActive;
+
   let audioCtx = null;
-  function beep(urgent) {
+  function beep(urgent, relay = true) {
+    if (relay && !canPlay()) { set(K.beepReq, { ts: Date.now(), urgent: !!urgent, by: ID }); return; }
     try {
       audioCtx ??= new (window.AudioContext || window.webkitAudioContext)();
       if (audioCtx.state === 'suspended') audioCtx.resume();
@@ -552,7 +852,13 @@
       o.start(); o.stop(audioCtx.currentTime + 0.25);
     } catch { /* audio blocked */ }
   }
+  function playRelayedBeep() {
+    const r = get(K.beepReq, null);
+    if (!isTop || !CONFIG.sound || !canPlay() || !r || r.by === ID || Date.now() - r.ts > 10000) return;
+    claim(K.beepClaims, 'beep', r.ts).then(ok => { if (ok) beep(r.urgent, false); });
+  }
 
+  // Each batch gets its own notification (no tag), so a newer one never silently replaces an unread one
   function notify(name, list) {
     if (CONFIG.sound) beep(list.some(a => a.type === 'overdue' || a.type === 'new'));
     if (!CONFIG.notify || !('Notification' in window) || Notification.permission !== 'granted') return;
@@ -562,7 +868,7 @@
       : `${name}: ${list.length} change${list.length > 1 ? 's' : ''}`;
     const body = list.slice(0, 4).map(a => a.text).join('\n') + (list.length > 4 ? `\n…and ${list.length - 4} more` : '');
     try {
-      const n = new Notification(title, { body, tag: 'atqm-' + name });
+      const n = new Notification(title, { body });
       n.onclick = () => {
         if (list.length === 1 && list[0].ticket) window.open(ticketUrl(list[0].ticket, list[0]), '_blank', 'noopener');
         else window.focus();
@@ -585,12 +891,12 @@
   // "All changes": new, status changes, leaving the queue, any SLA
   function scanFull(q, grid) {
     const now = Date.now();
-    const prev = get(q.snap, null);
+    const prev = readSnap(q);
     const current = {};
     for (const { id, ...t } of grid.tickets) {
       current[id] = { ...t, sla: slaPaused(t) ? null : dueState(t.due, CONFIG.dueSoonMinutes), firstSeen: prev?.[id]?.firstSeen ?? now };
     }
-    set(q.snap, current);
+    writeSnap(q, current);
 
     const n = grid.tickets.length;
     if (!prev) return setState(q, { mode: 'ok', lastScan: now, count: n, ...coverage(grid), note: 'Baseline saved' });
@@ -602,6 +908,7 @@
       url: current[ticket]?.url || prev[ticket]?.url || null, tid: current[ticket]?.tid || prev[ticket]?.tid || null,
     });
 
+    checkClock(Object.keys(current).filter(id => !prev[id]).map(id => current[id]), now);
     for (const [id, t] of Object.entries(current)) {
       const p = prev[id];
       if (!p) push('new', `New: ${label(id, t)}${t.status ? ` [${t.status}]` : ''}`, id);
@@ -619,15 +926,15 @@
     }
 
     commitAlerts(q, fresh);
-    setState(q, { mode: 'ok', lastScan: now, count: n, total: cov.total, partial: cov.partial, max: cov.max, note: '' });
+    setState(q, { mode: 'ok', lastScan: now, count: n, ...cov, note: '' });
   }
 
   // "New tickets & first response": only arrivals and first response SLAs
   function scanIntake(q, grid) {
     const now = Date.now();
-    const prev = get(q.snap, null);
+    const prev = readSnap(q);
     const rebase = !prev;
-    const seen = rebase ? {} : get(q.seen, {});
+    const seen = rebase ? {} : { ...get(q.seen, {}) };
     const prevSnap = prev || {};
 
     const current = {};
@@ -642,6 +949,7 @@
     });
 
     if (!rebase) {
+      checkClock(Object.keys(current).filter(id => !seen[id]).map(id => current[id]), now);
       for (const [id, t] of Object.entries(current)) {
         // "seen" remembers tickets for 2 weeks, so tickets moving between grid pages don't re-alert
         if (!seen[id]) {
@@ -658,7 +966,7 @@
     const cutoff = now - 14 * 86400000;
     for (const [id, ts] of Object.entries(seen)) if (ts < cutoff && !current[id]) delete seen[id];
 
-    set(q.snap, current);
+    writeSnap(q, current);
     set(q.seen, seen);
     commitAlerts(q, fresh);
     setState(q, { mode: 'ok', lastScan: now, count: grid.tickets.length, ...coverage(grid), note: rebase ? 'Baseline saved' : '' });
@@ -667,13 +975,12 @@
   // Service calls: new calls, moved calls, status changes, calls that disappear (completed or deleted)
   function scanCalls(q, grid) {
     const now = Date.now();
-    const prev = get(q.snap, null);
+    const prev = readSnap(q);
     const current = {};
     for (const { id, ...c } of grid.calls) current[id] = { ...c, firstSeen: prev?.[id]?.firstSeen ?? now };
-    set(q.snap, current);
+    writeSnap(q, current);
 
-    const cov = coverage(grid);
-    const base = { mode: 'ok', lastScan: now, count: grid.calls.length, total: cov.total, partial: cov.partial, max: cov.max };
+    const base = { mode: 'ok', lastScan: now, count: grid.calls.length, ...coverage(grid) };
     if (!prev) return setState(q, { ...base, note: 'Baseline saved' });
 
     const fresh = [];
@@ -688,7 +995,7 @@
       else if (p.start !== c.start || p.end !== c.end) push('status', `Service call moved (${when(p.start)} → ${when(c.start)}): ${callLabel(c)}`, id);
       else if (p.status !== c.status) push('status', `Service call ${p.status || '?'} → ${c.status || '?'}: ${callLabel(c)}`, id);
     }
-    if (!cov.partial) {
+    if (!base.partial) {
       for (const [id, p] of Object.entries(prev)) {
         if (!current[id]) push('removed', `Service call gone (completed or removed): ${callLabel(p)}`, id);
       }
@@ -699,19 +1006,25 @@
 
   // Grid pager: "1 - 18 of 18" and the rows-per-page dropdown
   function pagerInfo() {
-    const pager = gridScope().querySelector('.Pager');
+    const pager = gridScope().querySelector(AT.sel.pager);
     if (!pager) return null;
-    const sel = pager.querySelector('select[id$="PageSizeDropDownList"], .PageSizeStatus select');
-    const m = (pager.querySelector('.VisibleRows')?.textContent || '').match(/(\d+)\s*-\s*(\d+)\s*of\s*(\d+)/);
+    const sel = pager.querySelector(AT.sel.pageSize);
+    const m = (pager.querySelector(AT.sel.pagerRows)?.textContent || '').match(/(\d+)\s*-\s*(\d+)\s*of\s*(\d+)/);
     const sizes = sel ? [...sel.options].map(o => parseInt(o.value, 10)).filter(n => n > 0) : [];
-    return { sel, from: m ? +m[1] : null, to: m ? +m[2] : null, total: m ? +m[3] : null, max: sizes.length ? Math.max(...sizes) : null };
+    return {
+      sel, from: m ? +m[1] : null, to: m ? +m[2] : null, total: m ? +m[3] : null,
+      size: sel ? parseInt(sel.value, 10) || null : null, max: sizes.length ? Math.max(...sizes) : null,
+    };
   }
 
-  // Switch the grid to its largest page size so a scan sees as much as possible. Returns true if it changed.
-  async function ensureMaxPageSize() {
+  // Switch the grid to its largest page size so a scan sees as much as possible. This changes the
+  // person's saved view, so it only happens with the setting on, or when they press the button
+  // (force). Returns true if it changed.
+  async function ensureMaxPageSize(force = false) {
+    if (!force && !CONFIG.autoPageSize) return false;
     const pi = pagerInfo();
     if (!pi?.sel || !pi.max || parseInt(pi.sel.value, 10) >= pi.max) return false;
-    const marker = gridScope().querySelector('tr.Display');
+    const marker = gridScope().querySelector(AT.sel.row);
     pi.sel.value = String(pi.max);
     pi.sel.dispatchEvent(new Event('input', { bubbles: true }));
     pi.sel.dispatchEvent(new Event('change', { bubbles: true }));
@@ -724,19 +1037,26 @@
   function coverage(grid) {
     const pi = pagerInfo();
     const total = pi?.total ?? grid.rowCount;
-    return { total, partial: total > grid.rowCount, max: pi?.max };
+    return { total, partial: total > grid.rowCount, max: pi?.max ?? null, size: pi?.size ?? null };
   }
 
   // Each tab has its own toolbar; use the refresh button that belongs to the active grid
   function findRefreshButton() {
-    const tab = activeGrid()?.closest('.TabContainer');
+    const tab = activeGrid()?.closest(AT.sel.tabBox);
     for (const box of tab ? [tab, document] : [document]) {
-      const btn = box.querySelector('[title="Refresh grid only"]') || box.querySelector('[title="Refresh"]');
-      if (btn) return btn;
-      const icon = box.querySelector('.StandardButtonIcon.Refresh');
-      if (icon) return icon.closest('[tabindex], .Button2, button') || icon;
+      for (const t of AT.text.refreshTitles) {
+        const btn = box.querySelector(`[title="${t}"]`);
+        if (btn) return btn;
+      }
+      const icon = box.querySelector(AT.sel.refreshIcon);
+      if (icon) return icon.closest(AT.sel.clickable) || icon;
     }
     return null;
+  }
+  function findColumnChooserButton() {
+    const tab = activeGrid()?.closest(AT.sel.tabBox);
+    const sel = `[title="${AT.text.columnChooserTitle}"]`;
+    return (tab && tab.querySelector(sel)) || document.querySelector(sel);
   }
 
   // ---------------------------------------------------------------------------
@@ -747,29 +1067,11 @@
     intake: ['ticket', 'title', 'status', 'account', 'priority', 'created', 'slaEvent', 'slaDue'],
     calls: ['account', 'start', 'end', 'status', 'priority', 'description'],
   };
-  const COLUMN_NAMES = {
-    ticket: 'Ticket Number', title: 'Title', status: 'Status', account: 'Account', priority: 'Priority',
-    created: 'Created', slaEvent: 'Next SLA Event', slaDue: 'Next SLA Event Due',
-    start: 'Start Date', end: 'End Date', description: 'Description',
-  };
-  // Option names in the chooser, most specific first
-  const CHOOSER_MATCH = {
-    ticket: [/^ticket\s*number$/i, /^ticket\s*(#|no\.?)$/i],
-    title: [/^title$/i, /^ticket\s*title$/i],
-    status: [/^status$/i],
-    account: [/^account$/i, /^account\s*name$/i],
-    priority: [/^priority$/i],
-    created: [/^created$/i, /^create(d)?\s*(date|on|time)/i],
-    slaEvent: [/^next\s*sla\s*event$/i, /^sla\s*event$/i],
-    slaDue: [/^next\s*sla\s*event\s*due/i, /sla.*event.*due/i],
-    start: [/^start\s*date$/i, /^start(\s*time)?$/i],
-    end: [/^end\s*date$/i, /^end(\s*time)?$/i],
-    description: [/^description$/i],
-  };
+  const colList = keys => keys.map(k => COLUMN_NAMES[k]).join(', ');
 
   function headerTexts(scope = gridScope()) {
     let best = null;
-    for (const row of scope.querySelectorAll('tr:not(.Display)')) {
+    for (const row of scope.querySelectorAll(AT.sel.nonRow)) {
       const texts = [...row.cells].map(cellText).filter(Boolean);
       if (!best || texts.length > best.length) best = texts;
     }
@@ -786,7 +1088,7 @@
   // Autotask buttons don't always react to a bare click(), so send the full pointer sequence
   function press(el) {
     if (!el) return false;
-    const target = el.closest('.Button2, button, [tabindex]') || el;
+    const target = el.closest(AT.sel.clickable) || el;
     const make = type => {
       const E = type.startsWith('pointer') && typeof PointerEvent === 'function' ? PointerEvent : MouseEvent;
       // Inside Tampermonkey's Firefox sandbox, passing the page's window as `view` can throw
@@ -817,26 +1119,25 @@
     const docs = [document, ...searchDocs()];
     for (const f of document.querySelectorAll('iframe')) { try { if (f.contentDocument) docs.push(f.contentDocument); } catch { /* cross-origin */ } }
     for (const doc of docs) {
-      for (const lm of doc.querySelectorAll('.ListMover2')) {
-        const box = lm.closest('.VerticalContainer') || doc.body;
-        const title = clean(box.querySelector('.TitleBar1 .Title, .Title')?.textContent || doc.title);
-        if (/column\s*chooser/i.test(title) && lm.querySelector('.Left select') && lm.querySelector('.Right select')) return box;
+      for (const lm of doc.querySelectorAll(AT.sel.chooser)) {
+        const box = lm.closest(AT.sel.chooserBox) || doc.body;
+        const title = clean(box.querySelector(AT.sel.chooserTitle)?.textContent || doc.title);
+        if (AT.text.columnChooserDialog.test(title) && lm.querySelector(AT.sel.chooserLeft) && lm.querySelector(AT.sel.chooserRight)) return box;
       }
     }
     return null;
   }
 
   async function addColumnsViaChooser(keys) {
-    const tab = activeGrid()?.closest('.TabContainer');
-    const btn = (tab && tab.querySelector('[title="Column Chooser"]')) || document.querySelector('[title="Column Chooser"]');
+    const btn = findColumnChooserButton();
     if (!btn) return { added: [], missing: keys, why: 'no Column Chooser button found' };
     press(btn);
     const dlg = await waitFor(findChooserDialog, 10000);
     if (!dlg) return { added: [], missing: keys, why: 'the Column Chooser did not open' };
 
-    const left = dlg.querySelector('.ListMover2 .Left select');
-    const right = dlg.querySelector('.ListMover2 .Right select');
-    const close = () => press(dlg.querySelector('.DialogTitleBarIcon.Close'));
+    const left = dlg.querySelector(`${AT.sel.chooser} ${AT.sel.chooserLeft}`);
+    const right = dlg.querySelector(`${AT.sel.chooser} ${AT.sel.chooserRight}`);
+    const close = () => press(dlg.querySelector(AT.sel.dialogClose));
     const name = o => clean(o.title || o.textContent);
     const inRight = o => [...right.options].some(r => r.value === o.value && name(r) === name(o));
 
@@ -852,7 +1153,7 @@
     const opts = [...picks.values()];
     for (const o of left.options) o.selected = opts.includes(o);
     left.dispatchEvent(new Event('change', { bubbles: true }));
-    press(dlg.querySelector('.StandardButtonIcon.MoveRight'));
+    press(dlg.querySelector(AT.sel.chooserMoveRight));
     await sleep(400);
     // Fallback: list movers usually also move an option on double-click
     for (const o of opts.filter(o => !inRight(o))) {
@@ -863,36 +1164,78 @@
     const added = [...picks].filter(([, o]) => inRight(o)).map(([k]) => k);
     if (!added.length) { close(); return { added: [], missing: keys, why: "the Column Chooser didn't accept the change" }; }
 
-    const marker = gridScope().querySelector('tr.Display');
-    press(dlg.querySelector('.StandardButtonIcon.Save'));
+    const marker = gridScope().querySelector(AT.sel.row);
+    press(dlg.querySelector(AT.sel.chooserSave));
     await waitForRefresh(marker, CONFIG.postRefreshTimeoutMs);
     await sleep(600);
     return { added, missing: keys.filter(k => !added.includes(k)), why: added.length < keys.length ? 'not offered in the Column Chooser' : '' };
   }
 
-  // Before a scan: add any columns this queue needs. Tries a given set at most every 6 hours.
+  function logColumnsAdded(q, r) {
+    if (!r.added.length) return;
+    // Logged quietly in Changes (no ping)
+    set(K.alerts, get(K.alerts, []).concat([{ ts: Date.now(), q: q.key, qn: qName(q), type: 'status', read: true,
+      text: `Added column${r.added.length > 1 ? 's' : ''} to ${qWhere(q)}: ${colList(r.added)}` }]).slice(-CONFIG.maxAlerts));
+  }
+  const columnState = r => (r.missing.length
+    ? { colMissing: r.missing, colNote: `Couldn't add ${colList(r.missing)} (${r.why}). Add ${r.missing.length > 1 ? 'them' : 'it'} with the grid's Column Chooser if your Autotask has ${r.missing.length > 1 ? 'them' : 'it'}.` }
+    : { colMissing: [], colNote: '' });
+
+  // Before a scan: note any columns this queue needs. Adding them changes the person's saved view for
+  // that grid, so it happens only with the setting on (each set tried at most every 6 hours) or when
+  // they press "Add missing columns".
   async function ensureColumns(q) {
     const missing = missingColumns(q);
-    if (!missing.length) { if (get(q.state, {}).colNote) setState(q, { colNote: '' }); return; }
+    if (!missing.length) { if (get(q.state, {}).colNote) setState(q, { colNote: '', colMissing: [] }); return; }
     if (!CONFIG.autoColumns) {
-      setState(q, { colNote: `Missing column${missing.length > 1 ? 's' : ''}: ${missing.map(k => COLUMN_NAMES[k]).join(', ')}. Add ${missing.length > 1 ? 'them' : 'it'} with the grid's Column Chooser.` });
+      setState(q, { colMissing: missing, colNote: `Missing column${missing.length > 1 ? 's' : ''}: ${colList(missing)}.` });
       return;
     }
-    const tried = get(K.colTried, {});
+    const tried = { ...get(K.colTried, {}) };
     const key = q.key + ':' + missing.join(',');
     if (tried[key] && Date.now() - tried[key] < 6 * 3600000) return;
     tried[key] = Date.now();
     set(K.colTried, tried);
 
     const r = await addColumnsViaChooser(missing);
-    if (r.added.length) {
-      // Logged quietly in Changes (no ping)
-      set(K.alerts, get(K.alerts, []).concat([{ ts: Date.now(), q: q.key, qn: qName(q), type: 'status', read: true,
-        text: `Added column${r.added.length > 1 ? 's' : ''} to ${qWhere(q)}: ${r.added.map(k => COLUMN_NAMES[k]).join(', ')}` }]).slice(-CONFIG.maxAlerts));
+    logColumnsAdded(q, r);
+    setState(q, columnState(r));
+  }
+
+  // "Add missing columns" / "Show up to N rows" can be pressed in any tab; the tab monitoring the
+  // queue does the work (directly if that's this page, otherwise through the storage event)
+  function requestGridFix(q, what) {
+    set(K.gridFixReq, { qKey: q.key, what, ts: Date.now() });
+    if (ownsLock(q)) fixGrid(q, what);
+    flashNote(what === 'columns' ? 'Adding the missing columns…' : 'Switching the grid to more rows per page…');
+  }
+  function handleGridFixRequest() {
+    const r = get(K.gridFixReq, null);
+    if (!r || Date.now() - r.ts > 30000) return;
+    const q = trackedQueues().find(x => x.key === r.qKey);
+    if (q && ownsLock(q)) fixGrid(q, r.what);
+  }
+  async function fixGrid(q, what) {
+    await waitFor(() => !busy, 30000);
+    if (busy || !ownsLock(q)) return;
+    busy = true;
+    try {
+      if (what === 'columns') {
+        const missing = missingColumns(q);
+        if (missing.length) {
+          const r = await addColumnsViaChooser(missing);
+          logColumnsAdded(q, r);
+          setState(q, columnState(r));
+        }
+      } else if (what === 'rows') {
+        await ensureMaxPageSize(true);
+      }
+    } catch (e) {
+      console.error('[ATQM]', e);
+    } finally {
+      busy = false;
     }
-    setState(q, { colNote: r.missing.length
-      ? `Couldn't add ${r.missing.map(k => COLUMN_NAMES[k]).join(', ')} (${r.why}). Add ${r.missing.length > 1 ? 'them' : 'it'} with the grid's Column Chooser if your Autotask has ${r.missing.length > 1 ? 'them' : 'it'}.`
-      : '' });
+    tick({ manual: true });
   }
 
   // MutationObserver instead of polling: background tabs throttle timers heavily
@@ -900,7 +1243,7 @@
     return new Promise(resolve => {
       let obs, t;
       const done = v => { obs?.disconnect(); clearTimeout(t); resolve(v); };
-      const check = () => { if (marker ? !marker.isConnected : !!document.querySelector('tr.Display')) done(true); };
+      const check = () => { if (marker ? !marker.isConnected : !!document.querySelector(AT.sel.row)) done(true); };
       obs = new MutationObserver(check);
       obs.observe(document.body, { childList: true, subtree: true });
       t = setTimeout(() => done(false), timeout);
@@ -912,7 +1255,7 @@
     const resized = await ensureMaxPageSize();
     const btn = resized ? null : findRefreshButton();
     if (btn) {
-      const marker = gridScope().querySelector('tr.Display');
+      const marker = gridScope().querySelector(AT.sel.row);
       btn.click();
       await waitForRefresh(marker, CONFIG.postRefreshTimeoutMs);
       await sleep(400);
@@ -936,41 +1279,53 @@
 
   let busy = false;
   let localNote = '';
+  let lastTick = 0;
   const owned = new Set();
+
+  // A short message in the widget that clears itself
+  function flashNote(text, ms = 5000) {
+    localNote = text;
+    render();
+    setTimeout(() => { if (localNote === text) { localNote = ''; render(); } }, ms);
+  }
 
   async function tick({ manual = false } = {}) {
     if (busy) return;
     if (!manual && !get(K.enabled, false)) return;
     handleMoveRequest();
     if (!manual && Date.now() < retiredUntil) { renderSoon(); return; }
-
-    const pg = pageInfo(true);
-    const list = trackedQueues();
-
-    // This tab was monitoring a queue but has moved off it
-    for (const key of [...owned]) {
-      if (pg.q?.key === key) continue;
-      owned.delete(key);
-      const q = list.find(x => x.key === key);
-      if (!q) continue; // stopped tracking
-      releaseLock(q);
-      setState(q, { mode: 'waiting', note: `Monitoring tab moved off ${qWhere(q)}` });
-    }
-
-    const q = pg.q;
-    if (!q) { renderSoon(); return; }
-    if (!acquireLock(q)) { owned.delete(q.key); renderSoon(); return; } // another tab monitors it now
-    if ((!q.section && pg.cur.section) || (q.mode === 'calls' && (q.section || '') !== (pg.cur.section || ''))) {
-      saveQueues(list.map(x => (x.key === q.key ? { ...x, section: pg.cur.section || '' } : x)));
-    }
-    owned.add(q.key);
-    if (get(q.state, {}).url !== location.href) setState(q, { url: location.href });
     busy = true;
+    lastTick = Date.now();
+    let q = null;
     try {
+      const pg = pageInfo(true);
+      const list = trackedQueues();
+
+      // This tab was monitoring a queue but has moved off it
+      for (const key of [...owned]) {
+        if (pg.q?.key === key) continue;
+        owned.delete(key);
+        const old = list.find(x => x.key === key);
+        if (!old) continue; // stopped tracking
+        releaseLock(old);
+        setState(old, { mode: 'waiting', note: `Monitoring tab moved off ${qWhere(old)}` });
+      }
+
+      // A queue shown in a frame is monitored by that frame, not by this page
+      if (!pg.q || pg.remote) return;
+      q = pg.q;
+      // Nobody monitors it, but this ordinary tab hasn't been asked to: the page banner offers the choice
+      if (!owned.has(q.key) && !ownsLock(q) && !mayMonitorHere(q)) return;
+      if (!(await acquireLock(q))) { owned.delete(q.key); return; } // another tab monitors it now
+      if ((!q.section && pg.cur.section) || (q.mode === 'calls' && (q.section || '') !== (pg.cur.section || ''))) {
+        saveQueues(list.map(x => (x.key === q.key ? { ...x, section: pg.cur.section || '' } : x)));
+      }
+      owned.add(q.key);
+      if (get(q.state, {}).url !== location.href) setState(q, { url: location.href });
       await refreshAndScan(q);
     } catch (e) {
       console.error('[ATQM]', e);
-      setState(q, { mode: 'error', note: 'Scan failed: ' + e.message });
+      if (q) setState(q, { mode: 'error', note: 'Scan failed: ' + e.message });
     } finally {
       busy = false;
       renderSoon();
@@ -980,9 +1335,7 @@
   function requestScan() {
     set(K.scanReq, Date.now()); // monitoring tabs pick this up
     if (pageInfo(true).q) tick({ manual: true });
-    localNote = 'Scan requested';
-    render();
-    setTimeout(() => { localNote = ''; render(); }, 8000);
+    flashNote('Scan requested', 8000);
   }
 
   function slug(s) { return clean(s).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 60); }
@@ -994,6 +1347,7 @@
     while (list.some(q => q.key === key)) key += '-2';
     list.push({ key, nav: cur.nav, section: cur.section, mode });
     saveQueues(list);
+    consentHere({ key }); // pressing Start tracking here is the go-ahead to monitor here
     if (!get(K.enabled, false)) set(K.enabled, true);
     if (CONFIG.notify && 'Notification' in window && Notification.permission === 'default') Notification.requestPermission();
     if (CONFIG.sound) beep(false);
@@ -1024,11 +1378,29 @@
     try { sessionStorage.removeItem(SS_KEY); } catch { /* ignore */ }
     try { W.top.name = ''; } catch { W.name = ''; }
   }
+  function launchedTab() { try { return !!sessionStorage.getItem(P + 'launched'); } catch { return false; } }
+
+  // Tabs Quick start opened monitor their queue straight away. Any other tab asks first (the page
+  // banner offers "Monitor in this tab" or "Open a separate monitoring tab"), so the tab you're
+  // working in isn't taken over and locked without warning. The answer lasts for this tab.
+  const CONSENT_KEY = P + 'monitorHere';
+  function consented() { try { return JSON.parse(sessionStorage.getItem(CONSENT_KEY) || '[]'); } catch { return []; } }
+  function consentHere(q) {
+    try {
+      const list = consented();
+      if (!list.includes(q.key)) sessionStorage.setItem(CONSENT_KEY, JSON.stringify([...list, q.key]));
+    } catch { /* ignore */ }
+  }
+  const mayMonitorHere = q => launchedTab() || !!launchKey() || consented().includes(q.key);
 
   // Open one queue's tab in this window; the window name tells the new tab which queue it's for
   function openQueueTab(q, url) {
     return !!W.open(url, LAUNCH + q.key + '~' + Date.now().toString(36));
   }
+
+  // Where Quick start opens a queue: the address it was last monitored at, or any My Workspace & Queues
+  // page (the new tab then clicks the queue in the menu itself)
+  const queueUrl = q => get(q.state, {}).url || get(K.wsUrl, null);
 
   // Queues nobody is monitoring right now (excluding the one this tab shows)
   function idleQueues() {
@@ -1048,26 +1420,24 @@
       set(K.moveReq, { ts: Date.now(), tab: tabId() });
       // This tab keeps (or takes over) the queue it's showing
       if (here.q) {
-        if (here.remote) { try { here.remote.postMessage({ atqm: 'takeover', qKey: here.q.key }, '*'); } catch { /* frame gone */ } }
+        if (here.remote) postToFrame(here.remote, { atqm: 'takeover', qKey: here.q.key });
         else takeOver(here.q);
       }
     }
     const idle = moving ? activeQueues().filter(q => q.key !== here.q?.key) : idleQueues();
-    const ready = idle.filter(q => get(q.state, {}).url);
+    const ready = idle.filter(queueUrl);
     let blocked = 0;
     for (const q of ready) {
-      if (!openQueueTab(q, get(q.state, {}).url)) blocked++;
+      if (!openQueueTab(q, queueUrl(q))) blocked++;
     }
     if (!get(K.enabled, false)) set(K.enabled, true);
     set(K.qsSnooze, Date.now() + 3 * 60000); // give the new tabs time to start monitoring
     const notes = [];
     if (ready.length - blocked) notes.push(`${moving ? 'Moving' : 'Opening'} ${ready.length - blocked} queue tab${ready.length - blocked > 1 ? 's' : ''} ${moving ? 'to' : 'in'} this window…`);
     if (blocked) notes.push(`Your browser blocked ${blocked}. Allow pop-ups for autotask.net and press Quick start again.`);
-    const unknown = idle.filter(q => !get(q.state, {}).url);
-    if (unknown.length) notes.push(`Open ${unknown.map(qWhere).join(', ')} yourself once so Quick start learns where ${unknown.length > 1 ? 'they are' : 'it is'}.`);
-    localNote = notes.join(' ');
-    render();
-    setTimeout(() => { localNote = ''; render(); }, 15000);
+    const unknown = idle.filter(q => !queueUrl(q));
+    if (unknown.length) notes.push(`Monitoring is on. Open My Workspace & Queues once so Quick start can open ${unknown.map(qWhere).join(', ')} for you.`);
+    flashNote(notes.join(' '), 15000);
   }
 
   // In a tab opened by Quick start: click the queue's entry in the menu (or the page tab) until it's showing
@@ -1109,7 +1479,7 @@
   }
   // Notes from the frame that does the monitoring belong in the widget, which lives in the top window
   function showNote(text) {
-    if (!isTop) { try { W.top.postMessage({ atqm: 'note', text }, '*'); } catch { /* ignore */ } }
+    if (!isTop) postToTop({ atqm: 'note', text });
     localNote = text;
     render();
   }
@@ -1121,15 +1491,21 @@
     saveQueues(trackedQueues().filter(x => x.key !== q.key));
   }
 
-  // Move monitoring of a queue to this tab; the previous tab notices on its next scan
+  // Move monitoring of a queue to this tab. With Web Locks the previous tab is told at once; without,
+  // it notices on its next scan.
   function takeOver(q) {
     retiredUntil = 0;
-    set(q.lock, { id: ID, ts: Date.now() });
+    consentHere(q);
     owned.add(q.key);
     if (!get(K.enabled, false)) set(K.enabled, true);
-    pageCache.t = 0;
-    tick({ manual: true });
-    render();
+    const start = () => {
+      set(q.lock, { id: ID, ts: Date.now() });
+      pageCache.t = 0;
+      tick({ manual: true });
+      render();
+    };
+    if (webLocks && !held.has(q.key)) holdWebLock(q, true).then(start);
+    else start();
   }
 
   // ---------------------------------------------------------------------------
@@ -1324,6 +1700,14 @@
 .atqm-stop{background:#2b2f36;color:#ff9b9e;border:1px solid #5a3a3c;border-radius:4px;padding:3px 7px;cursor:pointer;font:inherit}
 .atqm-stop:hover{background:#3a2a2c}
 #atqm-panel > .atqm-set + .atqm-set{margin-top:6px}
+.atqm-act{background:#1f6feb;color:#fff;border:0;border-radius:4px;padding:1px 8px;margin-left:4px;cursor:pointer;font:inherit;font-size:11px;vertical-align:1px}
+.atqm-act:hover{filter:brightness(1.15)}
+.atqm-sr{position:absolute!important;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
+.atqm-tools{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px}
+.atqm-tools button{flex:1;background:#2b2f36;color:#e6e6e6;border:1px solid #444;border-radius:4px;padding:4px 6px;cursor:pointer;font:inherit}
+.atqm-tools button:hover{background:#3a3e46}
+.atqm-diag{width:100%;height:160px;margin-top:6px;background:#15161a;color:#c9d1d9;border:1px solid #444;border-radius:4px;
+  font:11px/1.4 ui-monospace,Consolas,monospace;resize:vertical}
 `;
 
   // Position is kept as the distance from the top-right corner of the screen, so the widget's
@@ -1353,11 +1737,25 @@
     a.title = 'Open ticket in a new tab';
     const copy = el('button', 'atqm-copy', '⧉');
     copy.title = 'Copy ticket number';
-    copy.onclick = () => {
-      navigator.clipboard?.writeText(id).then(() => { localNote = `Copied ${id}`; render(); });
-    };
+    copy.setAttribute('aria-label', `Copy ticket number ${id}`);
+    copy.onclick = () => copyText(id).then(ok => flashNote(ok ? `Copied ${id}` : `Couldn't copy ${id}. Select it and copy instead.`));
     wrap.append(a, copy);
     return wrap;
+  }
+
+  // Clipboard API first; pages in frames often aren't allowed it, so fall back to a hidden text box
+  async function copyText(text) {
+    try { await navigator.clipboard.writeText(text); return true; } catch { /* fall back */ }
+    const ta = el('textarea');
+    ta.value = text;
+    ta.setAttribute('readonly', '');
+    ta.style.cssText = 'position:fixed;left:-9999px;top:0';
+    document.body.append(ta);
+    ta.select();
+    let ok = false;
+    try { ok = document.execCommand('copy'); } catch { /* not allowed */ }
+    ta.remove();
+    return ok;
   }
 
   function linkify(text, urlFor) {
@@ -1372,6 +1770,7 @@
     return frag;
   }
 
+  // { cls: 'ok' | 'warn' | 'off', text, action?: { label, run } }
   function health(q) {
     if (!get(K.enabled, false)) return { cls: 'off', text: 'Paused.' };
     const st = get(q.state, null);
@@ -1381,18 +1780,54 @@
     if (fresh && (st.mode === 'waiting' || st.mode === 'error')) return { cls: 'warn', text: st.note };
     if (!st.lastScan) return openIt;
     if (Date.now() - st.lastScan > staleMs()) {
-      return { cls: 'warn', text: `Last scan ${ago(st.lastScan)}. Is the ${qWhere(q)} tab still open?` };
+      return { cls: 'warn', text: `Last scan ${ago(st.lastScan)}. Is the ${qWhere(q)} tab still open? ` +
+        'If it is, your browser may have put it to sleep (see "Keeping monitoring alive" in the README).' };
     }
     const left = st.lastScan + CONFIG.refreshMs - Date.now();
     const next = left > 60000 ? `, next in ${dur(left)}` : ', next scan due now';
-    if (st.partial) {
-      const maxNote = st.max ? ` The grid shows at most ${st.max} rows;` : '';
-      return { cls: 'warn', text: `Only ${st.count} of ${st.total} tickets visible, scanned ${ago(st.lastScan)}${next}.${maxNote} ` +
-        `tickets beyond that aren't monitored. Narrow the view or sort by Created, newest first.` };
-    }
     const unit = (q.mode === 'calls' ? 'call' : 'ticket') + (st.count === 1 ? '' : 's');
-    if (st.colNote) return { cls: 'warn', text: `${st.count} ${unit}, scanned ${ago(st.lastScan)}. ${st.colNote}` };
+    if (st.partial) {
+      const units = q.mode === 'calls' ? 'calls' : 'tickets';
+      // The grid could show more per page: offer to switch it (that changes the saved view, so it asks)
+      if (st.max && st.size && st.max > st.size) {
+        return { cls: 'warn', text: `Only ${st.count} of ${st.total} ${units} visible (${st.size} per page), scanned ${ago(st.lastScan)}${next}. ` +
+          "The rest aren't monitored.", action: { label: `Show up to ${st.max} rows`, run: () => requestGridFix(q, 'rows') } };
+      }
+      const rest = st.max ? `The grid shows at most ${st.max} rows, so ${units} beyond that aren't monitored.` : "The rest aren't monitored.";
+      return { cls: 'warn', text: `Only ${st.count} of ${st.total} ${units} visible, scanned ${ago(st.lastScan)}${next}. ${rest} ` +
+        'Narrow the view or sort by Created, newest first.' };
+    }
+    if (st.colNote) {
+      return { cls: 'warn', text: `${st.count} ${unit}, scanned ${ago(st.lastScan)}. ${st.colNote}`,
+        action: st.colMissing?.length ? { label: 'Add missing columns', run: () => requestGridFix(q, 'columns') } : null };
+    }
     return { cls: 'ok', text: `${st.count} ${unit}, scanned ${ago(st.lastScan)}${next}${st.note ? '. ' + st.note : ''}` };
+  }
+
+  // Warnings about the monitor as a whole rather than one queue
+  function globalWarnings() {
+    const out = [];
+    const failed = Math.max(storageFail?.ts || 0, remotePage?.storageFail || 0);
+    if (Date.now() - failed < 10 * 60000) {
+      out.push('Browser storage is full or blocked, so some changes may be reported twice. ' +
+        'Lower "Changes kept in history" in Settings, or press Clear.');
+    }
+    const clock = clockWarning();
+    if (clock) out.push(clock);
+    return out;
+  }
+
+  // A health line: its text, plus a button when there's something to press
+  function healthLine(h, prefix) {
+    const line = el('div', h.cls === 'warn' ? 'warn' : '');
+    if (prefix) line.append(el('b', null, prefix));
+    line.append(h.text);
+    if (h.action) {
+      const b = el('button', 'atqm-act', h.action.label);
+      b.onclick = h.action.run;
+      line.append(' ', b);
+    }
+    return line;
   }
 
   function statusClass(s) {
@@ -1414,13 +1849,31 @@
     panel.append(h);
   }
 
+  // A queue's tickets as a list. Built once per saved snapshot (get() hands back the same object until
+  // the snapshot changes), so callers must not change the list or its items.
+  const snapLists = new WeakMap();
   function snapTickets(q) {
-    const snap = get(q.snap, null);
+    const snap = readSnap(q);
     if (!snap) return null;
-    const list = Object.entries(snap).map(([id, t]) => ({ id, ...t }));
-    const ids = list.map(t => t.tid).filter(Boolean);
-    for (const t of list) t.ids = ids;
+    let list = snapLists.get(snap);
+    if (!list) {
+      list = Object.entries(snap).map(([id, t]) => ({ id, ...t }));
+      const ids = list.map(t => t.tid).filter(Boolean);
+      for (const t of list) t.ids = ids;
+      snapLists.set(snap, list);
+    }
     return list;
+  }
+
+  // Every tracked ticket by number, rebuilt only when a queue's list changes
+  let indexCache = { lists: [], map: {} };
+  function ticketIndex() {
+    const lists = trackedQueues().map(snapTickets);
+    if (lists.length === indexCache.lists.length && lists.every((l, i) => l === indexCache.lists[i])) return indexCache.map;
+    const map = {};
+    for (const l of lists) for (const t of l || []) map[t.id] = t;
+    indexCache = { lists, map };
+    return map;
   }
 
   function dueList(items, dueKey, soon, subFn, emptyText) {
@@ -1440,7 +1893,7 @@
   }
 
   function renderFull(panel, q, opts = {}) {
-    if (!opts.compact) sectionHead(panel, qName(q), q.key === 'my' ? 'Open Tickets' : qWhere(q));
+    if (!opts.compact) sectionHead(panel, qName(q), q.key === 'my' ? q.nav : qWhere(q));
     const tickets = snapTickets(q);
     if (!tickets) {
       panel.append(el('div', 'atqm-empty', `No data yet. Fills in after the first scan of ${qWhere(q)}.`));
@@ -1463,7 +1916,7 @@
       t => [t.slaEvent, t.title].filter(Boolean).join(': '), 'No SLA deadlines in this queue.'));
     pausedNote(panel, tickets);
 
-    const recent = get(K.alerts, []).filter(a => (a.q || 'my') === q.key).slice(-3).reverse();
+    const recent = get(K.alerts, []).filter(a => a.q === q.key).slice(-3).reverse();
     if (recent.length && !opts.compact) {
       panel.append(el('div', 'atqm-h', 'Latest changes'));
       panel.append(alertList(recent, false));
@@ -1609,7 +2062,7 @@
     const now = Date.now();
     const startOfDay = new Date().setHours(0, 0, 0, 0);
     const endOfDay = new Date().setHours(23, 59, 59, 999);
-    const today = get(K.alerts, []).filter(a => (a.q || 'my') === q.key && a.ts >= startOfDay);
+    const today = get(K.alerts, []).filter(a => a.q === q.key && a.ts >= startOfDay);
     const stat = (label, value, cls = '', sub = '') => ({ label, value, cls, sub });
     const age = t => t.created || t.firstSeen;
     const oldest = list => list.length ? dur(now - Math.min(...list.map(age))) : '–';
@@ -1688,7 +2141,15 @@
     why.append(el('b', null, 'Page locked to keep monitoring running.'),
       ' Clicking around this page (another queue, a ticket, a refresh) would stop it updating, so it\'s greyed out. Use ',
       el('b', null, 'Unlock for 5 min'), ' if you need it.');
-    box.append(title, el('div', 'lv-health ' + h.cls, h.text), why);
+    const line = healthLine(h);
+    line.className = 'lv-health ' + h.cls;
+    box.append(title, line);
+    for (const w of globalWarnings()) box.append(el('div', 'lv-health warn', w));
+    if (CONFIG.sound && !canPlay()) {
+      box.append(el('div', 'lv-health warn', 'Click anywhere in this window once to allow sound alerts. ' +
+        'Browsers only play sound in a page that has been clicked.'));
+    }
+    box.append(why);
 
     if (!snapTickets(q)) {
       box.append(el('div', 'atqm-empty', 'Collecting the first scan of this queue…'));
@@ -1715,7 +2176,7 @@
     renderQueue(left, q, { compact: true });
     const right = el('div', 'lv-col');
     right.append(el('div', 'atqm-h', 'Changes in this queue'));
-    const changes = get(K.alerts, []).filter(a => (a.q || 'my') === q.key).slice(-15).reverse();
+    const changes = get(K.alerts, []).filter(a => a.q === q.key).slice(-15).reverse();
     if (changes.length) right.append(alertList(changes, false));
     else right.append(el('div', 'atqm-empty', 'No changes yet.'));
     cols.append(left, right);
@@ -1739,6 +2200,12 @@
 
     if (pg.q) {
       const enabled = get(K.enabled, false);
+      const takeHere = note => {
+        if (pg.remote) postToFrame(pg.remote, { atqm: 'takeover', qKey: pg.q.key });
+        else takeOver(pg.q);
+        pageCache.t = 0;
+        flashNote(note, 2500);
+      };
       if (pg.owns) {
         box.className = 'here';
         box.append(el('b', null, `This tab is monitoring ${qName(pg.q)}.`), ' Keep it open.');
@@ -1747,19 +2214,30 @@
         box.append(el('b', null, `${qName(pg.q)} is already tracked in another tab.`), ' This tab only shows the overview.');
         const btns = el('div', 'atqm-start');
         const b = el('button', null, 'Swap monitoring to this tab');
-        b.title = 'Monitor from here instead; the other tab stops on its next scan';
-        b.onclick = () => {
-          if (pg.remote) { try { pg.remote.postMessage({ atqm: 'takeover', qKey: pg.q.key }, '*'); } catch { /* frame gone */ } }
-          else takeOver(pg.q);
-          localNote = 'Swapping monitoring to this tab…';
-          render();
-          setTimeout(() => { localNote = ''; pageCache.t = 0; render(); }, 2500);
-        };
+        b.title = 'Monitor from here instead; the other tab stops';
+        b.onclick = () => takeHere('Swapping monitoring to this tab…');
         btns.append(b);
         box.append(btns);
-      } else {
+      } else if (enabled && !pg.choose) {
         box.className = 'here';
-        box.append(el('b', null, `${qName(pg.q)} is tracked.`), enabled ? ' Starting monitoring in this tab…' : ' Press Start to monitor it here.');
+        box.append(el('b', null, `${qName(pg.q)} is tracked.`), ' Starting monitoring in this tab…');
+      } else {
+        // Nobody monitors it and this is an ordinary tab: ask rather than take it over
+        box.className = 'untracked';
+        box.append(el('b', null, `Nobody is monitoring ${qName(pg.q)}.`), enabled ? '' : ' Monitoring is paused.');
+        const btns = el('div', 'atqm-start');
+        const sep = el('button', null, 'Open a separate monitoring tab');
+        sep.title = 'Recommended: a tab of its own stays on this queue while you keep working here';
+        sep.onclick = () => {
+          if (!get(K.enabled, false)) set(K.enabled, true);
+          const ok = !!pg.url && openQueueTab(pg.q, pg.url);
+          flashNote(ok ? 'Opening a monitoring tab…' : 'Your browser blocked the new tab. Allow pop-ups for autotask.net and try again.', 6000);
+        };
+        const here = el('button', null, CONFIG.lockMonitorTabs ? 'Monitor in this tab (it will be locked)' : 'Monitor in this tab');
+        here.title = 'This tab keeps the queue up to date, so it has to stay on this queue';
+        here.onclick = () => takeHere('Starting monitoring in this tab…');
+        btns.append(sep, here);
+        box.append(btns);
       }
       return;
     }
@@ -1779,11 +2257,10 @@
       const b = el('button', null, labels[mode]);
       b.title = m.hint;
       b.onclick = () => {
-        if (pg.remote) { try { pg.remote.postMessage({ atqm: 'start', cur: pg.cur, mode }, '*'); } catch { /* frame gone */ } }
+        if (pg.remote) postToFrame(pg.remote, { atqm: 'start', cur: pg.cur, mode });
         else startTracking(pg.cur, mode);
-        localNote = `Tracking ${pg.cur.nav}…`;
-        render();
-        setTimeout(() => { localNote = ''; pageCache.t = 0; render(); }, 2500);
+        pageCache.t = 0;
+        flashNote(`Tracking ${pg.cur.nav}…`, 2500);
       };
       btns.append(b);
     }
@@ -1838,9 +2315,8 @@
     return items.concat(later);
   }
 
-  function renderNextUp(panel) {
+  function renderNextUp(panel, items = nextUpItems()) {
     const qs = activeQueues();
-    const items = nextUpItems();
     if (!qs.some(q => q.mode === 'intake')) {
       panel.append(el('div', 'atqm-hint', 'Tip: track a queue for new tickets & first response to fill the first two groups.'));
     }
@@ -1889,13 +2365,12 @@
 
   function alertList(alerts, showTags = true) {
     const list = el('ul', 'atqm-list');
-    const snaps = {};
-    for (const q of trackedQueues()) for (const t of snapTickets(q) || []) snaps[t.id] = t;
+    const snaps = ticketIndex();
     for (const a of alerts) {
       const li = el('li', a.type + (a.read ? '' : ' unread'));
       const urlFor = id => snaps[id] || (id === a.ticket ? a : null);
       li.append(el('time', null, fmtTime(a.ts)));
-      if (showTags && (a.q || 'my') !== 'my') li.append(el('span', 'atqm-tag', a.qn || (a.q === 'first' ? 'Support 1st Line' : a.q)));
+      if (showTags && a.q !== 'my') li.append(el('span', 'atqm-tag', a.qn || a.q));
       li.append(linkify(a.text, urlFor));
       if (a.callUrl) {
         const link = callLink({ url: a.callUrl, id: a.call }, 'Open call');
@@ -1912,6 +2387,11 @@
     else panel.append(alertList(alerts));
   }
 
+  const ZONES = (() => { try { return Intl.supportedValuesOf('timeZone'); } catch { return null; } })();
+  const PC_ZONE = (() => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch { return ''; } })();
+  const ZONE_HINT = 'The time zone set in your Autotask profile. Only change this if it differs from this PC, ' +
+    'otherwise due times are off by the difference.';
+
   const FIELDS = [
     { group: 'General' },
     { key: 'refreshMs', label: 'Refresh queues every', unit: 'min', type: 'number', min: 0.5, max: 60, step: 0.5,
@@ -1919,7 +2399,20 @@
       hint: 'Browsers may slow background tabs to about one refresh a minute.' },
     { key: 'upcomingCount', label: 'Rows shown in each list', type: 'number', min: 1, max: 20, step: 1 },
     { key: 'maxAlerts', label: 'Changes kept in history', type: 'number', min: 20, max: 1000, step: 10 },
-    { key: 'dateOrder', label: 'Date format in Autotask', type: 'select', options: [['DMY', 'Day/month (UK)'], ['MDY', 'Month/day (US)']] },
+    { key: 'dateOrder', label: 'Date format in Autotask', type: 'select',
+      options: [['auto', 'Detect automatically'], ['DMY', 'Day/month (UK)'], ['MDY', 'Month/day (US)'], ['YMD', 'Year first (2026-10-02)']],
+      hint: () => {
+        const using = ORDER_NAMES[dateOrder()];
+        if (CONFIG.dateOrder !== 'auto') return `Reading dates as ${using}.`;
+        return get(K.dateOrder, null)?.order
+          ? `Detected from your queues: ${using}.`
+          : `Not detected yet, so assuming ${using} from your browser language. A date like 25/10 settles it.`;
+      } },
+    ZONES
+      ? { key: 'timeZone', label: 'Autotask time zone', type: 'select', hint: ZONE_HINT,
+        options: [['', `Same as this PC${PC_ZONE ? ` (${PC_ZONE})` : ''}`], ...ZONES.map(z => [z, z])] }
+      : { key: 'timeZone', label: 'Autotask time zone', type: 'text', hint: ZONE_HINT + ' Leave empty for the same as this PC.',
+        sanitize: v => (clean(v) && validZone(clean(v)) ? clean(v) : '') },
     { key: 'linkStyle', label: 'Open tickets using', type: 'select',
       options: [['detail', 'Ticket page'], ['command', 'Autotask command link'], ['grid', 'Grid link']],
       hint: 'Ticket page opens the normal ticket tab. The other two tend to pop out into a separate window.' },
@@ -1930,7 +2423,11 @@
     { key: 'opacityMin', label: 'Opacity when minimised', unit: '%', type: 'number', min: 20, max: 100, step: 5,
       hint: 'The window turns fully opaque while the mouse is over it.' },
     { key: 'autoColumns', label: 'Add missing columns automatically', type: 'checkbox',
-      hint: "Uses the grid's Column Chooser to add columns the monitor needs, like Ticket Number or Next SLA Event Due. This changes your saved view for that grid." },
+      hint: "Uses the grid's Column Chooser to add columns the monitor needs, like Ticket Number or Next SLA Event Due. " +
+        'This changes your saved view for that grid. When off, the monitor shows an "Add missing columns" button instead.' },
+    { key: 'autoPageSize', label: 'Show the most rows per page automatically', type: 'checkbox',
+      hint: 'Switches the grid to its largest page size so tickets past the first page are monitored too. ' +
+        'This changes your saved view for that grid. When off, the monitor offers a button when rows are missing.' },
     { key: 'showStatusCounts', label: 'Show status counts', type: 'checkbox',
       hint: 'Ticket counts per status at the top of queues tracked for all changes.' },
     { key: 'firstLineOverview', label: 'First line overview', type: 'checkbox',
@@ -1997,6 +2494,21 @@
     panel.append(box);
   }
 
+  // A setting value made safe to use: the right type, within range, and one of the options
+  function cleanSetting(f, v) {
+    const d = DEFAULTS[f.key];
+    if (f.type === 'checkbox') return typeof v === 'boolean' ? v : d;
+    if (f.type === 'number') {
+      let u = f.toUi ? f.toUi(Number(v)) : Number(v);
+      if (!Number.isFinite(u)) return d;
+      u = Math.min(f.max, Math.max(f.min, u));
+      return f.fromUi ? f.fromUi(u) : u;
+    }
+    if (f.type === 'select') return f.options.some(([o]) => o === v) ? v : d;
+    if (typeof v !== 'string') return d;
+    return f.sanitize ? f.sanitize(v) : clean(v) || d;
+  }
+
   function renderSettings(panel, message = '') {
     panel.replaceChildren();
     const msg = el('div', 'atqm-saved', message);
@@ -2047,7 +2559,8 @@
       }
       if (f.unit) wrap.append(el('span', 'atqm-sub', f.unit));
       grid.append(lab, wrap);
-      if (f.hint) grid.append(el('div', 'atqm-hint', f.hint));
+      const hint = typeof f.hint === 'function' ? f.hint() : f.hint;
+      if (hint) grid.append(el('div', 'atqm-hint', hint));
     }
 
     if ('Notification' in window && Notification.permission === 'denied') {
@@ -2060,21 +2573,19 @@
       for (const f of FIELDS) {
         if (f.group) continue;
         const input = inputs[f.key];
-        if (f.type === 'checkbox') out[f.key] = input.checked;
-        else if (f.type === 'number') {
-          let v = parseFloat(input.value);
-          if (Number.isNaN(v)) v = f.toUi ? f.toUi(DEFAULTS[f.key]) : DEFAULTS[f.key];
-          v = Math.min(f.max, Math.max(f.min, v));
-          input.value = v;
-          out[f.key] = f.fromUi ? f.fromUi(v) : v;
-        } else {
-          out[f.key] = f.sanitize ? f.sanitize(input.value) : clean(input.value) || DEFAULTS[f.key];
-          input.value = out[f.key];
-        }
+        let v;
+        if (f.type === 'checkbox') v = input.checked;
+        else if (f.type === 'number') { const u = parseFloat(input.value); v = f.fromUi ? f.fromUi(u) : u; }
+        else v = input.value;
+        out[f.key] = cleanSetting(f, v);
+        if (f.type === 'number') input.value = f.toUi ? f.toUi(out[f.key]) : out[f.key];
+        else if (f.type !== 'checkbox') input.value = out[f.key];
       }
       const turnedOn = out.firstLineOverview && !CONFIG.firstLineOverview;
+      const zoneChanged = out.timeZone !== CONFIG.timeZone;
       set(K.settings, out);
       loadSettings();
+      if (zoneChanged) del(K.tzHint);
       if (turnedOn) set(K.tab, 'next');
       if (CONFIG.notify && 'Notification' in window && Notification.permission === 'default') Notification.requestPermission();
       reschedule();
@@ -2100,9 +2611,188 @@
 
     const actions = el('div', 'atqm-set-actions');
     actions.append(save, test, reset);
+
+    // Backup and diagnostics
+    const tools = el('div', 'atqm-set atqm-store');
+    tools.append(el('div', 'atqm-set-group', 'Backup and help'));
+    const row = el('div', 'atqm-tools');
+    row.style.gridColumn = '1/-1';
+    const exp = el('button', null, 'Export settings');
+    exp.title = 'Save your settings and tracked queues to a file (no tickets or history)';
+    exp.onclick = () => { exportSettings(); flash('Settings exported.'); };
+    const file = el('input');
+    file.type = 'file';
+    file.accept = '.json,application/json';
+    file.hidden = true;
+    file.onchange = async () => {
+      const f = file.files && file.files[0];
+      if (!f) return;
+      const text = await f.text();
+      file.value = '';
+      const result = importSettings(text);
+      if (result) rerender(result);
+    };
+    const imp = el('button', null, 'Import settings');
+    imp.title = 'Load settings and tracked queues from an exported file';
+    imp.onclick = () => file.click();
+    const diagOut = el('div');
+    diagOut.style.gridColumn = '1/-1';
+    const diag = el('button', null, 'Diagnostics');
+    diag.title = 'What the monitor can see on this page, to paste into a bug report. No ticket titles or account names.';
+    diag.onclick = async () => {
+      diag.disabled = true;
+      diagOut.replaceChildren(el('div', 'atqm-hint', 'Collecting…'));
+      const text = await collectDiagnostics();
+      const ta = el('textarea', 'atqm-diag');
+      ta.value = text;
+      ta.readOnly = true;
+      ta.setAttribute('aria-label', 'Diagnostics');
+      const copy = el('button', null, 'Copy diagnostics');
+      copy.onclick = () => copyText(text).then(ok => flash(ok ? 'Diagnostics copied.' : 'Couldn\'t copy. Select the text and copy it instead.'));
+      const copyRow = el('div', 'atqm-tools');
+      copyRow.append(copy);
+      diagOut.replaceChildren(ta, copyRow);
+      diag.disabled = false;
+    };
+    row.append(exp, imp, diag, file);
+    tools.append(row, el('div', 'atqm-hint', 'Export saves your settings and tracked queues (no tickets or history) to move them to another browser or PC.'), diagOut);
+
     const note = el('div', 'atqm-hint atqm-store',
-      `Settings and history are stored in this browser only. Clearing site data for autotask.net, resetting the browser profile, or using another browser or PC starts fresh. Queue monitor ${VERSION} (beta).`);
-    panel.append(grid, actions, msg, note);
+      `Settings and history are stored in this browser only. Clearing site data for autotask.net, resetting the browser profile, or using another browser or PC starts fresh (use Export to take your settings along). Queue monitor ${VERSION} (beta).`);
+    panel.append(grid, actions, msg, tools, note);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Backup (export / import) and diagnostics
+  // ---------------------------------------------------------------------------
+  const isAutotaskUrl = u => typeof u === 'string' && /^https:\/\/([\w-]+\.)*autotask\.net\//i.test(u);
+
+  function exportSettings() {
+    const urls = {};
+    for (const q of trackedQueues()) { const u = get(q.state, {}).url; if (u) urls[q.key] = u; }
+    const data = {
+      app: 'atqm', version: VERSION, exported: new Date().toISOString(),
+      settings: get(K.settings, {}), queues: get(K.queues, []), urls, wsUrl: get(K.wsUrl, null), pos: get(K.pos, null),
+    };
+    const a = el('a');
+    a.href = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }));
+    a.download = 'queue-monitor-settings.json';
+    document.body.append(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+  }
+
+  // Returns a message for the Settings tab ('' if cancelled). Everything in the file is checked first:
+  // settings must be valid values, and addresses must be Autotask pages.
+  function importSettings(text) {
+    let d;
+    try { d = JSON.parse(text); } catch { d = null; }
+    if (!d || d.app !== 'atqm' || !Array.isArray(d.queues)) return "That file isn't a Queue monitor settings file.";
+    const queues = [], keys = new Set();
+    for (const q of d.queues) {
+      if (!q || typeof q.key !== 'string' || typeof q.nav !== 'string' || !MODES[q.mode] || keys.has(q.key)) continue;
+      keys.add(q.key);
+      queues.push({ key: q.key, nav: q.nav, section: typeof q.section === 'string' ? q.section : '', mode: q.mode });
+    }
+    const n = queues.length;
+    if (!confirm(`Replace your settings and tracked queues with the ${n} queue${n === 1 ? '' : 's'} in this file? Change history is kept.`)) return '';
+    const settings = {};
+    for (const f of FIELDS) if (!f.group && d.settings && f.key in d.settings) settings[f.key] = cleanSetting(f, d.settings[f.key]);
+    set(K.settings, settings);
+    saveQueues(queues);
+    for (const q of trackedQueues()) {
+      const u = d.urls && d.urls[q.key];
+      if (isAutotaskUrl(u)) set(q.state, { ...get(q.state, {}), url: u });
+    }
+    if (isAutotaskUrl(d.wsUrl)) set(K.wsUrl, d.wsUrl);
+    if (d.pos && Number.isFinite(d.pos.right) && Number.isFinite(d.pos.top)) set(K.pos, { right: d.pos.right, top: d.pos.top });
+    loadSettings();
+    reschedule();
+    return `Imported settings and ${n} tracked queue${n === 1 ? '' : 's'}.`;
+  }
+
+  const DATE_ONLY = new RegExp('^\\s*' + DATE_RE.source + '\\s*$', 'i');
+  // What the monitor can see in this page or frame: page structure, column names, counts and sample
+  // dates only (no ticket titles or account names), so it can be pasted into a bug report.
+  function diagnose() {
+    const scope = gridScope();
+    const grid = activeGrid();
+    const rows = [...scope.querySelectorAll(AT.sel.row)];
+    const cur = gridPresent() ? currentQueue() : null;
+    const q = cur ? findTracked(cur) : null;
+    const headerRow = [...scope.querySelectorAll(AT.sel.nonRow)]
+      .find(r => [...r.cells].some(c => HEADERS.ticket.test(cellText(c)) || CALL_HEADERS.start.test(cellText(c))));
+    const sampleDates = [...new Set(rows.slice(0, 5).flatMap(r => [...r.cells].map(cellText).filter(t => DATE_ONLY.test(t))))].slice(0, 3);
+    const pi = pagerInfo();
+    let ticketsRead = null;
+    try { ticketsRead = findColumns(scope) ? readGrid()?.tickets.length ?? null : readCallGrid()?.calls.length ?? null; } catch { /* reported as null */ }
+    return {
+      frame: isTop ? 'top' : 'frame',
+      path: location.pathname,
+      workspacePage: isWorkspacePage(),
+      menuItems: navItems().length,
+      queue: cur ? (cur.section ? `${cur.section} > ${cur.nav}` : cur.nav) : null,
+      tracked: q ? q.key : null,
+      grid: grid ? grid.id || '(no id)' : rows.length ? 'rows outside a grid' : 'none',
+      callGrid: isCallGrid(),
+      columns: headerRow ? [...headerRow.cells].map(cellText).filter(Boolean) : [],
+      missingColumns: q ? missingColumns(q).map(k => COLUMN_NAMES[k]) : null,
+      pager: pi ? { from: pi.from, to: pi.to, total: pi.total, size: pi.size, max: pi.max } : null,
+      refreshButton: !!findRefreshButton(),
+      columnChooserButton: !!findColumnChooserButton(),
+      rows: rows.length,
+      ticketsRead,
+      sampleDates,
+    };
+  }
+
+  // Every frame in this tab, at any depth
+  function frameWindows(win = window, out = []) {
+    let n = 0;
+    try { n = win.frames.length; } catch { return out; }
+    for (let i = 0; i < n; i++) {
+      try { const f = win.frames[i]; out.push(f); frameWindows(f, out); } catch { /* gone */ }
+    }
+    return out;
+  }
+
+  const diagWaiters = new Map(); // request id -> results from frames
+  async function collectDiagnostics() {
+    const id = Math.random().toString(36).slice(2);
+    const results = [];
+    diagWaiters.set(id, results);
+    // The request itself carries no data; each frame answers only to the origin that asked
+    for (const f of frameWindows()) { try { f.postMessage({ atqm: 'diag', id }, '*'); } catch { /* gone */ } }
+    await sleep(1500);
+    diagWaiters.delete(id);
+    let bytes = 0;
+    try {
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k && k.startsWith(P)) bytes += k.length + (localStorage.getItem(k) || '').length;
+      }
+    } catch { /* not readable */ }
+    const settings = {};
+    for (const f of FIELDS) if (!f.group) settings[f.key] = CONFIG[f.key];
+    const report = {
+      version: VERSION,
+      when: new Date().toISOString(),
+      browser: navigator.userAgent,
+      monitoring: get(K.enabled, false),
+      webLocks: !!webLocks,
+      storageKB: Math.round(bytes / 1024),
+      storageWriteFailed: storageFail ? new Date(storageFail.ts).toISOString() : null,
+      dateOrder: { setting: CONFIG.dateOrder, using: dateOrder(), detected: get(K.dateOrder, null)?.order || null },
+      clockWarning: clockWarning(),
+      settings,
+      queues: trackedQueues().map(q => ({
+        key: q.key, where: qWhere(q), mode: q.mode, health: health(q).text,
+        monitoredHere: ownsLock(q), monitoredElsewhere: foreignActive(q),
+      })),
+      pages: [diagnose(), ...results.filter(r => r && (r.menuItems || r.rows || r.grid !== 'none'))],
+    };
+    return JSON.stringify(report, null, 2);
   }
 
   function createWidget() {
@@ -2114,7 +2804,7 @@
     w.innerHTML = `
       <div id="atqm-head"><span id="atqm-dot"></span><b>Queue monitor <span class="atqm-beta" title="Queue monitor ${VERSION} (beta)">Beta</span></b>
         <span id="atqm-badge" class="atqm-count"></span>
-        <button id="atqm-min" title="Minimise">–</button></div>
+        <button id="atqm-min" title="Minimise" aria-label="Minimise Queue monitor" aria-expanded="true">–</button></div>
       <div id="atqm-rem"></div>
       <div id="atqm-qs"></div>
       <div id="atqm-lockview"></div>
@@ -2122,13 +2812,13 @@
       <div id="atqm-health"></div>
       <div id="atqm-body">
         <div id="atqm-page" hidden></div>
-        <div id="atqm-tabs" role="tablist">
-          <button role="tab" data-tab="next" hidden>Next up</button>
-          <button role="tab" data-tab="overview">Overview</button>
-          <button role="tab" data-tab="changes">Changes</button>
-          <button role="tab" data-tab="settings">Settings</button>
+        <div id="atqm-tabs" role="tablist" aria-label="Queue monitor views">
+          <button role="tab" id="atqm-tab-next" data-tab="next" aria-controls="atqm-panel" hidden>Next up</button>
+          <button role="tab" id="atqm-tab-overview" data-tab="overview" aria-controls="atqm-panel">Overview</button>
+          <button role="tab" id="atqm-tab-changes" data-tab="changes" aria-controls="atqm-panel">Changes</button>
+          <button role="tab" id="atqm-tab-settings" data-tab="settings" aria-controls="atqm-panel">Settings</button>
         </div>
-        <div id="atqm-panel"></div>
+        <div id="atqm-panel" role="tabpanel"></div>
         <div id="atqm-btns">
           <button id="atqm-toggle"></button>
           <button id="atqm-scan">Scan now</button>
@@ -2142,8 +2832,21 @@
     const pos = savedPos();
     if (pos) place(w, pos.right, pos.top);
 
-    w.querySelectorAll('#atqm-tabs button').forEach(b => {
+    const tabs = w.querySelector('#atqm-tabs');
+    tabs.querySelectorAll('button').forEach(b => {
       b.onclick = () => { set(K.tab, b.dataset.tab); render(); };
+    });
+    // Arrow keys move between tabs (only the selected tab is in the Tab order)
+    tabs.addEventListener('keydown', e => {
+      const list = [...tabs.querySelectorAll('button:not([hidden])')];
+      const i = list.indexOf(e.target);
+      if (i < 0) return;
+      const j = { ArrowRight: (i + 1) % list.length, ArrowLeft: (i - 1 + list.length) % list.length, Home: 0, End: list.length - 1 }[e.key];
+      if (j == null) return;
+      e.preventDefault();
+      set(K.tab, list[j].dataset.tab);
+      render();
+      list[j].focus();
     });
 
     w.querySelector('#atqm-toggle').onclick = () => {
@@ -2260,13 +2963,16 @@
     renderTimer = setTimeout(() => { renderTimer = null; render(); }, 120);
   }
 
+  const STATUS_WORDS = { ok: 'OK', warn: 'Needs attention', off: 'Paused' };
+
   function render() {
     const w = document.getElementById('atqm');
     const pg = pageInfo();
 
     // Start/stop monitoring promptly when this tab moves onto or off a tracked queue
-    if (!pg.remote && get(K.enabled, false) && !busy) {
-      const wantsLock = pg.q && !pg.foreign && !pg.owns;
+    // (at most every 5 s, in case another tab holds the queue without the record showing it yet)
+    if (!pg.remote && get(K.enabled, false) && !busy && Date.now() - lastTick > 5000) {
+      const wantsLock = pg.q && !pg.foreign && !pg.owns && !pg.choose;
       const movedOff = [...owned].some(k => k !== pg.q?.key);
       if (wantsLock || movedOff) setTimeout(() => tick(), 0);
     }
@@ -2287,6 +2993,7 @@
     const box = w.querySelector('#atqm-health');
     box.replaceChildren();
     const hs = qs.map(q => [q, health(q)]);
+    const warnings = globalWarnings();
 
     // Minimised: one line, a light + name + ticket count per queue
     const mini = w.querySelector('#atqm-mini');
@@ -2295,7 +3002,7 @@
       const st = get(q.state, {});
       const item = el('span', 'atqm-mq');
       item.title = h.text;
-      item.append(el('span', 'atqm-ml ' + h.cls), el('span', null, qName(q)),
+      item.append(el('span', 'atqm-ml ' + h.cls), el('span', 'atqm-sr', (STATUS_WORDS[h.cls] || '') + ': '), el('span', null, qName(q)),
                   el('b', null, st.count == null ? '–' : st.count + (st.partial ? '+' : '')));
       mini.append(item);
     }
@@ -2305,22 +3012,24 @@
       const note = el('button', 'atqm-mnote', `${pg.cur.nav} isn't tracked. Expand to track it.`);
       note.onclick = () => { w.classList.remove('min'); render(); };
       mini.append(note);
+    } else if (pg.q && pg.choose) {
+      const note = el('button', 'atqm-mnote', `Nobody is monitoring ${qName(pg.q)}. Expand to choose where.`);
+      note.onclick = () => { w.classList.remove('min'); render(); };
+      mini.append(note);
     }
     const minimised = w.classList.contains('min');
     const minBtn = w.querySelector('#atqm-min');
     minBtn.textContent = minimised ? '+' : '–';
     minBtn.title = minimised ? 'Expand' : 'Minimise';
+    minBtn.setAttribute('aria-label', minimised ? 'Expand Queue monitor' : 'Minimise Queue monitor');
+    minBtn.setAttribute('aria-expanded', String(!minimised));
     w.style.opacity = w.classList.contains('locked') ? '1' : String((minimised ? CONFIG.opacityMin : CONFIG.opacity) / 100);
     if (w.style.top && !w.classList.contains('locked')) { const p = savedPos(); if (p) place(w, p.right, p.top); } // re-clamp after size change
-    for (const [q, h] of hs) {
-      const line = el('div', h.cls === 'warn' ? 'warn' : '');
-      if (qs.length > 1) line.append(el('b', null, qName(q) + ': '));
-      line.append(h.text);
-      box.append(line);
-    }
+    for (const [q, h] of hs) box.append(healthLine(h, qs.length > 1 ? qName(q) + ': ' : ''));
+    for (const text of warnings) box.append(el('div', 'warn', text));
     if (!qs.length) box.append(el('div', 'warn', 'No queues tracked.'));
     if (localNote) box.append(el('div', null, localNote));
-    w.dataset.health = !qs.length || hs.some(([, h]) => h.cls === 'warn') ? 'warn'
+    w.dataset.health = !qs.length || warnings.length || hs.some(([, h]) => h.cls === 'warn') ? 'warn'
       : hs.every(([, h]) => h.cls === 'ok') ? 'ok' : 'off';
     w.querySelector('#atqm-toggle').textContent = get(K.enabled, false) ? 'Pause' : 'Start';
 
@@ -2333,20 +3042,23 @@
 
     let tab = get(K.tab, 'overview');
     if (tab === 'next' && !CONFIG.firstLineOverview) tab = 'overview';
-    const nextCount = CONFIG.firstLineOverview ? nextUpItems().length : 0;
+    const nextItems = CONFIG.firstLineOverview ? nextUpItems() : [];
     const TAB_LABELS = {
-      next: nextCount ? `Next up (${nextCount})` : 'Next up',
+      next: nextItems.length ? `Next up (${nextItems.length})` : 'Next up',
       overview: 'Overview',
       changes: unread ? `Changes (${unread})` : 'Changes',
       settings: 'Settings',
     };
     w.querySelectorAll('#atqm-tabs button').forEach(b => {
-      b.setAttribute('aria-selected', String(b.dataset.tab === tab));
+      const selected = b.dataset.tab === tab;
+      b.setAttribute('aria-selected', String(selected));
+      b.tabIndex = selected ? 0 : -1;
       if (b.dataset.tab === 'next') b.hidden = !CONFIG.firstLineOverview;
       b.textContent = TAB_LABELS[b.dataset.tab] || b.dataset.tab;
     });
 
     const panel = w.querySelector('#atqm-panel');
+    panel.setAttribute('aria-labelledby', 'atqm-tab-' + tab);
     if (tab === 'settings') {
       if (panel.dataset.tab !== 'settings') renderSettings(panel);
       panel.dataset.tab = 'settings';
@@ -2356,7 +3068,7 @@
     const scroll = panel.scrollTop;
     panel.replaceChildren();
     if (tab === 'changes') renderChanges(panel);
-    else if (tab === 'next') renderNextUp(panel);
+    else if (tab === 'next') renderNextUp(panel, nextItems);
     else renderOverview(panel, pg);
     panel.scrollTop = scroll;
   }
@@ -2418,17 +3130,13 @@
     const rems = activeReminders();
     for (const c of rems) {
       const slot = reminderSlot(c);
-      if (!slot || get(K.pings, {})[c.id]?.slot === slot) continue;
-      const pings = get(K.pings, {});
-      pings[c.id] = { slot, by: ID, ts: Date.now() };
-      set(K.pings, pings);
-      await sleep(300);
-      if (get(K.pings, {})[c.id]?.by === ID && get(K.pings, {})[c.id]?.slot === slot) callNotify(c, slot);
+      if (slot && await claim(K.pings, c.id, slot)) callNotify(c, slot);
     }
     // Tidy reminder bookkeeping for calls that ended over a day ago
     const known = new Map(trackedCalls().map(c => [c.id, c]));
     for (const key of [K.pings, K.dismissed]) {
-      const m = get(key, {}); let changed = false;
+      const m = { ...get(key, {}) };
+      let changed = false;
       for (const id of Object.keys(m)) {
         const c = known.get(id);
         if (!c || (c.end && Date.now() - c.end > 86400000)) { delete m[id]; changed = true; }
@@ -2436,6 +3144,27 @@
       if (changed) set(key, m);
     }
     if (rems.length || document.querySelector('#atqm-rem')?.childElementCount) renderSoon();
+  }
+
+  // A monitor that stops is easy to miss, so one tab sends a single "stopped updating" alert when a
+  // queue goes quiet. Only outages noticed as they happen count: opening Autotask in the morning
+  // doesn't alert about last night.
+  async function healthTicker() {
+    if (!isTop || !get(K.enabled, false) || (!CONFIG.notify && !CONFIG.sound)) return;
+    const now = Date.now();
+    for (const q of activeQueues()) {
+      const st = get(q.state, null);
+      const age = st?.lastScan ? now - st.lastScan : 0;
+      if (!age || age <= staleMs() || age > staleMs() + 10 * 60000) continue;
+      if (!(await claim(K.healthPinged, q.key, st.lastScan))) continue;
+      if (CONFIG.sound) beep(true);
+      if (CONFIG.notify && 'Notification' in window && Notification.permission === 'granted') {
+        try {
+          const n = new Notification(`Queue monitor: ${qName(q)} stopped updating`, { body: health(q).text });
+          n.onclick = () => { window.focus(); n.close(); };
+        } catch { /* not allowed here */ }
+      }
+    }
   }
 
   function renderQuickStart(box) {
@@ -2448,12 +3177,23 @@
     r.append(el('b', null, `${idle.length} tracked queue${idle.length > 1 ? 's aren\'t' : ' isn\'t'} being monitored`));
     r.append(el('div', 'atqm-sub', idle.map(qName).join(', ')));
     const btns = el('div', 'atqm-qsbtns');
-    const go = el('button', 'atqm-qsgo', 'Quick start');
-    go.title = 'Open a tab for each queue and start monitoring';
-    go.onclick = quickStart;
+    if (idle.some(queueUrl)) {
+      const go = el('button', 'atqm-qsgo', 'Quick start');
+      go.title = 'Open a tab for each queue and start monitoring';
+      go.onclick = quickStart;
+      btns.append(go);
+    } else {
+      // Quick start has nowhere to open them yet, so don't offer a button that can't do what it says
+      r.append(el('div', 'atqm-sub', 'Open My Workspace & Queues once and Quick start can open them for you.'));
+      if (!get(K.enabled, false)) {
+        const on = el('button', 'atqm-qsgo', 'Turn on monitoring');
+        on.onclick = () => { set(K.enabled, true); render(); };
+        btns.append(on);
+      }
+    }
     const later = el('button', null, 'Not now');
     later.onclick = () => { set(K.qsSnooze, Date.now() + 8 * 3600000); render(); };
-    btns.append(go, later);
+    btns.append(later);
     r.append(btns);
     box.append(r);
   }
@@ -2472,9 +3212,7 @@
       const dismiss = el('button', null, 'Dismiss');
       dismiss.title = "I'm on it: stop reminders for this call";
       dismiss.onclick = () => {
-        const d = get(K.dismissed, {});
-        d[c.id] = Date.now();
-        set(K.dismissed, d);
+        set(K.dismissed, { ...get(K.dismissed, {}), [c.id]: Date.now() });
         render();
       };
       top.append(dismiss);
@@ -2490,20 +3228,50 @@
   try { isTop = W.top === W; } catch { isTop = false; }
   let lastReportHadQueue = false;
 
+  // Messages always name the origin they're for. A frame learns the top window's origin directly
+  // (same origin), from a message the top window sent, or from ancestorOrigins; until then it sends
+  // only a 'hello?' that carries nothing, and the top window's reply tells it.
+  const frameOrigins = new WeakMap(); // window -> the origin it last messaged us from
+  let topOriginKnown = null;
+  function topOrigin() {
+    try { return W.top.location.origin; } catch { /* another origin */ }
+    if (topOriginKnown) return topOriginKnown;
+    const anc = location.ancestorOrigins;
+    return anc && anc.length ? anc[anc.length - 1] : null;
+  }
+  function postToTop(msg) {
+    const origin = topOrigin();
+    try {
+      if (origin) W.top.postMessage(msg, origin);
+      else W.top.postMessage({ atqm: 'hello?' }, '*');
+    } catch { /* ignore */ }
+  }
+  function postToFrame(win, msg) {
+    const origin = win && frameOrigins.get(win);
+    if (!origin) return;
+    try { win.postMessage(msg, origin); } catch { /* frame gone */ }
+  }
+
   function reportPage(pg) {
     if (isTop || pg.remote) return;
     if (!pg.cur && !lastReportHadQueue) return;
     lastReportHadQueue = !!pg.cur;
-    const msg = { atqm: 'page', ts: Date.now(), cur: pg.cur || null, qKey: pg.q?.key || null, owns: !!pg.owns, foreign: !!pg.foreign, isCalls: !!pg.isCalls };
-    try { W.top.postMessage(msg, '*'); } catch { /* ignore */ }
+    postToTop({
+      atqm: 'page', ts: Date.now(), cur: pg.cur || null, qKey: pg.q?.key || null, owns: !!pg.owns, foreign: !!pg.foreign,
+      choose: !!pg.choose, isCalls: !!pg.isCalls, url: location.href, storageFail: storageFail?.ts || 0,
+    });
   }
 
   const fromAutotask = origin => { try { return /(^|\.)autotask\.net$/i.test(new URL(origin).hostname); } catch { return false; } };
   addEventListener('message', e => {
     const m = e.data;
     if (!m || typeof m !== 'object' || !m.atqm || !fromAutotask(e.origin)) return;
-    if (m.atqm === 'page' && isTop) {
-      remotePage = { ...m, ts: Date.now(), source: e.source };
+    if (e.source) frameOrigins.set(e.source, e.origin);
+    if (e.source && e.source === W.top) topOriginKnown = e.origin;
+    if (m.atqm === 'hello?' && isTop) {
+      try { e.source.postMessage({ atqm: 'hello' }, e.origin); } catch { /* frame gone */ }
+    } else if (m.atqm === 'page' && isTop) {
+      remotePage = { ...m, ts: Date.now(), source: e.source, url: isAutotaskUrl(m.url) ? m.url : null };
       pageCache.t = 0;
       renderSoon();
     } else if (m.atqm === 'start' && !isTop && m.cur && MODES[m.mode]) {
@@ -2514,8 +3282,45 @@
     } else if (m.atqm === 'takeover' && !isTop) {
       const q = trackedQueues().find(x => x.key === m.qKey);
       if (q && pageInfo(true).q?.key === q.key) takeOver(q);
+    } else if (m.atqm === 'diag' && !isTop) {
+      let result;
+      try { result = diagnose(); } catch (err) { result = { frame: 'frame', path: location.pathname, error: String(err) }; }
+      try { e.source.postMessage({ atqm: 'diagResult', id: m.id, result }, e.origin); } catch { /* gone */ }
+    } else if (m.atqm === 'diagResult' && isTop) {
+      diagWaiters.get(m.id)?.push(m.result);
     }
   });
+
+  // The scan loop: each page runs one, and it only does work while this page monitors a queue
+  let loopTimer = null;
+  function schedule(delay) {
+    clearTimeout(loopTimer);
+    loopTimer = setTimeout(async () => { await tick(); schedule(CONFIG.refreshMs); }, delay);
+  }
+  function reschedule() {
+    const mine = trackedQueues().filter(q => owned.has(q.key)).map(q => get(q.state, {}).lastScan || 0);
+    const last = mine.length ? Math.max(...mine) : 0;
+    schedule(Math.max(2000, last + CONFIG.refreshMs - Date.now()));
+  }
+
+  // ---------------------------------------------------------------------------
+  // Tests (tests/harness.js) load this script with __ATQM_TEST__ set and stop here, before anything
+  // starts: no widget, no timers, no scans.
+  // ---------------------------------------------------------------------------
+  if (W.__ATQM_TEST__) {
+    Object.assign(W.__ATQM_TEST__, {
+      AT, CONFIG, DEFAULTS, K, P, FIELDS, MY_QUEUE, DATE_RE,
+      get, set, del, readSnap, writeSnap, loadSettings, cleanSetting, importSettings,
+      storageFail: () => storageFail,
+      parseDate, detectDateOrder, learnDateOrder, dateOrder, wallClockToTs, zoneOffset, checkClock, clockWarning,
+      dur, dueState, dueAt, reminderSlot, leadTimes,
+      trackedQueues, qStore, snapTickets, ticketIndex,
+      readGrid, readCallGrid, findColumns, pagerInfo, coverage, missingColumns,
+      scanFull, scanIntake, scanCalls, health, globalWarnings, navItems, currentQueue, diagnose,
+      claim, mayMonitorHere, consentHere,
+    });
+    return;
+  }
 
   // ---------------------------------------------------------------------------
   // Boot
@@ -2525,7 +3330,6 @@
   if (isTop && launchKey()) {
     try { sessionStorage.setItem(SS_KEY, launchKey()); sessionStorage.setItem(P + 'launched', '1'); } catch { /* ignore */ }
   }
-  const launchedTab = () => { try { return !!sessionStorage.getItem(P + 'launched'); } catch { return false; } };
   const isPopup = () => isTop && !!W.opener && !launchedTab();
 
   const wantsWidget = () => !(CONFIG.hideInPopups && isPopup()) && (isTop || (topHasNoBody && gridPresent()));
@@ -2541,6 +3345,8 @@
     if (!e.key || !e.key.startsWith(P)) return;
     if (e.key === K.scanReq && trackedQueues().some(ownsLock)) tick({ manual: true });
     if (e.key === K.moveReq) handleMoveRequest();
+    if (e.key === K.gridFixReq) handleGridFixRequest();
+    if (e.key === K.beepReq) playRelayedBeep();
     if (e.key === K.settings) { loadSettings(); reschedule(); }
     if (e.key === K.queues) {
       pageCache.t = 0;
@@ -2552,18 +3358,11 @@
   setInterval(render, isTop ? 30000 : 10000); // countdowns up to date; frames keep reporting their page
   if (isTop) setInterval(() => { const u = unlockedUntil(); if (u && Date.now() > u - 15000 && Date.now() < u + 15000) render(); }, 5000);
 
-  let loopTimer = null;
-  function schedule(delay) {
-    clearTimeout(loopTimer);
-    loopTimer = setTimeout(async () => { await tick(); schedule(CONFIG.refreshMs); }, delay);
-  }
-  function reschedule() {
-    const mine = trackedQueues().filter(q => owned.has(q.key)).map(q => get(q.state, {}).lastScan || 0);
-    const last = mine.length ? Math.max(...mine) : 0;
-    schedule(Math.max(2000, last + CONFIG.refreshMs - Date.now()));
-  }
   schedule(3000);
-  if (isTop) { setTimeout(callTicker, 3000); setInterval(callTicker, 15000); }
+  if (isTop) {
+    setTimeout(callTicker, 3000);
+    setInterval(() => { callTicker(); healthTicker(); }, 15000);
+  }
   let launchChecks = 0;
   const launchTimer = setInterval(() => {
     if (launchKey()) handleLaunch();

@@ -33,7 +33,7 @@ Tampermonkey checks the same link for new versions, so updates arrive by themsel
    - **Open a separate monitoring tab** (recommended): a new tab keeps the queue up to date while you carry on working in this one.
    - **Monitor in this tab**: this tab does the monitoring, and is locked (see below).
 4. Allow notifications when the browser asks.
-5. To track another queue, open it and press **Start tracking** in the window.
+5. To track another queue, open it and press **Start tracking** in the window. It opens a copy of the page in a new tab to do the monitoring, so the tab you're in isn't locked. (If your browser blocks the new tab, allow pop-ups for autotask.net.)
 
 After that, **Quick start** (in the window, or at the top of Settings) opens a monitoring tab for every tracked queue in one go. Press it from another window later to move them all there, for example to a window you keep minimised.
 

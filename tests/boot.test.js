@@ -39,6 +39,52 @@ test('boot: an ordinary tab asks before it monitors, then monitors and locks', a
   }
 });
 
+test('boot: Start tracking opens the queue in a new tab to monitor it, leaving this tab free', async () => {
+  const { window, close } = load({ boot: true, html: fixture('queue-grid.html'), settings: { dateOrder: 'DMY' }, storage: { 'atqm:queues': [] } });
+  try {
+    const doc = window.document;
+    const opened = [];
+    window.open = (url, name) => { opened.push({ url, name }); return {}; };
+    await sleep(400);
+    const banner = doc.getElementById('atqm-page');
+    assert.match(banner.textContent, /My Workspace > Open Tickets isn't tracked/);
+
+    button(banner, /Start tracking: all changes/).click();
+    assert.equal(opened.length, 1);
+    assert.equal(opened[0].url, window.location.href);
+    assert.match(opened[0].name, /^atqm-my-workspace-open-tickets~/); // tells the new tab which queue it's for
+    const queues = JSON.parse(window.localStorage.getItem('atqm:queues'));
+    assert.deepEqual(queues.map(q => q.key), ['my-workspace-open-tickets']);
+    assert.equal(window.localStorage.getItem('atqm:enabled'), 'true');
+
+    await sleep(600);
+    assert.match(banner.textContent, /Opening a tab to monitor Open Tickets/);
+    assert.ok(button(banner, /Monitor in this tab instead/));
+    assert.equal(window.localStorage.getItem('atqm:lock:q:my-workspace-open-tickets'), null, 'this tab does not monitor');
+    assert.equal(doc.getElementById('atqm-lock'), null, 'this tab is not locked');
+  } finally {
+    close();
+  }
+});
+
+test('boot: if the browser blocks the new tab, the banner offers both choices again', async () => {
+  const { window, close } = load({ boot: true, html: fixture('queue-grid.html'), storage: { 'atqm:queues': [] } });
+  try {
+    const doc = window.document;
+    window.open = () => null;
+    await sleep(400);
+    const banner = doc.getElementById('atqm-page');
+    button(banner, /Start tracking: all changes/).click();
+    await sleep(300);
+    assert.match(doc.getElementById('atqm-health').textContent, /blocked the monitoring tab/);
+    assert.match(banner.textContent, /Nobody is monitoring Open Tickets/);
+    assert.ok(button(banner, /Open a separate monitoring tab/));
+    assert.ok(button(banner, /Monitor in this tab/));
+  } finally {
+    close();
+  }
+});
+
 test('boot: tabs and the minimise button are labelled for assistive tech', async () => {
   const { window, close } = load({ boot: true });
   try {

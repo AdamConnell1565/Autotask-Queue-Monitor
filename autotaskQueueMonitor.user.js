@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Autotask Queue Monitor
 // @namespace    autotask
-// @version      0.9.0
+// @version      0.9.1
 // @description  Track any My Workspace & Queues queue (My queue by default) in its own tab, with a live overview on every Autotask page
 // @author       AdamConnell1565
 // @homepageURL  https://github.com/AdamConnell1565/Autotask-Queue-Monitor
@@ -177,6 +177,7 @@
     beepReq: P + 'beep',              // a tab that can't play sound asks another tab to
     beepClaims: P + 'beep:claims',
     healthPinged: P + 'health:pinged',// queue -> the outage we already sent a "stopped updating" alert for
+    launchPending: P + 'launch:pending',// a monitoring tab was just opened for this queue: { qKey, ts }
   };
 
   const CONFIG = { ...DEFAULTS };
@@ -1339,19 +1340,23 @@
 
   function slug(s) { return clean(s).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 60); }
 
-  function startTracking(cur, mode) {
+  // Track a queue and open a copy of this page in a new tab to monitor it, so the tab you're working
+  // in isn't taken over and locked. Runs from the button press (browsers block tabs opened later).
+  // Returns false if the browser blocked the new tab; the page banner then offers to monitor here.
+  function startTracking(cur, mode, url) {
     const list = trackedQueues();
-    if (findTracked(cur)) return;
+    const existing = findTracked(cur);
+    if (existing) return openMonitorTab(existing, url);
     let key = slug(`${cur.section}-${cur.nav}`) || 'queue';
     while (list.some(q => q.key === key)) key += '-2';
     list.push({ key, nav: cur.nav, section: cur.section, mode });
     saveQueues(list);
-    consentHere({ key }); // pressing Start tracking here is the go-ahead to monitor here
     if (!get(K.enabled, false)) set(K.enabled, true);
     if (CONFIG.notify && 'Notification' in window && Notification.permission === 'default') Notification.requestPermission();
     if (CONFIG.sound) beep(false);
-    tick({ manual: true });
+    const opened = openMonitorTab(trackedQueues().find(q => q.key === key), url);
     render();
+    return opened;
   }
 
   // ---------------------------------------------------------------------------
@@ -1396,6 +1401,17 @@
   function openQueueTab(q, url) {
     return !!W.open(url, LAUNCH + q.key + '~' + Date.now().toString(36));
   }
+  // A tab of its own to monitor q: it starts by itself (see mayMonitorHere) and clicks the queue in the
+  // menu if the page doesn't open on it. Meanwhile the page banner here says it's on its way.
+  function openMonitorTab(q, url) {
+    if (!q || !url || !openQueueTab(q, url)) return false;
+    set(K.launchPending, { qKey: q.key, ts: Date.now() });
+    return true;
+  }
+  const launchPending = q => {
+    const p = get(K.launchPending, null);
+    return !!p && p.qKey === q.key && Date.now() - p.ts < 60000;
+  };
 
   // Where Quick start opens a queue: the address it was last monitored at, or any My Workspace & Queues
   // page (the new tab then clicks the queue in the menu itself)
@@ -2200,6 +2216,8 @@
     box.scrollTop = scroll;
   }
 
+  const BLOCKED = 'Your browser blocked the monitoring tab. Allow pop-ups for autotask.net and try again, or monitor in this tab.';
+
   // Page-specific banner: what this tab is doing with the queue it shows
   function renderPageBanner(box, pg) {
     box.replaceChildren();
@@ -2231,6 +2249,14 @@
       } else if (enabled && !pg.choose) {
         box.className = 'here';
         box.append(el('b', null, `${qName(pg.q)} is tracked.`), ' Starting monitoring in this tab…');
+      } else if (enabled && launchPending(pg.q)) {
+        box.className = 'here';
+        box.append(el('b', null, `Opening a tab to monitor ${qName(pg.q)}…`), ' This tab stays free to use.');
+        const btns = el('div', 'atqm-start');
+        const here = el('button', null, 'Monitor in this tab instead');
+        here.onclick = () => takeHere('Starting monitoring in this tab…');
+        btns.append(here);
+        box.append(btns);
       } else {
         // Nobody monitors it and this is an ordinary tab: ask rather than take it over
         box.className = 'untracked';
@@ -2240,8 +2266,8 @@
         sep.title = 'Recommended: a tab of its own stays on this queue while you keep working here';
         sep.onclick = () => {
           if (!get(K.enabled, false)) set(K.enabled, true);
-          const ok = !!pg.url && openQueueTab(pg.q, pg.url);
-          flashNote(ok ? 'Opening a monitoring tab…' : 'Your browser blocked the new tab. Allow pop-ups for autotask.net and try again.', 6000);
+          if (!openMonitorTab(pg.q, pg.url)) flashNote(BLOCKED, 10000);
+          else render();
         };
         const here = el('button', null, CONFIG.lockMonitorTabs ? 'Monitor in this tab (it will be locked)' : 'Monitor in this tab');
         here.title = 'This tab keeps the queue up to date, so it has to stay on this queue';
@@ -2267,10 +2293,10 @@
       const b = el('button', null, labels[mode]);
       b.title = m.hint;
       b.onclick = () => {
-        if (pg.remote) postToFrame(pg.remote, { atqm: 'start', cur: pg.cur, mode });
-        else startTracking(pg.cur, mode);
+        // The new tab opens from here, the page the button is on, even when the queue is in a frame
+        const opened = startTracking(pg.cur, mode, pg.url);
         pageCache.t = 0;
-        flashNote(`Tracking ${pg.cur.nav}…`, 2500);
+        flashNote(opened ? `Tracking ${pg.cur.nav}. Opening a tab to monitor it…` : `Tracking ${pg.cur.nav}. ${BLOCKED}`, opened ? 4000 : 10000);
       };
       btns.append(b);
     }
@@ -3140,7 +3166,7 @@
       const note = el('button', 'atqm-mnote', `${pg.cur.nav} isn't tracked. Expand to track it.`);
       note.onclick = () => { w.classList.remove('min'); render(); };
       mini.append(note);
-    } else if (pg.q && pg.choose) {
+    } else if (pg.q && pg.choose && !launchPending(pg.q)) {
       const note = el('button', 'atqm-mnote', `Nobody is monitoring ${qName(pg.q)}. Expand to choose where.`);
       note.onclick = () => { w.classList.remove('min'); render(); };
       mini.append(note);
@@ -3401,8 +3427,6 @@
       remotePage = { ...m, ts: Date.now(), source: e.source, url: isAutotaskUrl(m.url) ? m.url : null };
       pageCache.t = 0;
       renderSoon();
-    } else if (m.atqm === 'start' && !isTop && m.cur && MODES[m.mode]) {
-      startTracking({ nav: String(m.cur.nav || ''), section: String(m.cur.section || '') }, m.mode);
     } else if (m.atqm === 'note' && isTop) {
       localNote = String(m.text || '');
       render();

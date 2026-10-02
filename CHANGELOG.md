@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.9.1 (2026-10-02)
+
+### Changed
+
+- **Start tracking** now opens the queue in a new tab and monitors from there, so the tab you pressed it in isn't locked. While the new tab starts, the window says so and offers **Monitor in this tab instead**. If the browser blocks the new tab, it offers both choices again.
+
 ## 0.9.0 (2026-10-02)
 
 ### Changed

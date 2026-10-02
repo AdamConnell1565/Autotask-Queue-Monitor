@@ -1,0 +1,142 @@
+'use strict';
+process.env.TZ = 'UTC';
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const { load } = require('./harness');
+
+const MIN = 60000, HOUR = 60 * MIN;
+const NOW = Date.UTC(2026, 9, 2, 12, 0);
+const plain = v => JSON.parse(JSON.stringify(v));
+
+// Ticket numbers
+const OVERDUE = 'T20261001.0001', SOON = 'T20261001.0002', LATER = 'T20261001.0003', REPLIED = 'T20261001.0004';
+const ARRIVED = 'T20261001.0005', PAUSED = 'T20261001.0006', FR_SOON = 'T20261001.0007', WAITING = 'T20261001.0008';
+const PICKED_UP = 'T20261001.0009';
+
+// My queue tracked for all changes, plus a 1st line queue tracked for new tickets & first response
+const queues = [
+  { key: 'my', nav: 'Open Tickets', section: 'My Workspace', mode: 'full' },
+  { key: 'first-line', nav: 'Support 1st Line', section: 'All', mode: 'intake' },
+];
+const myQueue = {
+  [OVERDUE]: { status: 'In Progress', due: NOW - 10 * MIN, slaEvent: 'Resolution', firstSeen: NOW - 5 * HOUR },
+  [SOON]: { status: 'In Progress', due: NOW + 30 * MIN, slaEvent: 'Resolution', firstSeen: NOW - 5 * HOUR },
+  [LATER]: { status: 'In Progress', due: NOW + 5 * HOUR, slaEvent: 'Resolution', firstSeen: NOW - 5 * HOUR },
+  [REPLIED]: { status: 'Customer Note Added', due: NOW + 10 * HOUR, slaEvent: 'Resolution', firstSeen: NOW - 5 * HOUR },
+  [ARRIVED]: { status: 'New', firstSeen: NOW - 20 * MIN },
+  [PAUSED]: { status: 'Scheduled', due: NOW - HOUR, slaEvent: 'Resolution', firstSeen: NOW - 5 * HOUR },
+};
+const firstLine = {
+  [FR_SOON]: { status: 'New', frDue: NOW + 5 * MIN, created: NOW - 10 * MIN },
+  [WAITING]: { status: 'New', created: NOW - 30 * MIN },
+  [PICKED_UP]: { status: 'In Progress', created: NOW - 40 * MIN },
+  [OVERDUE]: { status: 'New', created: NOW - 6 * HOUR }, // also in My queue: listed once
+};
+const alerts = [
+  { ts: NOW - 15 * MIN, q: 'my', type: 'status', ticket: REPLIED, from: 'Waiting Customer', to: 'Customer Note Added', read: false,
+    text: `${REPLIED}: Waiting Customer → Customer Note Added` },
+  { ts: NOW - 20 * MIN, q: 'my', type: 'new', ticket: ARRIVED, read: false, text: `New: ${ARRIVED}` },
+  { ts: NOW - 5 * MIN, q: 'my', type: 'removed', ticket: 'T20261001.0099', read: false, text: 'Left queue: T20261001.0099' },
+];
+const storage = {
+  'atqm:enabled': true,
+  'atqm:queues': queues,
+  'atqm:snap:my-open-tickets': myQueue,
+  'atqm:snap:q:first-line': firstLine,
+  'atqm:alerts': alerts,
+};
+const shape = items => plain(items.map(it => [it.g, it.kind === 'call' ? it.c.id : it.t.id]));
+
+test('Next up puts the most urgent move first, across every tracked queue', () => {
+  const { api, close } = load({ now: NOW, storage });
+  const items = api.nextUpItems();
+  assert.deepEqual(shape(items), [
+    ['breached', OVERDUE],
+    ['soon', FR_SOON],      // first response due in 5 min (within 15)
+    ['soon', SOON],         // SLA due in 30 min (within 60)
+    ['new', WAITING],       // New in the 1st line queue, waiting longest
+    ['new', ARRIVED],       // arrived in My queue, not looked at yet
+    ['changed', REPLIED],   // customer replied
+    ['later', LATER],
+  ]);
+  // Scheduled pauses the SLA, a ticket someone picked up needs nothing, and a ticket that left
+  // the queue is only in the history
+  assert.equal(api.urgentCount(items), 6);
+  assert.equal(api.nextSummary(items[0]), `Resolution 10m overdue: ${OVERDUE}`);
+  const replied = items.find(it => it.t?.id === REPLIED);
+  assert.equal(replied.changes.length, 1);
+  assert.equal(replied.dl.due, NOW + 10 * HOUR);
+  close();
+});
+
+test('Seen takes a change off the list; the ticket stays if it still has a deadline', () => {
+  const { api, close } = load({ now: NOW, storage });
+  api.markTicketRead(REPLIED);
+  api.markTicketRead(ARRIVED);
+  const items = api.nextUpItems();
+  assert.deepEqual(shape(items).filter(([g]) => ['new', 'changed', 'later'].includes(g)), [
+    ['new', WAITING],
+    ['later', LATER],
+    ['later', REPLIED],
+  ]);
+  assert.equal(api.urgentCount(items), 4);
+  // Other unread changes are untouched
+  assert.equal(api.get('atqm:alerts', []).filter(a => !a.read).length, 1);
+  close();
+});
+
+test('Next up follows the settings: thresholds and paused statuses', () => {
+  const { api, close } = load({ now: NOW, storage, settings: { dueSoonMinutes: 15, pausedStatuses: '' } });
+  const items = api.nextUpItems();
+  // 30 minutes away is no longer "due soon", and Scheduled no longer pauses the SLA
+  assert.equal(items.find(it => it.t?.id === SOON).g, 'later');
+  assert.equal(items.find(it => it.t?.id === PAUSED).g, 'breached');
+  close();
+});
+
+test('Next up with only My queue tracked', () => {
+  const { api, close } = load({ now: NOW, storage: { ...storage, 'atqm:queues': [queues[0]] } });
+  assert.deepEqual(shape(api.nextUpItems()), [
+    ['breached', OVERDUE],
+    ['soon', SOON],
+    ['new', ARRIVED],
+    ['changed', REPLIED],
+    ['later', LATER],
+  ]);
+  close();
+});
+
+test('service calls: the one in progress comes first, the rest of today last', () => {
+  const calls = {
+    501: { start: NOW - 10 * MIN, end: NOW + 50 * MIN, account: 'Example Dental', description: 'Replace switch' },
+    502: { start: NOW + 3 * HOUR, end: NOW + 4 * HOUR, account: 'Sample Solicitors' },
+    503: { start: NOW + 24 * HOUR, end: NOW + 25 * HOUR, account: 'Tomorrow Ltd' },
+  };
+  const { api, close } = load({
+    now: NOW,
+    settings: { serviceCalls: true },
+    storage: {
+      ...storage,
+      'atqm:queues': [queues[0], { key: 'calls', nav: 'Service Calls', section: 'My Workspace', mode: 'calls' }],
+      'atqm:snap:q:calls': calls,
+    },
+  });
+  const items = api.nextUpItems();
+  assert.deepEqual(shape(items)[0], ['now', '501']);
+  assert.deepEqual(shape(items).at(-1), ['calls', '502']);
+  assert.ok(!items.some(it => it.c?.id === '503'));
+  assert.equal(api.nextSummary(items[0]), 'Service call now: Example Dental – Replace switch');
+  close();
+});
+
+test('status changes record where they came from and went to', () => {
+  const { api, close } = load({ now: NOW });
+  const q = api.trackedQueues()[0];
+  const t = status => ({ id: OVERDUE, status, title: 'Printer', due: null, frDue: null });
+  api.scanFull(q, { tickets: [t('Waiting Customer')], rowCount: 1 });
+  api.scanFull(q, { tickets: [t('Customer Note Added')], rowCount: 1 });
+  const [a] = api.get('atqm:alerts', []);
+  assert.equal(a.from, 'Waiting Customer');
+  assert.equal(a.to, 'Customer Note Added');
+  close();
+});

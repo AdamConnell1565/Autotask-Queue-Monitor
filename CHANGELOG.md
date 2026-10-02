@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.9.0 (2026-10-02)
+
+### Changed
+
+- **Next up** is now always on and the first tab, and the **Changes** tab is gone: its history is under Next up as **Recent changes**. The **First line overview** setting is removed.
+- Next up now works for any mix of queues and settings, most urgent first: service call now, overdue, due soon, new tickets, changed since you last looked, coming up, service calls later today. Each ticket appears once.
+- Next up now includes tickets that arrived in your queues and status changes you haven't seen yet (such as a customer replying), with a **Seen** button to take them off the list.
+- The top of Next up shows the queues and settings it's working from; the tab's count is the number of things that need you now, and the minimised window shows the top one.
+- Status changes now record the old and new status, so Next up can show "Waiting Customer → Customer Note Added".
+
 ## 0.8.0 (2026-10-02)
 
 ### Changed defaults

@@ -11,8 +11,8 @@ A Tampermonkey userscript that watches your Autotask queues and tells you when s
   - **All changes**: new tickets, status changes, tickets leaving, SLAs due soon or breached.
   - **New & first response**: new arrivals and first response SLAs only. Good for shared intake queues such as 1st line.
 - **Service calls** (optional): your scheduled calls, with reminders before each one.
-- **Next up** tab (optional): what to work on next, in priority order, across all your queues.
-- Desktop notifications and a sound for each change, plus a history of changes in the window.
+- **Next up**, the first tab: your next move, worked out from every queue you track and your settings (see [Next up](#next-up)).
+- Desktop notifications and a sound for each change, plus a history of changes under Next up.
 
 ## Install
 
@@ -36,6 +36,24 @@ Tampermonkey checks the same link for new versions, so updates arrive by themsel
 5. To track another queue, open it and press **Start tracking** in the window.
 
 After that, **Quick start** (in the window, or at the top of Settings) opens a monitoring tab for every tracked queue in one go. Press it from another window later to move them all there, for example to a window you keep minimised.
+
+## Next up
+
+The first tab in the window lists what to do next, most urgent first, across every queue you track:
+
+1. **Service call now**: a scheduled call that has started.
+2. **Overdue**: first responses and SLAs that are past due.
+3. **Due soon**: first responses and SLAs due within your "due soon" thresholds.
+4. **New tickets**: tickets still in New status in a queue tracked for new tickets, and tickets that arrived in your other queues since you last looked.
+5. **Changed since you last looked**: status changes you haven't seen yet, such as a customer replying.
+6. **Coming up**: everything else with a deadline, soonest first.
+7. **Service calls later today**.
+
+Each ticket appears once, in its most urgent group. Press **Seen** on a ticket to take its changes off the list. The tab's count is the number of things in groups 1 to 5, and the minimised window shows the top one.
+
+What goes in the list follows your setup: which queues you track and how (a queue tracked for new tickets & first response only contributes new tickets and first responses), the "due soon" thresholds, the statuses that pause the SLA, and whether service calls are on. The top of the tab shows the queues and settings it's working from.
+
+Underneath is **Recent changes**, the full history: new tickets, status changes, tickets leaving a queue, SLA warnings and service call changes. **Mark read** marks them all as read.
 
 ## How monitoring works
 
@@ -77,8 +95,8 @@ All in the window's **Settings** tab. The ones most people change:
 - **Refresh queues every**: how often monitoring tabs refresh.
 - **Date format in Autotask**: detected from your queues; set it if the window shows the wrong dates.
 - **Autotask time zone**: set this if the time zone in your Autotask profile differs from your PC's. The window warns you when due times look hours out.
-- **Warn when an SLA / first response is due within**: the "due soon" thresholds.
-- **Statuses that pause the SLA**: no SLA warnings for tickets in these statuses (Scheduled by default).
+- **Warn when an SLA / first response is due within**: the "due soon" thresholds, for alerts and for Next up.
+- **Statuses that pause the SLA**: no SLA warnings or deadlines for tickets in these statuses (Scheduled by default).
 - **Service calls** and **Call reminders**.
 - **Desktop notifications** and **Sound on new alerts**. **Test alert** checks both.
 - **Export settings** / **Import settings**: move your settings and tracked queues to another browser or PC.

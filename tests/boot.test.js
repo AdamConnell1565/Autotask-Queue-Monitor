@@ -54,10 +54,55 @@ test('boot: tabs and the minimise button are labelled for assistive tech', async
     assert.equal(min.getAttribute('aria-label'), 'Expand Queue monitor');
     assert.equal(min.getAttribute('aria-expanded'), 'false');
 
+    // Next up is the first tab and selected to start with; there's no Changes tab
+    assert.deepEqual(tabs.map(t => t.dataset.tab), ['next', 'overview', 'settings']);
+    assert.equal(selected[0].dataset.tab, 'next');
+
     // Arrow keys move to the next tab
     selected[0].dispatchEvent(new window.KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
     await sleep(50);
-    assert.equal(doc.querySelector('#atqm-tabs [aria-selected=true]').dataset.tab, 'changes');
+    assert.equal(doc.querySelector('#atqm-tabs [aria-selected=true]').dataset.tab, 'overview');
+  } finally {
+    close();
+  }
+});
+
+test('boot: Next up shows the moves, the queues it is based on, and the change history', async () => {
+  const MIN = 60000, NOW = Date.UTC(2026, 9, 2, 12, 0);
+  const T1 = 'T20261001.0001', T2 = 'T20261001.0002';
+  const { window, close } = load({
+    boot: true,
+    now: NOW,
+    storage: {
+      'atqm:enabled': true,
+      'atqm:tab': 'changes', // saved by an older version
+      'atqm:state': { mode: 'ok', lastScan: NOW, ts: NOW, count: 2 },
+      'atqm:snap:my-open-tickets': {
+        [T1]: { status: 'In Progress', due: NOW - 10 * MIN, slaEvent: 'Resolution', title: 'Printer' },
+        [T2]: { status: 'Customer Note Added', title: 'Laptop', firstSeen: NOW - 60 * MIN },
+      },
+      'atqm:alerts': [{ ts: NOW - 5 * MIN, q: 'my', type: 'status', ticket: T2, from: 'Waiting Customer', to: 'Customer Note Added',
+        read: false, text: `${T2} – Laptop: Waiting Customer → Customer Note Added` }],
+    },
+  });
+  try {
+    const doc = window.document;
+    await sleep(200);
+    assert.equal(doc.querySelector('#atqm-tabs [aria-selected=true]').dataset.tab, 'next');
+    assert.equal(doc.getElementById('atqm-tab-next').textContent, 'Next up (2)');
+    const panel = doc.getElementById('atqm-panel');
+    const heads = () => [...panel.querySelectorAll('.atqm-next-h')].map(h => h.textContent);
+    assert.deepEqual(heads(), ['Overdue', 'Changed since you last looked']);
+    assert.match(panel.querySelector('.atqm-basis').textContent, /Watching\s*My queue/);
+    assert.match(panel.textContent, /Recent changes/);
+    assert.match(panel.querySelector('.atqm-chg').textContent, /Waiting Customer → Customer Note Added/);
+    // The minimised window shows the top move
+    assert.match(doc.getElementById('atqm-mini').textContent, /Next: Resolution 10m overdue: T20261001\.0001/);
+
+    button(panel, /^Seen$/).click();
+    await sleep(50);
+    assert.deepEqual(heads(), ['Overdue']);
+    assert.equal(doc.getElementById('atqm-tab-next').textContent, 'Next up (1)');
   } finally {
     close();
   }

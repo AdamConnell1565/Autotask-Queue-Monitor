@@ -291,7 +291,7 @@ test('boot: Next up shows the moves, the queues it is based on, and the change h
     assert.equal(doc.getElementById('atqm-tab-next').textContent, 'Next up (2)');
     const panel = doc.getElementById('atqm-panel');
     const heads = () => [...panel.querySelectorAll('.atqm-next-h')].map(h => h.textContent);
-    assert.deepEqual(heads(), ['Overdue', 'Changed since you last looked']);
+    assert.deepEqual(heads(), ['In progress', 'Waiting for you']);
     assert.match(panel.querySelector('.atqm-basis').textContent, /Watching\s*My queue/);
     assert.match(panel.textContent, /Recent changes/);
     assert.match(panel.querySelector('.atqm-chg').textContent, /Waiting Customer → Action Required/);
@@ -300,8 +300,10 @@ test('boot: Next up shows the moves, the queues it is based on, and the change h
 
     button(panel, /^Seen$/).click();
     await sleep(50);
-    assert.deepEqual(heads(), ['Overdue']);
-    assert.equal(doc.getElementById('atqm-tab-next').textContent, 'Next up (1)');
+    // Seen clears the change; the ticket still needs action, so it stays
+    assert.deepEqual(heads(), ['In progress', 'Waiting for you']);
+    assert.equal(panel.querySelector('.atqm-chg'), null);
+    assert.equal(doc.getElementById('atqm-tab-next').textContent, 'Next up (2)');
   } finally {
     close();
   }

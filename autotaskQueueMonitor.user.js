@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Autotask Queue Monitor
 // @namespace    autotask
-// @version      0.12.1
+// @version      0.13.0
 // @description  Track any My Workspace & Queues queue (My queue by default) in its own tab, with a live overview on every Autotask page
 // @author       AdamConnell1565
 // @homepageURL  https://github.com/AdamConnell1565/Autotask-Queue-Monitor
@@ -1947,7 +1947,8 @@
 .atqm-tag.atqm-chg{background:#1f3350;color:#9cc8ff}
 .atqm-seen{background:#2b2f36;color:#c9d1d9;border:1px solid #444;border-radius:4px;padding:0 6px;margin-left:2px;cursor:pointer;font:inherit;font-size:11px}
 .atqm-seen:hover{background:#3a3e46}
-.atqm-next li.status::before{background:#4ea1ff;color:#0d1117}
+.atqm-next li.doing::before{background:#4ea1ff;color:#0d1117}
+.atqm-list li.doing{border-color:#4ea1ff}.atqm-list li.doing .atqm-when{color:#9cc8ff;font-weight:600}
 .atqm-next li.atqm-next-more{font-weight:400}
 .atqm-more{background:none;border:0;color:#7fb8ff;cursor:pointer;font:inherit;padding:2px 0}
 .atqm-more:hover{text-decoration:underline}
@@ -1987,7 +1988,7 @@
 .dash-tt tr.dash-grp td{color:#9aa4b2;font-weight:600;padding-top:12px;border-bottom-color:#383835}
 .dash-tt tr:not(.dash-grp):hover td{background:#24262b}
 .dash-tt tr.overdue td:first-child{box-shadow:inset 3px 0 #e5484d}.dash-tt tr.soon td:first-child{box-shadow:inset 3px 0 #d29922}
-.dash-tt tr.changed td:first-child{box-shadow:inset 3px 0 #4ea1ff}.dash-tt tr.fresh td:first-child{box-shadow:inset 3px 0 #3fb950}
+.dash-tt tr.doing td:first-child{box-shadow:inset 3px 0 #4ea1ff}.dash-tt tr.doing .when{color:#9cc8ff}.dash-tt tr.fresh td:first-child{box-shadow:inset 3px 0 #3fb950}
 .dash-tt tr.callnow td:first-child{box-shadow:inset 3px 0 #3fb950}.dash-tt tr.call td:first-child{box-shadow:inset 3px 0 #8b7cf6}
 .dash-tt tr.overdue .when{color:#ff7b7f}.dash-tt tr.soon .when{color:#e3b341}
 .dash-tt tr.resting td{color:#9aa4b2}.dash-tt tr.resting .tt{color:#c9d1d9}
@@ -2720,14 +2721,16 @@
   // ---------------------------------------------------------------------------
   const NEXT_GROUPS = [
     ['now', 'Service call now'],
+    ['doing', 'In progress'],
     ['breached', 'Overdue'],
     ['soon', 'Due soon'],
-    ['new', 'New tickets'],
-    ['changed', 'Changed since you last looked'],
+    ['waiting', 'Waiting for you'],
     ['later', 'Coming up'],
     ['calls', 'Service calls later today'],
   ];
-  const URGENT_GROUPS = new Set(['now', 'breached', 'soon', 'new', 'changed']);
+  const URGENT_GROUPS = new Set(['now', 'doing', 'breached', 'soon', 'waiting']);
+  const isInProgress = t => /^in progress$/i.test(clean(t.status));
+  const ageOf = t => t.created || t.firstSeen;
   const urgentCount = items => items.filter(it => URGENT_GROUPS.has(it.g)).length;
 
   // Unread changes per ticket, oldest first
@@ -2809,35 +2812,38 @@
       }
     }
     deadlines.sort((a, b) => a.due - b.due);
+
+    // In progress in your own queues (tracked for all changes): what you're doing, so it comes first.
+    // Soonest deadline first, then oldest. (In a shared queue, In Progress is someone else's work.)
+    const doing = [];
+    for (const q of ticketQs.filter(x => x.mode === 'full')) {
+      for (const t of snapTickets(q) || []) if (isInProgress(t) && !resting(t)) doing.push({ t, q, age: ageOf(t) });
+    }
+    const dueBy = x => deadlineOf.get(x.t.id)?.due ?? Infinity;
+    doing.sort((a, b) => dueBy(a) - dueBy(b) || a.age - b.age).forEach(x => {
+      const d = deadlineOf.get(x.t.id);
+      add('doing', d ? { ...x, due: d.due, soon: d.soon, what: d.what } : x);
+    });
+
+    // Then by deadline: anything overdue or due soon
     for (const d of deadlines) {
       const state = dueState(d.due, d.soon);
       if (state === 'overdue') add('breached', d);
       else if (state === 'soon') add('soon', d);
     }
 
-    // New tickets: still in New status in a queue tracked for new tickets, or arrived in one of your
-    // other queues since you last looked. Longest waiting first.
-    const fresh = [];
+    // Then everything else that needs you, longest waiting first: every ticket in your own queues that
+    // needs action, new tickets in shared queues, and shared-queue tickets that changed back into
+    // needing action since you last looked
+    const waiting = [];
     for (const q of ticketQs) {
       for (const t of snapTickets(q) || []) {
         if (resting(t)) continue;
-        const arrived = (unread.get(t.id) || []).some(a => a.type === 'new');
-        if (q.mode === 'intake' ? /^new$/i.test(t.status || '') : arrived) fresh.push({ t, q, age: t.created || t.firstSeen });
+        const mine = q.mode === 'full' || /^new$/i.test(t.status || '') || (unread.get(t.id) || []).some(isChange);
+        if (mine) waiting.push({ t, q, age: ageOf(t) });
       }
     }
-    fresh.sort((a, b) => a.age - b.age).forEach(x => add('new', x));
-
-    // Status changes you haven't looked at yet that leave the ticket needing action, such as a customer
-    // replying. Longest waiting first.
-    const changed = [];
-    for (const q of ticketQs) {
-      for (const t of snapTickets(q) || []) {
-        if (resting(t)) continue;
-        const last = (unread.get(t.id) || []).filter(isChange).pop();
-        if (last) changed.push({ t, q, ts: last.ts });
-      }
-    }
-    changed.sort((a, b) => a.ts - b.ts).forEach(x => add('changed', x));
+    waiting.sort((a, b) => a.age - b.age).forEach(x => add('waiting', x));
 
     // Everything else with a deadline, soonest first
     for (const d of deadlines) add('later', d);
@@ -2850,21 +2856,19 @@
     if (it.kind === 'call') return `Service call now: ${callLabel(it.c)}`;
     const now = Date.now();
     if (it.due) return `${it.what} ${it.due < now ? `${dur(now - it.due)} overdue` : `in ${dur(it.due - now)}`}: ${it.t.id}`;
-    if (it.g === 'changed') return `${changeText(it.changes.filter(isChange).pop())}: ${it.t.id}`;
-    return `New ticket waiting ${dur(now - it.age)}: ${it.t.id}`;
+    if (it.g === 'doing') return `In progress: ${it.t.id}`;
+    return `Waiting ${dur(now - it.age)}: ${it.t.id}`;
   }
 
   function nextUpRow(it, showQueue) {
     const t = it.t, now = Date.now();
-    const li = el('li', it.due ? dueState(it.due, it.soon) : it.g === 'changed' ? 'status' : 'new');
+    const li = el('li', it.due ? dueState(it.due, it.soon) : it.g === 'doing' ? 'doing' : 'new');
     li.title = [qWhere(it.q), t.account, t.priority, t.status].filter(Boolean).join(' | ');
     if (it.due) {
       li.append(el('span', 'atqm-when', it.due < now ? `${dur(now - it.due)} overdue` : `in ${dur(it.due - now)}`),
                 el('span', 'atqm-at', `(${dueAt(it.due)})`));
-    } else if (it.g === 'changed') {
-      li.append(el('span', 'atqm-when', `changed ${ago(it.ts)}`));
     } else {
-      li.append(el('span', 'atqm-when', `waiting ${dur(now - it.age)}`));
+      li.append(el('span', 'atqm-when', it.g === 'doing' ? 'in progress' : `waiting ${dur(now - it.age)}`));
     }
     li.append(ticketLink(t.id, t));
     if (it.changes.length) li.append(seenButton(t));
@@ -3551,7 +3555,7 @@
     }
     const all = [...byId.values()];
     const age = t => t.created || t.firstSeen;
-    const overdue = items.filter(it => it.g === 'breached');
+    const overdue = items.filter(it => { const d = dueOf(it); return d && d < now; });
     const nextHour = items.filter(it => { const d = dueOf(it); return d && d >= now && d - now <= HOUR; }).sort((a, b) => dueOf(a) - dueOf(b));
     const waiting = all.filter(t => /^new$/i.test(t.status || '') && !resting(t));
     const pastTarget = CONFIG.responseTarget > 0 ? waiting.filter(t => targetDue(t) && targetDue(t) < now).length : 0;
@@ -3752,8 +3756,10 @@
   }
   function nextTableRow(it, showQueue) {
     const t = it.t, now = Date.now();
-    const tr = el('tr', it.due ? dueState(it.due, it.soon) : it.g === 'changed' ? 'changed' : 'fresh');
-    const when = it.due ? relDue(it.due, now) : it.g === 'changed' ? `changed ${ago(it.ts)}` : `waiting ${dur(now - it.age)}`;
+    // The left edge: overdue and due soon as everywhere, otherwise what you're doing or what's waiting
+    const state = it.due ? dueState(it.due, it.soon) : '';
+    const tr = el('tr', state === 'overdue' || state === 'soon' ? state : it.g === 'doing' ? 'doing' : it.g === 'waiting' ? 'fresh' : '');
+    const when = it.due ? relDue(it.due, now) : it.g === 'doing' ? 'in progress' : `waiting ${dur(now - it.age)}`;
     const due = it.due || it.dl?.due, what = it.due ? it.what : it.dl?.what;
     tr.append(cell('when', when), ticketCell(t, it.changes), statusCell(t, it.changes), priorityCell(t.priority));
     if (showQueue) tr.append(cell('', el('span', 'atqm-tag', qName(it.q))));

@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.13.0 (2026-10-03)
+
+### Changed
+
+- Next up now includes every ticket in My queue that needs action, not just those with a deadline or a recent change. The order: service call now, **In progress** (your In Progress tickets, since that's what you're doing), overdue, due soon, **Waiting for you** (everything else that needs action, oldest first, alongside new tickets from shared queues), coming up, and service calls later today.
+- The separate "New tickets" and "Changed since you last looked" groups are folded into **Waiting for you**. A changed ticket keeps its place and still shows what it was, with **Seen**.
+- The dashboard's **Overdue** number counts every overdue ticket, including ones In progress.
+
 ## 0.12.1 (2026-10-03)
 
 ### Changed

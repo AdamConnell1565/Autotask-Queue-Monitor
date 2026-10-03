@@ -47,21 +47,21 @@ const storage = {
 };
 const shape = items => plain(items.map(it => [it.g, it.kind === 'call' ? it.c.id : it.t.id]));
 
-test('Next up puts the most urgent move first, across every tracked queue', () => {
+test('Next up: what you are doing first, then deadlines, then everything waiting by age', () => {
   const { api, close } = load({ now: NOW, storage });
   const items = api.nextUpItems();
   assert.deepEqual(shape(items), [
-    ['breached', OVERDUE],
+    ['doing', OVERDUE],     // In Progress in My queue, soonest deadline first
+    ['doing', SOON],
+    ['doing', LATER],
     ['soon', FR_SOON],      // first response due in 5 min (within 15)
-    ['soon', SOON],         // SLA due in 30 min (within 60)
-    ['new', WAITING],       // New in the 1st line queue, waiting longest
-    ['new', ARRIVED],       // arrived in My queue, not looked at yet
-    ['changed', REPLIED],   // customer replied
-    ['later', LATER],
+    ['waiting', REPLIED],   // needs action in My queue, oldest first
+    ['waiting', WAITING],   // New in the 1st line queue
+    ['waiting', ARRIVED],   // New in My queue
   ]);
-  // Scheduled pauses the SLA, a ticket someone picked up needs nothing, and a ticket that left
-  // the queue is only in the history
-  assert.equal(api.urgentCount(items), 6);
+  // Scheduled rests, In Progress in a shared queue is someone else's, and a ticket that left the queue
+  // is only in the history
+  assert.equal(api.urgentCount(items), 7);
   assert.equal(api.nextSummary(items[0]), `Resolution 10m overdue: ${OVERDUE}`);
   const replied = items.find(it => it.t?.id === REPLIED);
   assert.equal(replied.changes.length, 1);
@@ -69,18 +69,14 @@ test('Next up puts the most urgent move first, across every tracked queue', () =
   close();
 });
 
-test('Seen takes a change off the list; the ticket stays if it still has a deadline', () => {
+test('Seen clears a ticket\'s changes; it keeps its place in the list', () => {
   const { api, close } = load({ now: NOW, storage });
   api.markTicketRead(REPLIED);
   api.markTicketRead(ARRIVED);
   const items = api.nextUpItems();
-  assert.deepEqual(shape(items).filter(([g]) => ['new', 'changed', 'later'].includes(g)), [
-    ['new', WAITING],
-    ['later', ARRIVED],  // still in New: its response target keeps it in view
-    ['later', LATER],
-    ['later', REPLIED],
-  ]);
-  assert.equal(api.urgentCount(items), 4);
+  assert.deepEqual(shape(items).filter(([g]) => g === 'waiting'), [['waiting', REPLIED], ['waiting', WAITING], ['waiting', ARRIVED]]);
+  assert.equal(items.find(it => it.t?.id === REPLIED).changes.length, 0);
+  assert.equal(api.urgentCount(items), 7);
   // Other unread changes are untouched
   assert.equal(api.get('atqm:alerts', []).filter(a => !a.read).length, 1);
   close();
@@ -89,20 +85,27 @@ test('Seen takes a change off the list; the ticket stays if it still has a deadl
 test('Next up follows the settings: thresholds and statuses that need action', () => {
   const { api, close } = load({ now: NOW, storage, settings: { dueSoonMinutes: 15, actionStatuses: '' } });
   const items = api.nextUpItems();
-  // 30 minutes away is no longer "due soon", and with no list every status (Scheduled too) needs action
-  assert.equal(items.find(it => it.t?.id === SOON).g, 'later');
+  // With no list every status (Scheduled too) needs action, so its overdue SLA counts
   assert.equal(items.find(it => it.t?.id === PAUSED).g, 'breached');
+  close();
+});
+
+test('Next up follows the "due soon" thresholds', () => {
+  const { api, close } = load({ now: NOW, storage, settings: { frSoonMinutes: 3 } });
+  const items = api.nextUpItems();
+  // A first response 5 minutes away is no longer due soon: it waits its turn by age
+  assert.equal(items.find(it => it.t?.id === FR_SOON).g, 'waiting');
   close();
 });
 
 test('Next up with only My queue tracked', () => {
   const { api, close } = load({ now: NOW, storage: { ...storage, 'atqm:queues': [queues[0]] } });
   assert.deepEqual(shape(api.nextUpItems()), [
-    ['breached', OVERDUE],
-    ['soon', SOON],
-    ['new', ARRIVED],
-    ['changed', REPLIED],
-    ['later', LATER],
+    ['doing', OVERDUE],
+    ['doing', SOON],
+    ['doing', LATER],
+    ['waiting', REPLIED],
+    ['waiting', ARRIVED],
   ]);
   close();
 });

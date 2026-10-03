@@ -70,14 +70,14 @@ test('tickets without an SLA get the response target as their deadline', () => {
   assert.deepEqual(ids(api.nextUpItems()), [
     ['breached', 'T20261002.0001', 'Response target'],
     ['soon', 'T20261002.0002', 'Response target'],
-    ['new', 'T20261002.0004', 'First response'],
-    ['new', 'T20261002.0003', 'Response target'],
+    ['waiting', 'T20261002.0004', 'First response'],
+    ['waiting', 'T20261002.0003', 'Response target'],
   ]);
   close();
 
   const off = load({ now: NOW, settings: { responseTarget: 0 }, storage: { 'atqm:queues': QUEUES,
     'atqm:snap:q:first-line': { 'T20261002.0001': { status: 'New', created: NOW - 70 * MIN } } } });
-  assert.deepEqual(ids(off.api.nextUpItems()), [['new', 'T20261002.0001', null]]);
+  assert.deepEqual(ids(off.api.nextUpItems()), [['waiting', 'T20261002.0001', null]]);
   off.close();
 });
 
@@ -191,7 +191,7 @@ test('boot: the dashboard button opens the full-window dashboard; Esc closes it'
     const nt = dash.querySelector('.dash-nt');
     assert.deepEqual([...nt.querySelectorAll('th')].map(th => th.textContent), ['When', 'Ticket', 'Status', 'Priority', 'Queue', 'Title', 'Deadline']);
     assert.deepEqual([...nt.querySelectorAll('tr.dash-grp')].map(tr => tr.textContent.replace(/ · \d+$/, '')),
-      ['Overdue', 'Due soon', 'New tickets', 'Changed since you last looked']); // the ticket due later has changed
+      ['In progress', 'Overdue', 'Due soon', 'Waiting for you']);
 
     // The deadlines chart as a table
     [...dash.querySelectorAll('button')].find(b => b.textContent === 'Table').click();

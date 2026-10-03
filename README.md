@@ -48,18 +48,18 @@ Quick start opens several tabs from one click, which browsers block unless pop-u
 The first tab in the window lists what to do next, most urgent first, across every queue you track. Only tickets in a status that needs action are listed (see [Statuses that need action](#statuses-that-need-action)):
 
 1. **Service call now**: a scheduled call that has started.
-2. **Overdue**: first responses, SLAs and response targets that are past due.
-3. **Due soon**: first responses, SLAs and response targets due within your "due soon" thresholds.
-4. **New tickets**: tickets still in New status in a queue tracked for new tickets, and tickets that arrived in your other queues since you last looked.
-5. **Changed since you last looked**: status changes you haven't seen yet, such as a customer replying.
+2. **In progress**: tickets In Progress in My queue (and any other queue tracked for all changes), since that's what you're doing. Soonest deadline first, then oldest.
+3. **Overdue**: first responses, SLAs and response targets that are past due.
+4. **Due soon**: first responses, SLAs and response targets due within your "due soon" thresholds.
+5. **Waiting for you**: every other ticket in My queue that needs action (Action Required, Escalated, New and so on), new tickets in queues tracked for new tickets, and tickets in those queues that changed back into needing action. Longest waiting first, by the ticket's age.
 6. **Coming up**: everything else with a deadline, soonest first.
 7. **Service calls later today**.
 
 Tickets without an SLA aren't forgotten: a ticket still in New status with no first response SLA gets a **response target** (1 hour by default, in Settings), so it lines up against your SLAs by time, and you get an alert when the target passes.
 
-Each ticket appears once, in its most urgent group, under its earliest deadline. Press **Seen** on a ticket to take its changes off the list. The tab's count is the number of things in groups 1 to 5, and the minimised window shows the top one.
+Each ticket appears once, in its most urgent group. A ticket that has changed since you last looked shows what it was, with a **Seen** button to mark the change as read. The tab's count is the number of things in groups 1 to 5, and the minimised window shows the top one.
 
-What goes in the list follows your setup: which queues you track and how (a queue tracked for new tickets & first response only contributes new tickets and first responses), the "due soon" thresholds, the statuses that pause the SLA, and whether service calls are on. The top of the tab shows the queues and settings it's working from.
+What goes in the list follows your setup: which queues you track and how (a queue tracked for new tickets & first response only contributes new tickets and first responses), the "due soon" thresholds, the statuses that need action, the response target, and whether service calls are on. The top of the tab shows the queues and settings it's working from.
 
 Every ticket shows its status (in its Autotask colour) and priority.
 
@@ -71,7 +71,7 @@ Some statuses need you (a new ticket, a customer reply) and some don't (waiting 
 
 New, First Response, In Progress, Action Required, Waiting Internal, Escalated, Workshop, Dispatch
 
-A ticket in any other status rests: it stays visible (in the dashboard's ticket table and the Overview), but it isn't in Next up, gets no SLA or response target warnings, and doesn't ping you when you set it to that status. When a resting ticket moves back into a status that needs action (Waiting Customer → Action Required, say), you get a **Needs action** alert and it goes to the top of Next up's changed tickets. Leave the setting empty to treat every status as needing action.
+A ticket in any other status rests: it stays visible (in the dashboard's ticket table and the Overview), but it isn't in Next up, gets no SLA or response target warnings, and doesn't ping you when you set it to that status. When a resting ticket moves back into a status that needs action (Waiting Customer → Action Required, say), you get a **Needs action** alert and it's back in Next up. Leave the setting empty to treat every status as needing action.
 
 ## Dashboard
 

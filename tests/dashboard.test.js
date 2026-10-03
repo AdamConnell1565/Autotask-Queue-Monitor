@@ -70,8 +70,8 @@ test('tickets without an SLA get the response target as their deadline', () => {
   assert.deepEqual(ids(api.nextUpItems()), [
     ['breached', 'T20261002.0001', 'Response target'],
     ['soon', 'T20261002.0002', 'Response target'],
-    ['waiting', 'T20261002.0004', 'First response'],
-    ['waiting', 'T20261002.0003', 'Response target'],
+    ['waiting', 'T20261002.0003', 'Response target'], // due in 40 min
+    ['waiting', 'T20261002.0004', 'First response'],  // due in an hour
   ]);
   close();
 

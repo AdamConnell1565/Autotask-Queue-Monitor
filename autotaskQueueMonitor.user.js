@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Autotask Queue Monitor
 // @namespace    autotask
-// @version      0.13.0
+// @version      0.13.1
 // @description  Track any My Workspace & Queues queue (My queue by default) in its own tab, with a live overview on every Autotask page
 // @author       AdamConnell1565
 // @homepageURL  https://github.com/AdamConnell1565/Autotask-Queue-Monitor
@@ -2832,9 +2832,9 @@
       else if (state === 'soon') add('soon', d);
     }
 
-    // Then everything else that needs you, longest waiting first: every ticket in your own queues that
-    // needs action, new tickets in shared queues, and shared-queue tickets that changed back into
-    // needing action since you last looked
+    // Then everything else that needs you: every ticket in your own queues that needs action, new tickets
+    // in shared queues, and shared-queue tickets that changed back into needing action since you last
+    // looked. Deadlines (SLAs and response targets) first, soonest first; then the rest, oldest first.
     const waiting = [];
     for (const q of ticketQs) {
       for (const t of snapTickets(q) || []) {
@@ -2843,7 +2843,7 @@
         if (mine) waiting.push({ t, q, age: ageOf(t) });
       }
     }
-    waiting.sort((a, b) => a.age - b.age).forEach(x => add('waiting', x));
+    waiting.sort((a, b) => dueBy(a) - dueBy(b) || a.age - b.age).forEach(x => add('waiting', x));
 
     // Everything else with a deadline, soonest first
     for (const d of deadlines) add('later', d);

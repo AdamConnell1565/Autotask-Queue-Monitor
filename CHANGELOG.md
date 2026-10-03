@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.13.1 (2026-10-03)
+
+### Changed
+
+- **Waiting for you** puts tickets with a deadline (an SLA or response target) first, soonest first, before sorting the rest by age, so an SLA always comes before an older ticket without one.
+
 ## 0.13.0 (2026-10-03)
 
 ### Changed

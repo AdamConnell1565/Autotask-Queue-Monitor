@@ -55,9 +55,9 @@ test('Next up: what you are doing first, then deadlines, then everything waiting
     ['doing', SOON],
     ['doing', LATER],
     ['soon', FR_SOON],      // first response due in 5 min (within 15)
-    ['waiting', REPLIED],   // needs action in My queue, oldest first
-    ['waiting', WAITING],   // New in the 1st line queue
-    ['waiting', ARRIVED],   // New in My queue
+    ['waiting', WAITING],   // New, no SLA: response target in 30 min
+    ['waiting', ARRIVED],   // New, no SLA: response target in 40 min
+    ['waiting', REPLIED],   // Action Required, resolution SLA in 10h: deadlines before age
   ]);
   // Scheduled rests, In Progress in a shared queue is someone else's, and a ticket that left the queue
   // is only in the history
@@ -74,7 +74,7 @@ test('Seen clears a ticket\'s changes; it keeps its place in the list', () => {
   api.markTicketRead(REPLIED);
   api.markTicketRead(ARRIVED);
   const items = api.nextUpItems();
-  assert.deepEqual(shape(items).filter(([g]) => g === 'waiting'), [['waiting', REPLIED], ['waiting', WAITING], ['waiting', ARRIVED]]);
+  assert.deepEqual(shape(items).filter(([g]) => g === 'waiting'), [['waiting', WAITING], ['waiting', ARRIVED], ['waiting', REPLIED]]);
   assert.equal(items.find(it => it.t?.id === REPLIED).changes.length, 0);
   assert.equal(api.urgentCount(items), 7);
   // Other unread changes are untouched
@@ -104,8 +104,8 @@ test('Next up with only My queue tracked', () => {
     ['doing', OVERDUE],
     ['doing', SOON],
     ['doing', LATER],
-    ['waiting', REPLIED],
     ['waiting', ARRIVED],
+    ['waiting', REPLIED],
   ]);
   close();
 });
@@ -142,5 +142,24 @@ test('status changes record where they came from and went to', () => {
   const [a] = api.get('atqm:alerts', []);
   assert.equal(a.from, 'Waiting Customer');
   assert.equal(a.to, 'Action Required');
+  close();
+});
+
+test('waiting tickets: an SLA comes before age; without one, oldest first', () => {
+  const { api, close } = load({ now: NOW, settings: { responseTarget: 0 }, storage: {
+    'atqm:queues': [queues[0]],
+    'atqm:snap:my-open-tickets': {
+      'T20261001.0001': { status: 'Action Required', created: NOW - 7 * 24 * HOUR },                                     // a week old, no SLA
+      'T20261001.0002': { status: 'Escalated', created: NOW - 2 * HOUR, due: NOW + 6 * HOUR, slaEvent: 'Resolution' },   // younger, SLA later
+      'T20261001.0003': { status: 'Waiting Internal', created: NOW - HOUR, due: NOW + 3 * HOUR, slaEvent: 'Resolution' },// youngest, SLA sooner
+      'T20261001.0004': { status: 'Action Required', created: NOW - 3 * 24 * HOUR },                                     // three days old, no SLA
+    },
+  } });
+  assert.deepEqual(shape(api.nextUpItems()), [
+    ['waiting', 'T20261001.0003'],
+    ['waiting', 'T20261001.0002'],
+    ['waiting', 'T20261001.0001'],
+    ['waiting', 'T20261001.0004'],
+  ]);
   close();
 });

@@ -51,7 +51,7 @@ The first tab in the window lists what to do next, most urgent first, across eve
 2. **In progress**: tickets In Progress in My queue (and any other queue tracked for all changes), since that's what you're doing. Soonest deadline first, then oldest.
 3. **Overdue**: first responses, SLAs and response targets that are past due.
 4. **Due soon**: first responses, SLAs and response targets due within your "due soon" thresholds.
-5. **Waiting for you**: every other ticket in My queue that needs action (Action Required, Escalated, New and so on), new tickets in queues tracked for new tickets, and tickets in those queues that changed back into needing action. Longest waiting first, by the ticket's age.
+5. **Waiting for you**: every other ticket in My queue that needs action (Action Required, Escalated, New and so on), new tickets in queues tracked for new tickets, and tickets in those queues that changed back into needing action. Tickets with a deadline (an SLA or response target) come first, soonest first; then the rest, oldest first by the ticket's age.
 6. **Coming up**: everything else with a deadline, soonest first.
 7. **Service calls later today**.
 

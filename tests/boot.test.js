@@ -164,14 +164,14 @@ test('boot: a blocked Start tracking tab raises the pop-up notice, shown in the 
   }
 });
 
-test('boot: Quick start warns about pop-ups before the first try, and stops once tabs get through', async () => {
+test('boot: no pop-up talk until blocking is seen; tabs getting through are remembered', async () => {
   const { window, close } = load({ boot: true, html: fixture('queue-grid.html'), storage: TWO_QUEUES });
   try {
     const doc = window.document;
     window.open = () => ({});
     await sleep(400);
     const qs = doc.getElementById('atqm-qs');
-    assert.match(qs.textContent, /Opens 2 tabs\. If your browser blocks pop-ups from autotask\.net, only the first gets through/);
+    assert.doesNotMatch(qs.textContent, /pop-up/i);
     button(qs, /^Quick start$/).click();
     assert.equal(JSON.parse(window.localStorage.getItem('atqm:popups')).state, 'allowed');
   } finally {

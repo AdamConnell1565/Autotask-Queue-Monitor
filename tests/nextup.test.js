@@ -76,6 +76,7 @@ test('Seen takes a change off the list; the ticket stays if it still has a deadl
   const items = api.nextUpItems();
   assert.deepEqual(shape(items).filter(([g]) => ['new', 'changed', 'later'].includes(g)), [
     ['new', WAITING],
+    ['later', ARRIVED],  // still in New: its response target keeps it in view
     ['later', LATER],
     ['later', REPLIED],
   ]);

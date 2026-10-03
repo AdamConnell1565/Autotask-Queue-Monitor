@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Autotask Queue Monitor
 // @namespace    autotask
-// @version      0.10.0
+// @version      0.11.0
 // @description  Track any My Workspace & Queues queue (My queue by default) in its own tab, with a live overview on every Autotask page
 // @author       AdamConnell1565
 // @homepageURL  https://github.com/AdamConnell1565/Autotask-Queue-Monitor
@@ -128,6 +128,7 @@
     showStatusCounts: false,      // status count chips on "all changes" queues
     dueSoonMinutes: 60,           // "SLA due soon" threshold (all-changes queues)
     frSoonMinutes: 15,            // "first response due soon" threshold (new-ticket queues)
+    responseTarget: 60,           // minutes to respond to tickets in New with no first response SLA (0 = off)
     pausedStatuses: 'Scheduled',  // ticket statuses where the SLA clock is paused (e.g. waiting for a service call)
     autoColumns: false,           // add missing columns via the grid's Column Chooser without asking
     autoPageSize: false,          // switch the grid to its largest page size without asking
@@ -142,6 +143,7 @@
     opacityMin: 85,               // window opacity (%) when minimised
     lockMonitorTabs: true,        // monitoring tabs: big centred window, page greyed out and not clickable
     oneTab: false,                // Quick start opens one tab that monitors every queue in turn
+    dashboard: false,             // a button that opens the full-window dashboard
     notify: true,
     sound: true,
     hideInPopups: true,
@@ -181,6 +183,7 @@
     launchPending: P + 'launch:pending',// queue -> when a tab was opened to monitor it (it's on its way)
     rotator: P + 'rotator',           // the one-tab monitor's heartbeat: { id, tab, ts, queues }
     popups: P + 'popups',             // what opening tabs has shown: { state: 'blocked' | 'allowed', ts, dismissed }
+    statusColors: P + 'status:colors',// status (lower case) -> its colour in Autotask's grid, or null for plain
   };
 
   const CONFIG = { ...DEFAULTS };
@@ -398,6 +401,19 @@
     const probe = new Date(Date.UTC(y, mo - 1, d)); // rejects dates that don't exist, like 30/02
     if (probe.getUTCMonth() !== mo - 1 || probe.getUTCDate() !== d) return null;
     return wallClockToTs(y, mo, d, h, mi, CONFIG.timeZone);
+  }
+
+  // Tickets still in New status with no first response SLA get the team's own response target
+  function targetDue(t) {
+    const from = t.created || t.firstSeen;
+    return CONFIG.responseTarget > 0 && !t.frDue && from && /^new$/i.test(t.status || '') ? from + CONFIG.responseTarget * 60000 : null;
+  }
+  const targetState = t => (slaPaused(t) ? null : dueState(targetDue(t), CONFIG.frSoonMinutes));
+  // Alert when a ticket without an SLA comes up to, or passes, the response target. `before` is its state
+  // at the last scan (snapshots from before 0.11 don't have one: no alert for those, just the baseline).
+  function targetAlert(push, id, t, before) {
+    if (!t.tgt || RANK[t.tgt] <= RANK[before || 'ok']) return;
+    push(t.tgt, `Response target ${t.tgt === 'overdue' ? 'passed' : 'due soon'} (${dueAt(targetDue(t))}, no SLA): ${label(id, t)}`, id);
   }
 
   // New arrivals were created moments ago. When their Created times sit a whole number of hours away
@@ -740,6 +756,8 @@
       if (!status) status = cells.map(cellText).find(t => STATUS_SET.has(t.toLowerCase())) || '';
       raw.push({
         r, tCell, status,
+        sCell: cols?.status != null ? cells[cols.status + offset] : null,
+        plainCell: cols?.title != null ? cells[cols.title + offset] : null,
         id: cellText(tCell).match(TICKET_RE)[0],
         slaEvent: noneToEmpty(col(cells, cols?.slaEvent)),
         due: col(cells, cols?.slaDue ?? cols?.due),
@@ -751,14 +769,34 @@
       });
     }
     learnDateOrder(raw.flatMap(x => [x.due, x.frDue, x.created]));
+    learnStatusColors(raw);
 
-    const tickets = raw.map(({ r, tCell, ...x }) => {
+    const tickets = raw.map(({ r, tCell, sCell, plainCell, ...x }) => {
       const due = parseDate(x.due);
       let frDue = parseDate(x.frDue);
       if (!frDue && /first\s*response/i.test(x.slaEvent)) frDue = due;
       return { ...x, due, frDue, created: parseDate(x.created), ...findTicketRef(r, tCell) };
     });
     return { tickets, rowCount: rows.length };
+  }
+
+  // Autotask shows each status in its own colour (set up in Autotask). Read it off the status cell,
+  // ignoring the grid's ordinary text colour, so the monitor can show statuses the same way.
+  function textColor(cell) {
+    let n = cell;
+    while (n.childElementCount === 1 && clean(n.firstElementChild.textContent) === clean(n.textContent)) n = n.firstElementChild;
+    try { return n.ownerDocument.defaultView.getComputedStyle(n).color || ''; } catch { return ''; }
+  }
+  function learnStatusColors(rows) {
+    const found = {};
+    for (const x of rows) {
+      const key = clean(x.status).toLowerCase();
+      if (!key || !x.sCell || key in found) continue;
+      const c = textColor(x.sCell);
+      found[key] = c && c !== (x.plainCell ? textColor(x.plainCell) : '') ? c : null;
+    }
+    const cur = get(K.statusColors, {});
+    if (Object.entries(found).some(([k, v]) => cur[k] !== v)) set(K.statusColors, { ...cur, ...found });
   }
 
   // ---------------------------------------------------------------------------
@@ -902,7 +940,8 @@
     const prev = readSnap(q);
     const current = {};
     for (const { id, ...t } of grid.tickets) {
-      current[id] = { ...t, sla: slaPaused(t) ? null : dueState(t.due, CONFIG.dueSoonMinutes), firstSeen: prev?.[id]?.firstSeen ?? now };
+      const c = current[id] = { ...t, sla: slaPaused(t) ? null : dueState(t.due, CONFIG.dueSoonMinutes), firstSeen: prev?.[id]?.firstSeen ?? now };
+      c.tgt = targetState(c);
     }
     writeSnap(q, current);
 
@@ -919,12 +958,13 @@
     checkClock(Object.keys(current).filter(id => !prev[id]).map(id => current[id]), now);
     for (const [id, t] of Object.entries(current)) {
       const p = prev[id];
-      if (!p) push('new', `New: ${label(id, t)}${t.status ? ` [${t.status}]` : ''}`, id);
+      if (!p) push('new', `New: ${label(id, t)}${t.status ? ` [${t.status}]` : ''}`, id, { status: t.status || '' });
       else if (p.status !== t.status) push('status', `${label(id, t)}: ${p.status || '?'} → ${t.status || '?'}`, id, { from: p.status || '', to: t.status || '' });
       if (t.sla && RANK[t.sla] > RANK[p?.sla || 'ok']) {
         const what = t.slaEvent ? `${t.slaEvent} ` : '';
         push(t.sla, `${t.sla === 'overdue' ? 'SLA breached' : 'SLA due soon'} (${dueAt(t.due)}): ${what}${label(id, t)}`, id);
       }
+      targetAlert(push, id, t, !p ? 'ok' : p.tgt === undefined ? t.tgt : p.tgt);
     }
     const cov = coverage(grid);
     if (!cov.partial) { // with only part of the queue visible, "left queue" can't be judged
@@ -947,7 +987,8 @@
 
     const current = {};
     for (const { id, ...t } of grid.tickets) {
-      current[id] = { ...t, fr: slaPaused(t) ? null : dueState(t.frDue, CONFIG.frSoonMinutes), firstSeen: prevSnap[id]?.firstSeen ?? seen[id] ?? now };
+      const c = current[id] = { ...t, fr: slaPaused(t) ? null : dueState(t.frDue, CONFIG.frSoonMinutes), firstSeen: prevSnap[id]?.firstSeen ?? seen[id] ?? now };
+      c.tgt = targetState(c);
     }
 
     const fresh = [];
@@ -967,6 +1008,9 @@
         if (t.fr && RANK[t.fr] > RANK[prevSnap[id]?.fr || 'ok']) {
           push(t.fr, `First response ${t.fr === 'overdue' ? 'breached' : 'due soon'} (${dueAt(t.frDue)}): ${label(id, t)}`, id);
         }
+        // A ticket back on the visible page after a while away gets no catch-up alert
+        const p = prevSnap[id];
+        targetAlert(push, id, t, p ? (p.tgt === undefined ? t.tgt : p.tgt) : seen[id] ? t.tgt : 'ok');
       }
     }
 
@@ -1696,7 +1740,8 @@
 #atqm-dot{width:9px;height:9px;border-radius:50%;background:#6b6f76;flex:none}
 #atqm[data-health=ok] #atqm-dot{background:#3fb950}
 #atqm[data-health=warn] #atqm-dot{background:#d29922}
-#atqm-min{background:none;border:0;color:#e6e6e6;cursor:pointer;font-size:15px;line-height:1;padding:0 2px}
+#atqm-min,#atqm-dashbtn{background:none;border:0;color:#e6e6e6;cursor:pointer;font-size:15px;line-height:1;padding:0 2px}
+#atqm-dashbtn{font-size:14px}
 #atqm-health{padding:0 10px 8px;color:#9aa4b2}
 #atqm-health div.warn{color:#e3b341}
 #atqm-health b{color:#c9d1d9;font-weight:600}
@@ -1887,6 +1932,56 @@
 .atqm-more:hover{text-decoration:underline}
 .atqm-qsbox.atqm-popwarn{border-left-color:#d29922;background:#2e2a1f}
 #atqm-qs .atqm-qsbox + .atqm-qsbox{margin-top:6px}
+#atqm-dash{position:fixed;inset:0;z-index:2147483001;overflow:auto;background:#141518;color:#e6e6e6;
+  font:13px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif;padding:16px 20px 28px}
+#atqm-dash *{box-sizing:border-box}
+#atqm-dash:focus{outline:none}
+#atqm-dash button:focus-visible,#atqm-dash a:focus-visible,#atqm-dash [tabindex]:focus-visible{outline:2px solid #4ea1ff;outline-offset:1px}
+.dash-top{display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin-bottom:12px}
+.dash-title b{font-size:18px}.dash-title span{color:#9aa4b2;margin-left:10px}
+.dash-actions{display:flex;gap:8px;margin-left:auto}
+.dash-actions button{background:#2b2f36;color:#e6e6e6;border:1px solid #444;border-radius:4px;padding:5px 12px;cursor:pointer;font:inherit}
+.dash-actions button:hover{background:#3a3e46}
+.dash-actions .dash-close{background:#1f6feb;border-color:#1f6feb;color:#fff}
+.dash-note{background:#2e2a1f;border-left:3px solid #d29922;border-radius:4px;padding:6px 10px;margin-bottom:8px;color:#e3b341}
+.dash-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;margin-bottom:14px}
+.dash-kpi{background:#1e1f22;border:1px solid #2c2f35;border-top:3px solid #3b4a5e;border-radius:6px;padding:10px 12px;min-width:0}
+.dash-kpi .l{display:flex;align-items:center;gap:6px;color:#c9d1d9}
+.dash-kpi .v{font-size:30px;font-weight:600;line-height:1.2;margin-top:2px}
+.dash-kpi .s{color:#9aa4b2;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dash-kpi.critical{border-top-color:#e5484d}.dash-kpi.warning{border-top-color:#d29922}
+.dash-ico{display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:50%;
+  font-size:10px;font-weight:700;background:#3b4a5e;color:#e6e6e6;flex:none}
+.dash-kpi.critical .dash-ico{background:#e5484d;color:#fff}.dash-kpi.warning .dash-ico{background:#d29922;color:#141518}
+.dash-grid{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr) minmax(0,1fr);gap:14px;align-items:start}
+@media (max-width:1200px){.dash-grid{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}.dash-grid > :last-child{grid-column:1/-1}}
+@media (max-width:760px){.dash-grid{grid-template-columns:minmax(0,1fr)}#atqm-dash{padding:12px 16px}}
+.dash-stack{display:flex;flex-direction:column;gap:14px;min-width:0}
+.dash-card{background:#1e1f22;border:1px solid #2c2f35;border-radius:6px;padding:12px 14px;min-width:0}
+.dash-card h2{display:flex;align-items:center;gap:8px;font-size:14px;margin:0 0 10px}
+.dash-card h2 span{color:#9aa4b2;font-weight:400;font-size:12px}
+.dash-mini{margin-left:auto;background:#2b2f36;color:#e6e6e6;border:1px solid #444;border-radius:4px;padding:1px 8px;cursor:pointer;font:inherit;font-size:12px}
+.dash-chart{position:relative;height:150px;margin:18px 4px 24px 30px}
+.dash-gl,.dash-base{position:absolute;left:0;right:0;height:0;border-top:1px solid #2c2f35}
+.dash-base{border-top-color:#383835}
+.dash-tick{position:absolute;left:-30px;width:24px;text-align:right;transform:translateY(-50%);color:#898781;font-size:11px;font-variant-numeric:tabular-nums}
+.dash-cols{position:absolute;inset:0;display:flex}
+.dash-col{flex:1;position:relative;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;outline-offset:-2px}
+.dash-bar{width:min(24px,60%);background:#3987e5;border-radius:4px 4px 0 0}
+.dash-col:hover .dash-bar,.dash-col:focus .dash-bar{background:#5598e7}
+.dash-cap{color:#c9d1d9;font-size:11px;margin-bottom:2px}
+.dash-xl{position:absolute;bottom:-20px;color:#898781;font-size:11px;white-space:nowrap}
+.dash-tip{position:absolute;top:-8px;z-index:2;width:200px;background:#2b2f36;border:1px solid #444;border-radius:4px;
+  padding:6px 8px;font-size:12px;pointer-events:none;box-shadow:0 4px 14px rgba(0,0,0,.45)}
+.dash-tip b{font-size:14px}
+.dash-table{width:100%;border-collapse:collapse;font-size:12px}
+.dash-table th{text-align:left;color:#9aa4b2;font-weight:600;border-bottom:1px solid #383835;padding:3px 6px}
+.dash-table td{border-bottom:1px solid #2c2f35;padding:4px 6px;vertical-align:top}
+.dash-table td.num{font-variant-numeric:tabular-nums;text-align:right}
+.dash-q{padding:8px 0;border-top:1px solid #2c2f35}.dash-q:first-of-type{border-top:0;padding-top:0}
+.dash-qh{display:flex;align-items:center;gap:8px}.dash-qh .atqm-sub{font-size:12px}
+.dash-qn{margin-left:auto;font-weight:600}
+.dash-qs{font-size:12px;margin:2px 0 6px}
 .atqm-mnote.atqm-mnext{color:#c9d1d9;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .atqm-act{background:#1f6feb;color:#fff;border:0;border-radius:4px;padding:1px 8px;margin-left:4px;cursor:pointer;font:inherit;font-size:11px;vertical-align:1px}
 .atqm-act:hover{filter:brightness(1.15)}
@@ -2025,6 +2120,41 @@
     return '';
   }
 
+  // Autotask's colours are picked for a white page: dark ones are lightened until they read on this
+  // dark window (4.5:1, the contrast for normal text)
+  const readableCache = new Map();
+  function readableColor(c) {
+    if (!c) return null;
+    if (readableCache.has(c)) return readableCache.get(c);
+    const m = c.match(/rgba?\(\s*(\d+)[,\s]+(\d+)[,\s]+(\d+)(?:[,\s/]+([\d.]+))?/i);
+    let out = null;
+    if (m && !(m[4] != null && +m[4] === 0)) {
+      let [r, g, b] = [+m[1], +m[2], +m[3]];
+      const lin = v => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; };
+      const lum = (x, y, z) => 0.2126 * lin(x) + 0.7152 * lin(y) + 0.0722 * lin(z);
+      const bg = lum(0x1e, 0x1f, 0x22);
+      for (let i = 0; i < 20 && (lum(r, g, b) + 0.05) / (bg + 0.05) < 4.5; i++) {
+        r += (255 - r) * 0.15; g += (255 - g) * 0.15; b += (255 - b) * 0.15;
+      }
+      out = `rgb(${Math.round(r)}, ${Math.round(g)}, ${Math.round(b)})`;
+    }
+    readableCache.set(c, out);
+    return out;
+  }
+  const statusColor = s => readableColor(get(K.statusColors, {})[clean(s).toLowerCase()]);
+  function statusWord(s) {
+    const w = el('span', 'atqm-st', s);
+    const c = statusColor(s);
+    if (c) w.style.color = c;
+    return w;
+  }
+  function statusChip(s, n) {
+    const c = chip(s, n, statusClass(s));
+    const color = statusColor(s);
+    if (color) c.style.borderLeftColor = color;
+    return c;
+  }
+
   function chip(text, n, cls = '') {
     const c = el('span', 'atqm-chip ' + cls, text);
     c.append(el('b', null, n));
@@ -2092,7 +2222,7 @@
       const counts = new Map();
       for (const t of tickets) counts.set(t.status || 'Unknown', (counts.get(t.status || 'Unknown') || 0) + 1);
       const chips = el('div', 'atqm-chips');
-      for (const [s, n] of [...counts].sort((a, b) => b[1] - a[1])) chips.append(chip(s, n, statusClass(s)));
+      for (const [s, n] of [...counts].sort((a, b) => b[1] - a[1])) chips.append(statusChip(s, n));
       const high = tickets.filter(t => /high|critical|urgent/i.test(t.priority || '')).length;
       if (high) chips.append(chip('High priority', high, 'high'));
       panel.append(chips);
@@ -2314,7 +2444,7 @@
     const counts = new Map();
     for (const t of items) counts.set(t.status || 'Unknown', (counts.get(t.status || 'Unknown') || 0) + 1);
     const chips = el('div', 'atqm-chips');
-    for (const [st, n] of [...counts].sort((a, b) => b[1] - a[1])) chips.append(chip(st, n, statusClass(st)));
+    for (const [st, n] of [...counts].sort((a, b) => b[1] - a[1])) chips.append(statusChip(st, n));
     return chips;
   }
 
@@ -2558,6 +2688,7 @@
   }
   // "Waiting Customer → Customer Note Added" (changes saved before 0.9 only have the full text)
   const changeText = a => (a.to != null ? `${a.from || '?'} → ${a.to || '?'}` : a.text.split(': ').pop());
+  const statusPair = a => (a.to != null ? [a.from, a.to] : a.text.split(': ').pop().split(' → '));
 
   function markTicketRead(id) {
     set(K.alerts, get(K.alerts, []).map(a => (a.ticket === id && !a.read ? { ...a, read: true } : a)));
@@ -2595,10 +2726,16 @@
     for (const q of ticketQs) {
       for (const t of snapTickets(q) || []) {
         if (slaPaused(t) || deadlineOf.has(t.id)) continue;
-        const d = t.frDue ? { t, q, due: t.frDue, soon: CONFIG.frSoonMinutes, what: 'First response' }
-          : q.mode === 'full' && t.due ? { t, q, due: t.due, soon: CONFIG.dueSoonMinutes, what: t.slaEvent || 'SLA' }
-          : null;
-        if (d) { deadlines.push(d); deadlineOf.set(t.id, d); }
+        // Its earliest deadline: first response SLA, another SLA (queues tracked for all changes), or the
+        // response target for a ticket in New without a first response SLA
+        const options = [];
+        if (t.frDue) options.push({ due: t.frDue, soon: CONFIG.frSoonMinutes, what: 'First response' });
+        if (q.mode === 'full' && t.due && t.due !== t.frDue) options.push({ due: t.due, soon: CONFIG.dueSoonMinutes, what: t.slaEvent || 'SLA' });
+        if (targetDue(t)) options.push({ due: targetDue(t), soon: CONFIG.frSoonMinutes, what: 'Response target' });
+        if (!options.length) continue;
+        const d = { t, q, ...options.sort((a, b) => a.due - b.due)[0] };
+        deadlines.push(d);
+        deadlineOf.set(t.id, d);
       }
     }
     deadlines.sort((a, b) => a.due - b.due);
@@ -2667,7 +2804,12 @@
     li.append(document.createElement('br'));
     if (showQueue) li.append(el('span', 'atqm-tag', qName(it.q)));
     const status = it.changes.filter(a => a.type === 'status').pop();
-    if (status) li.append(el('span', 'atqm-tag atqm-chg', changeText(status)));
+    if (status) {
+      const [from, to] = statusPair(status);
+      const tag = el('span', 'atqm-tag atqm-chg');
+      tag.append(statusWord(from || '?'), ' → ', statusWord(to || '?'));
+      li.append(tag);
+    }
     // The deadline this row is about, or for a ticket listed for another reason, when its deadline falls
     const deadline = it.due ? it.what
       : it.dl ? `${it.dl.what} ${it.dl.due < now ? `${dur(now - it.dl.due)} overdue` : `in ${dur(it.dl.due - now)}`}` : '';
@@ -2688,20 +2830,20 @@
     }
     panel.append(line);
     const ticketQs = qs.filter(q => q.mode !== 'calls');
-    const soon = [];
-    if (ticketQs.length) soon.push(`first responses within ${dur(CONFIG.frSoonMinutes * 60000)}`);
+    if (!ticketQs.length) return;
+    const soon = [`first responses within ${dur(CONFIG.frSoonMinutes * 60000)}`];
     if (ticketQs.some(q => q.mode === 'full')) soon.push(`SLAs within ${dur(CONFIG.dueSoonMinutes * 60000)}`);
-    const parts = [];
-    if (soon.length) parts.push(`Due soon means ${soon.join(' and ')}.`);
-    if (ticketQs.length && pausedList().length) parts.push(`Tickets in ${pausedList().join(', ')} have no deadlines.`);
-    if (parts.length) panel.append(el('div', 'atqm-hint atqm-basis-hint', parts.join(' ') + ' Change these in Settings.'));
+    const parts = [`Due soon: ${soon.join(', ')}.`];
+    if (CONFIG.responseTarget > 0) parts.push(`No SLA: respond within ${dur(CONFIG.responseTarget * 60000)}.`);
+    if (pausedList().length) parts.push(`${pausedList().join(', ')}: no deadlines.`);
+    panel.append(el('div', 'atqm-hint atqm-basis-hint', parts.join(' ')));
   }
 
-  function renderNextUp(panel, items = nextUpItems()) {
+  function renderNextUp(panel, items = nextUpItems(), { history = true, cap = 0 } = {}) {
     const qs = activeQueues();
     if (!qs.length) {
       panel.append(el('div', 'atqm-empty', 'No queues tracked. Open a queue in My Workspace & Queues and press Start tracking.'));
-      renderRecentChanges(panel);
+      if (history) renderRecentChanges(panel);
       return;
     }
     renderBasedOn(panel, qs);
@@ -2712,13 +2854,13 @@
         const group = items.filter(it => it.g === g);
         if (!group.length) continue;
         list.append(el('li', 'atqm-next-h', title));
-        const cap = g === 'later' ? CONFIG.upcomingCount : Math.max(CONFIG.upcomingCount, 8);
-        for (const it of group.slice(0, cap)) list.append(it.kind === 'call' ? callRow(it.c) : nextUpRow(it, qs.length > 1));
-        if (group.length > cap) list.append(el('li', 'atqm-next-h atqm-next-more', `…and ${group.length - cap} more`));
+        const n = cap || (g === 'later' ? CONFIG.upcomingCount : Math.max(CONFIG.upcomingCount, 8));
+        for (const it of group.slice(0, n)) list.append(it.kind === 'call' ? callRow(it.c) : nextUpRow(it, qs.length > 1));
+        if (group.length > n) list.append(el('li', 'atqm-next-h atqm-next-more', `…and ${group.length - n} more`));
       }
       panel.append(list);
     }
-    renderRecentChanges(panel);
+    if (history) renderRecentChanges(panel);
   }
 
   // The change history, under the moves: newest first, unread highlighted
@@ -2752,6 +2894,21 @@
     for (const q of order) renderQueue(panel, q);
   }
 
+  // A change's text, with ticket numbers as links and statuses in their Autotask colours
+  function alertText(a, urlFor) {
+    const frag = document.createDocumentFragment();
+    const cut = a.text.lastIndexOf(': ');
+    const pair = a.type === 'status' && a.ticket && cut > 0 ? statusPair(a) : null;
+    if (pair && pair.length === 2) {
+      frag.append(linkify(a.text.slice(0, cut + 2), urlFor), statusWord(pair[0] || '?'), ' → ', statusWord(pair[1] || '?'));
+    } else if (a.type === 'new' && a.status && a.text.endsWith(`[${a.status}]`)) {
+      frag.append(linkify(a.text.slice(0, -(a.status.length + 2)), urlFor), '[', statusWord(a.status), ']');
+    } else {
+      frag.append(linkify(a.text, urlFor));
+    }
+    return frag;
+  }
+
   function alertList(alerts, showTags = true) {
     const list = el('ul', 'atqm-list');
     const snaps = ticketIndex();
@@ -2760,7 +2917,7 @@
       const urlFor = id => snaps[id] || (id === a.ticket ? a : null);
       li.append(el('time', null, fmtTime(a.ts)));
       if (showTags && a.q !== 'my') li.append(el('span', 'atqm-tag', a.qn || a.q));
-      li.append(linkify(a.text, urlFor));
+      li.append(alertText(a, urlFor));
       if (a.callUrl) {
         const link = callLink({ url: a.callUrl, id: a.call }, 'Open call');
         li.append(' ', link);
@@ -2800,6 +2957,9 @@
       options: [['detail', 'Ticket page'], ['command', 'Autotask command link'], ['grid', 'Grid link']],
       hint: 'Ticket page opens the normal ticket tab. The other two tend to pop out into a separate window.' },
     { group: 'Window' },
+    { key: 'dashboard', label: 'Dashboard button', type: 'checkbox',
+      hint: 'Adds a ⛶ button at the top of this window that opens a full-window dashboard: the numbers that matter, ' +
+        'what to do next, deadlines over the next 8 hours, every queue and recent changes. Esc closes it.' },
     { key: 'oneTab', label: 'Monitor all queues from one tab', type: 'checkbox',
       hint: 'Quick start and Start tracking open a single monitoring tab that switches between all your tracked queues, ' +
         "instead of a tab per queue. Use it if your browser blocks Quick start's extra tabs. Each queue is still checked about once per refresh." },
@@ -2834,6 +2994,9 @@
       hint: 'Queues tracked for all changes.' },
     { key: 'frSoonMinutes', label: 'Warn when a first response is due within', unit: 'min', type: 'number', min: 5, max: 240, step: 5,
       hint: 'Queues tracked for new tickets & first response.' },
+    { key: 'responseTarget', label: 'Respond to tickets without an SLA within', unit: 'min', type: 'number', min: 0, max: 480, step: 5,
+      hint: 'Tickets in New status with no first response SLA get this as a target, so they sit next to your SLAs in Next up ' +
+        'and the dashboard, with an alert when it passes. 0 turns it off.' },
     { key: 'pausedStatuses', label: 'Statuses that pause the SLA', type: 'text',
       sanitize: v => String(v).split(',').map(clean).filter(Boolean).join(', '),
       hint: 'Comma-separated. Tickets in these statuses get no SLA warnings, e.g. Scheduled while waiting for a service call. Leave empty to never pause.' },
@@ -3186,6 +3349,7 @@
     w.innerHTML = `
       <div id="atqm-head"><span id="atqm-dot"></span><b>Queue monitor <span class="atqm-beta" title="Queue monitor ${VERSION} (beta)">Beta</span></b>
         <span id="atqm-badge" class="atqm-count"></span>
+        <button id="atqm-dashbtn" title="Dashboard (full window)" aria-label="Open the dashboard" hidden>⛶</button>
         <button id="atqm-min" title="Minimise" aria-label="Minimise Queue monitor" aria-expanded="true">–</button></div>
       <div id="atqm-rem"></div>
       <div id="atqm-qs"></div>
@@ -3255,6 +3419,7 @@
       render();
     };
     w.querySelector('#atqm-min').onclick = () => { w.classList.toggle('min'); render(); };
+    w.querySelector('#atqm-dashbtn').onclick = openDashboard;
 
     const head = w.querySelector('#atqm-head');
     head.addEventListener('pointerdown', e => {
@@ -3278,6 +3443,246 @@
     render();
   }
 
+  // ---------------------------------------------------------------------------
+  // Dashboard (setting "Dashboard button"): the whole window, for keeping SLAs and the tickets without
+  // one in view at the same time. Close or Esc returns to the page. Read-only: monitoring carries on
+  // in the monitoring tabs.
+  // ---------------------------------------------------------------------------
+  const DASH_SS = P + 'dash'; // open in this tab (kept across reloads, so it can stay up on a wall screen)
+  const dashOpen = () => { try { return !!CONFIG.dashboard && !!sessionStorage.getItem(DASH_SS); } catch { return false; } };
+  function openDashboard() { try { sessionStorage.setItem(DASH_SS, '1'); } catch { /* ignore */ } render(); }
+  function closeDashboard() {
+    try { sessionStorage.removeItem(DASH_SS); } catch { /* ignore */ }
+    try { if (document.fullscreenElement) document.exitFullscreen(); } catch { /* ignore */ }
+    render();
+  }
+  // Registered before the lock's key handling, so Esc works on a locked monitoring tab too
+  addEventListener('keydown', e => { if (e.key === 'Escape' && document.getElementById('atqm-dash')) closeDashboard(); }, true);
+
+  let dashTable = false; // deadlines shown as a table instead of the chart
+  const dueOf = it => it.due || it.dl?.due || null;
+
+  // The numbers across the top
+  function dashboardStats(items) {
+    const now = Date.now(), HOUR = 3600000;
+    const byId = new Map();
+    for (const q of activeQueues().filter(x => x.mode !== 'calls')) {
+      for (const t of snapTickets(q) || []) if (!byId.has(t.id)) byId.set(t.id, t);
+    }
+    const all = [...byId.values()];
+    const age = t => t.created || t.firstSeen;
+    const overdue = items.filter(it => it.g === 'breached');
+    const nextHour = items.filter(it => { const d = dueOf(it); return d && d >= now && d - now <= HOUR; }).sort((a, b) => dueOf(a) - dueOf(b));
+    const waiting = all.filter(t => /^new$/i.test(t.status || '') && !slaPaused(t));
+    const pastTarget = CONFIG.responseTarget > 0 ? waiting.filter(t => targetDue(t) && targetDue(t) < now).length : 0;
+    const unread = unreadByTicket();
+    const changed = all.filter(t => (unread.get(t.id) || []).some(a => a.type === 'status')).length;
+    const high = all.filter(t => /high|critical|urgent/i.test(t.priority || '')).length;
+    const stats = [
+      { label: 'Overdue', value: overdue.length, status: overdue.length ? 'critical' : '', icon: '!',
+        sub: overdue.length ? `longest ${dur(now - Math.min(...overdue.map(dueOf)))}` : 'nothing past due' },
+      { label: 'Due in the next hour', value: nextHour.length, status: nextHour.length ? 'warning' : '', icon: '◷',
+        sub: nextHour.length ? `next in ${dur(dueOf(nextHour[0]) - now)}` : 'nothing due' },
+      { label: 'Waiting for a first response', value: waiting.length,
+        sub: !waiting.length ? 'none in New status'
+          : pastTarget ? `${pastTarget} past your ${dur(CONFIG.responseTarget * 60000)} target`
+          : `longest ${dur(now - Math.min(...waiting.map(age)))}` },
+      { label: 'Changed since you looked', value: changed, sub: changed ? 'in Next up' : 'all seen' },
+      { label: 'Tickets in your queues', value: all.length, sub: high ? `${high} high priority` : '' },
+    ];
+    if (activeQueues().some(q => q.mode === 'calls')) {
+      const calls = activeQueues().filter(q => q.mode === 'calls').flatMap(q => snapTickets(q) || [])
+        .filter(c => c.start && c.end > now).sort((a, b) => a.start - b.start);
+      const inProgress = calls.find(c => c.start <= now), next = calls.find(c => c.start > now);
+      stats.push({ label: 'Service calls', value: inProgress ? 'Now' : next ? timeOf(next.start) : '–',
+        sub: inProgress ? callLabel(inProgress) : next ? callLabel(next) : 'none coming up' });
+    }
+    return stats;
+  }
+
+  // Deadlines in each of the next 8 hours by the clock (the first runs from now to the hour)
+  function deadlineBuckets(items, hours = 8) {
+    const now = Date.now();
+    const hour = new Date(now);
+    hour.setMinutes(0, 0, 0);
+    const buckets = [];
+    for (let i = 0; i < hours; i++) {
+      const from = i ? hour.getTime() + i * 3600000 : now;
+      buckets.push({ from, to: hour.getTime() + (i + 1) * 3600000, label: i ? timeOf(from) : 'Now', items: [] });
+    }
+    for (const it of items) {
+      const d = dueOf(it);
+      const b = d && d >= now ? buckets.find(x => d >= x.from && d < x.to) : null;
+      if (b) b.items.push(it);
+    }
+    return buckets;
+  }
+  const niceMax = n => (n <= 4 ? Math.max(1, n) : n <= 10 ? Math.ceil(n / 2) * 2 : Math.ceil(n / 5) * 5);
+
+  // Columns, one per hour, single series. Hover or focus a column for its tickets; Table shows the same.
+  function deadlineChart(items) {
+    const card = el('section', 'dash-card');
+    const head = el('h2', null, 'Deadlines in the next 8 hours');
+    const toggle = el('button', 'dash-mini', dashTable ? 'Chart' : 'Table');
+    toggle.setAttribute('aria-pressed', String(dashTable));
+    toggle.onclick = () => { dashTable = !dashTable; render(); };
+    head.append(toggle);
+    card.append(head);
+    const buckets = deadlineBuckets(items);
+    const total = buckets.reduce((s, b) => s + b.items.length, 0);
+    if (!total) {
+      card.append(el('div', 'atqm-empty', 'No deadlines in the next 8 hours.'));
+      return card;
+    }
+    const range = b => `${b.label === 'Now' ? 'Now' : b.label}–${timeOf(b.to)}`;
+    const describe = it => `${it.t.id} · ${it.due ? it.what : it.dl.what} ${timeOf(dueOf(it))}`;
+    if (dashTable) {
+      const table = el('table', 'dash-table');
+      const hr = el('tr');
+      for (const h of ['Time', 'Deadlines', 'Tickets']) hr.append(el('th', null, h));
+      table.append(hr);
+      for (const b of buckets) {
+        const tr = el('tr');
+        tr.append(el('td', null, range(b)), el('td', 'num', String(b.items.length)), el('td', null, b.items.map(describe).join(', ')));
+        table.append(tr);
+      }
+      card.append(table);
+      return card;
+    }
+    const max = Math.max(...buckets.map(b => b.items.length));
+    const top = niceMax(max);
+    const chart = el('div', 'dash-chart');
+    for (const v of [0, top / 2, top]) {
+      if (v !== Math.round(v)) continue;
+      const y = 100 - (v / top) * 100 + '%';
+      const line = el('div', v ? 'dash-gl' : 'dash-base');
+      line.style.top = y;
+      const tick = el('span', 'dash-tick', String(v));
+      tick.style.top = y;
+      chart.append(line, tick);
+    }
+    const tip = el('div', 'dash-tip');
+    tip.hidden = true;
+    const columns = el('div', 'dash-cols');
+    const labelled = buckets.findIndex(b => b.items.length === max); // only the tallest column carries its number
+    buckets.forEach((b, i) => {
+      const n = b.items.length;
+      const col = el('div', 'dash-col');
+      col.tabIndex = 0;
+      col.setAttribute('role', 'img');
+      col.setAttribute('aria-label', `${n} deadline${n === 1 ? '' : 's'}, ${range(b)}`);
+      if (i === labelled) col.append(el('span', 'dash-cap', String(n)));
+      const bar = el('div', 'dash-bar');
+      bar.style.height = (n / top) * 100 + '%';
+      col.append(bar, el('span', 'dash-xl', b.label));
+      const show = () => {
+        tip.replaceChildren(el('b', null, `${n} deadline${n === 1 ? '' : 's'}`), el('div', 'atqm-sub', range(b)));
+        for (const it of b.items.slice(0, 8)) tip.append(el('div', null, describe(it)));
+        if (n > 8) tip.append(el('div', 'atqm-sub', `…and ${n - 8} more`));
+        tip.hidden = false;
+        const cr = chart.getBoundingClientRect(), r = col.getBoundingClientRect();
+        tip.style.left = Math.max(0, Math.min(r.left - cr.left + r.width / 2 - 100, cr.width - 200)) + 'px';
+      };
+      const hide = () => { tip.hidden = true; };
+      col.addEventListener('pointerenter', show);
+      col.addEventListener('focus', show);
+      col.addEventListener('pointerleave', hide);
+      col.addEventListener('blur', hide);
+      columns.append(col);
+    });
+    chart.append(columns, tip);
+    card.append(chart);
+    return card;
+  }
+
+  function dashQueueCard(q) {
+    const h = health(q), st = get(q.state, {});
+    const card = el('div', 'dash-q');
+    const head = el('div', 'dash-qh');
+    head.append(el('span', 'atqm-ml ' + h.cls), el('span', 'atqm-sr', (STATUS_WORDS[h.cls] || '') + ': '),
+      el('b', null, qName(q)), el('span', 'atqm-sub', MODES[q.mode].label));
+    if (st.count != null) head.append(el('span', 'dash-qn', st.count + (st.partial ? '+' : '')));
+    card.append(head, el('div', h.cls === 'warn' ? 'dash-qs atqm-warn' : 'dash-qs atqm-sub', h.text));
+    if (q.mode !== 'calls' && snapTickets(q)) card.append(statusBreakdown(q));
+    return card;
+  }
+
+  function renderDashboard(items) {
+    let d = document.getElementById('atqm-dash');
+    if (!isTop || !dashOpen()) { d?.remove(); return; }
+    const opening = !d;
+    if (opening) {
+      d = el('div');
+      d.id = 'atqm-dash';
+      d.tabIndex = -1;
+      d.setAttribute('role', 'dialog');
+      d.setAttribute('aria-label', 'Queue monitor dashboard');
+      document.body.append(d);
+    }
+    const scroll = d.scrollTop;
+    d.replaceChildren();
+
+    const top = el('div', 'dash-top');
+    const title = el('div', 'dash-title');
+    title.append(el('b', null, 'Queue monitor'), el('span', null, `Dashboard · updated ${timeOf(Date.now())}`));
+    const actions = el('div', 'dash-actions');
+    const scan = el('button', null, 'Scan now');
+    scan.onclick = requestScan;
+    const full = el('button', null, document.fullscreenElement === d ? 'Exit full screen' : 'Full screen');
+    full.title = 'Use the whole screen';
+    full.hidden = typeof d.requestFullscreen !== 'function';
+    full.onclick = () => {
+      try { if (document.fullscreenElement) document.exitFullscreen(); else d.requestFullscreen(); } catch { /* not allowed */ }
+      setTimeout(render, 300);
+    };
+    const close = el('button', 'dash-close', 'Close');
+    close.title = 'Back to the page (Esc)';
+    close.onclick = closeDashboard;
+    actions.append(scan, full, close);
+    top.append(title, actions);
+    d.append(top);
+    for (const text of [...globalWarnings(), ...(localNote ? [localNote] : [])]) d.append(el('div', 'dash-note', text));
+
+    const kpis = el('div', 'dash-kpis');
+    for (const s of dashboardStats(items)) {
+      const tile = el('div', 'dash-kpi' + (s.status ? ' ' + s.status : ''));
+      const label = el('div', 'l');
+      if (s.icon) label.append(el('span', 'dash-ico', s.icon));
+      label.append(s.label);
+      tile.append(label, el('div', 'v', String(s.value)));
+      if (s.sub) tile.append(el('div', 's', s.sub));
+      kpis.append(tile);
+    }
+    d.append(kpis);
+
+    const grid = el('div', 'dash-grid');
+    const next = el('section', 'dash-card');
+    next.append(el('h2', null, 'Next up'));
+    renderNextUp(next, items, { history: false, cap: 15 });
+    const middle = el('div', 'dash-stack');
+    const queues = el('section', 'dash-card');
+    queues.append(el('h2', null, 'Queues'));
+    for (const q of activeQueues()) queues.append(dashQueueCard(q));
+    if (!activeQueues().length) queues.append(el('div', 'atqm-empty', 'No queues tracked.'));
+    middle.append(deadlineChart(items), queues);
+    const changes = el('section', 'dash-card');
+    const ch = el('h2', null, 'Recent changes');
+    const all = get(K.alerts, []);
+    const unread = all.filter(a => !a.read).length;
+    if (unread) {
+      ch.append(el('span', null, `${unread} unread`));
+      const mark = el('button', 'dash-mini', 'Mark all read');
+      mark.onclick = () => { set(K.alerts, get(K.alerts, []).map(a => ({ ...a, read: true }))); render(); };
+      ch.append(mark);
+    }
+    changes.append(ch, all.length ? alertList(all.slice(-CONFIG.displayAlerts).reverse())
+      : el('div', 'atqm-empty', 'No changes since monitoring started.'));
+    grid.append(next, middle, changes);
+    d.append(grid);
+    d.scrollTop = scroll;
+    if (opening) d.focus();
+  }
+
   // ---- Lock monitoring tabs ----
   const UNLOCK_KEY = P + 'unlockedUntil';
   const unlockedUntil = () => { try { return +sessionStorage.getItem(UNLOCK_KEY) || 0; } catch { return 0; } };
@@ -3291,7 +3696,7 @@
   for (const type of ['keydown', 'keypress', 'keyup']) {
     addEventListener(type, e => {
       if (!lockActive()) return;
-      if (e.target && e.target.closest && e.target.closest('#atqm')) return; // the monitor window itself still works
+      if (e.target && e.target.closest && e.target.closest('#atqm, #atqm-dash')) return; // the monitor's own windows still work
       e.preventDefault();
       e.stopImmediatePropagation();
     }, true);
@@ -3427,6 +3832,8 @@
     w.querySelector('#atqm-toggle').textContent = get(K.enabled, false) ? 'Pause' : 'Start';
 
     renderPageBanner(w.querySelector('#atqm-page'), pg);
+    w.querySelector('#atqm-dashbtn').hidden = !CONFIG.dashboard;
+    renderDashboard(nextItems);
 
     const unread = get(K.alerts, []).filter(a => !a.read).length;
     const badge = w.querySelector('#atqm-badge');
@@ -3616,12 +4023,7 @@
     }
     r.append(el('b', null, `${idle.length} tracked queue${idle.length > 1 ? 's aren\'t' : ' isn\'t'} being monitored`));
     r.append(el('div', 'atqm-sub', idle.map(qName).join(', ')));
-    const ready = idle.filter(queueUrl).length;
-    // Several tabs from one click only work with pop-ups allowed; say so before the first try
-    if (!CONFIG.oneTab && ready > 1 && !popupsBlocked() && get(K.popups, null)?.state !== 'allowed') {
-      r.append(el('div', 'atqm-sub', `Opens ${ready} tabs. If your browser blocks pop-ups from autotask.net, only the first gets through.`));
-    }
-    if (ready) {
+    if (idle.some(queueUrl)) {
       const go = el('button', 'atqm-qsgo', 'Quick start');
       go.title = CONFIG.oneTab ? 'Open one tab that monitors all your queues' : 'Open a tab for each queue and start monitoring';
       go.onclick = quickStart;
@@ -3767,6 +4169,7 @@
       nextUpItems, urgentCount, markTicketRead, nextSummary,
       rotate, rotationTab, rotationStep, switchToQueue, gridSignature, monitorElsewhere,
       openQueueTab, popupsBlocked,
+      readableColor, statusColor, statusWord, alertText, targetDue, dashboardStats, deadlineBuckets,
     });
     return;
   }
@@ -3810,6 +4213,7 @@
   });
   setInterval(render, isTop ? 30000 : 10000); // countdowns up to date; frames keep reporting their page
   if (isTop) setInterval(() => { const u = unlockedUntil(); if (u && Date.now() > u - 15000 && Date.now() < u + 15000) render(); }, 5000);
+  if (isTop) setInterval(() => { if (document.getElementById('atqm-dash')) render(); }, 15000); // dashboard countdowns
 
   schedule(3000);
   if (isTop) {

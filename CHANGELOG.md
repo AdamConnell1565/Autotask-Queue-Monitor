@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.11.0 (2026-10-03)
+
+### Added
+
+- **Dashboard** (setting **Dashboard button**): a ⛶ button at the top of the window opens a full-window dashboard with the numbers that matter (overdue, due in the next hour, waiting for a first response, changed since you looked, tickets, next service call), Next up, deadlines over the next 8 hours as an hourly chart (with a table view), every queue's status breakdown and recent changes. Full screen, Close and Esc; it stays open in its tab across reloads.
+- **Response target for tickets without an SLA** (setting, 60 minutes by default). Tickets in New status with no first response SLA get it as their deadline in Next up and the dashboard, alongside real SLAs, with an alert when it's due soon and when it passes. Upgrading doesn't alert for tickets already past it.
+- **Status colours:** the colour Autotask shows each status in is read from the grid and used in the change history, Next up and the status chips. Dark colours are lightened so they stay readable on the dark window.
+
+### Changed
+
+- The Quick start box no longer warns about pop-ups up front; the pop-up notice only appears once the browser has actually blocked a tab.
+- Next up's settings line is shorter.
+
 ## 0.10.0 (2026-10-03)
 
 ### Added

@@ -41,7 +41,7 @@ test('scanFull: with only part of the queue visible, "left queue" is not reporte
 test('scanFull: SLA due soon, then breached, each alerted once', () => {
   const { api, window, close } = load({ now: NOW });
   const q = api.trackedQueues()[0];
-  const ticket = t('T20261001.0001', { due: NOW + 120 * MIN, slaEvent: 'Resolution' });
+  const ticket = t('T20261001.0001', { due: NOW + 120 * MIN, slaEvent: 'Resolution', status: 'In Progress' });
   api.scanFull(q, grid([ticket]));
   setNow(window, NOW + 90 * MIN);
   api.scanFull(q, grid([ticket]));

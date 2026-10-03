@@ -12,7 +12,8 @@ A Tampermonkey userscript that watches your Autotask queues and tells you when s
   - **New & first response**: new arrivals and first response SLAs only. Good for shared intake queues such as 1st line.
 - **Service calls** (optional): your scheduled calls, with reminders before each one.
 - **Next up**, the first tab: your next move, worked out from every queue you track and your settings (see [Next up](#next-up)).
-- Desktop notifications and a sound for each change, plus a history of changes under Next up.
+- **Dashboard** (optional): a full-window view of everything at once (see [Dashboard](#dashboard)).
+- Desktop notifications and a sound for each change, plus a history of changes under Next up. Statuses show in the colours Autotask gives them.
 
 ## Install
 
@@ -47,18 +48,32 @@ Quick start opens several tabs from one click, which browsers block unless pop-u
 The first tab in the window lists what to do next, most urgent first, across every queue you track:
 
 1. **Service call now**: a scheduled call that has started.
-2. **Overdue**: first responses and SLAs that are past due.
-3. **Due soon**: first responses and SLAs due within your "due soon" thresholds.
+2. **Overdue**: first responses, SLAs and response targets that are past due.
+3. **Due soon**: first responses, SLAs and response targets due within your "due soon" thresholds.
 4. **New tickets**: tickets still in New status in a queue tracked for new tickets, and tickets that arrived in your other queues since you last looked.
 5. **Changed since you last looked**: status changes you haven't seen yet, such as a customer replying.
 6. **Coming up**: everything else with a deadline, soonest first.
 7. **Service calls later today**.
 
-Each ticket appears once, in its most urgent group. Press **Seen** on a ticket to take its changes off the list. The tab's count is the number of things in groups 1 to 5, and the minimised window shows the top one.
+Tickets without an SLA aren't forgotten: a ticket still in New status with no first response SLA gets a **response target** (1 hour by default, in Settings), so it lines up against your SLAs by time, and you get an alert when the target passes.
+
+Each ticket appears once, in its most urgent group, under its earliest deadline. Press **Seen** on a ticket to take its changes off the list. The tab's count is the number of things in groups 1 to 5, and the minimised window shows the top one.
 
 What goes in the list follows your setup: which queues you track and how (a queue tracked for new tickets & first response only contributes new tickets and first responses), the "due soon" thresholds, the statuses that pause the SLA, and whether service calls are on. The top of the tab shows the queues and settings it's working from.
 
 Underneath is **Recent changes**, the full history: new tickets, status changes, tickets leaving a queue, SLA warnings and service call changes. **Mark read** marks them all as read.
+
+## Dashboard
+
+Turn on **Dashboard button** in Settings and a ⛶ button appears at the top of the window. It opens a dashboard over the whole browser window, for keeping SLAs and the tickets without one in view at the same time:
+
+- **The numbers:** overdue, due in the next hour, waiting for a first response (and how many are past your response target), changed since you looked, tickets in your queues, and your next service call.
+- **Next up**, as in the window, with longer lists.
+- **Deadlines in the next 8 hours:** a column per hour. Hover or tab to a column for its tickets, or press **Table** for the same as a table.
+- **Queues:** each queue's status and its tickets per status.
+- **Recent changes**, with **Mark all read**.
+
+**Full screen** fills the screen; **Close** or Esc goes back to the page. The dashboard stays open in that tab across reloads, so it can stay up on a second screen. It only shows what the monitoring tabs collect, so keep those open too.
 
 ## How monitoring works
 
@@ -106,6 +121,8 @@ All in the window's **Settings** tab. The ones most people change:
 - **Date format in Autotask**: detected from your queues; set it if the window shows the wrong dates.
 - **Autotask time zone**: set this if the time zone in your Autotask profile differs from your PC's. The window warns you when due times look hours out.
 - **Warn when an SLA / first response is due within**: the "due soon" thresholds, for alerts and for Next up.
+- **Respond to tickets without an SLA within**: the response target for tickets in New with no first response SLA (0 turns it off).
+- **Dashboard button**: adds the ⛶ button that opens the dashboard.
 - **Statuses that pause the SLA**: no SLA warnings or deadlines for tickets in these statuses (Scheduled by default).
 - **Service calls** and **Call reminders**.
 - **Desktop notifications** and **Sound on new alerts**. **Test alert** checks both.

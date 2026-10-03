@@ -64,7 +64,7 @@ test('cleanSetting keeps imported or typed values safe', () => {
   assert.equal(api.cleanSetting(f('dateOrder'), 'YMD'), 'YMD');
   assert.equal(api.cleanSetting(f('sound'), 'yes'), api.DEFAULTS.sound);
   assert.equal(api.cleanSetting(f('sound'), false), false);
-  assert.equal(api.cleanSetting(f('pausedStatuses'), ' Scheduled ,, Waiting Vendor '), 'Scheduled, Waiting Vendor');
+  assert.equal(api.cleanSetting(f('actionStatuses'), ' New ,, In Progress '), 'New, In Progress');
   close();
 });
 

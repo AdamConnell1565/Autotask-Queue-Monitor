@@ -135,3 +135,48 @@ test('health offers buttons instead of changing the grid by itself', () => {
   assert.match(stale.api.health(stale.api.trackedQueues()[0]).text, /put it to sleep/);
   stale.close();
 });
+
+test('statuses that need action: waking up alerts, settling into a resting status is logged quietly', () => {
+  const { api, window, close } = load({ now: NOW });
+  const q = api.trackedQueues()[0];
+  const notes = [];
+  window.Notification = function (title) { notes.push(title); };
+  window.Notification.permission = 'granted';
+  const scan = status => api.scanFull(q, grid([t('T20261001.0001', { status })]));
+  scan('In Progress');        // baseline
+  scan('Waiting Customer');   // you set it waiting: logged, read, no ping
+  scan('Action Required');    // the customer replied: needs action again
+  scan('Escalated');          // between two action statuses: an ordinary change
+  const log = api.get(api.K.alerts, []);
+  assert.deepEqual(plain(log.map(a => [a.type, a.to, a.read])), [
+    ['status', 'Waiting Customer', true],
+    ['action', 'Action Required', false],
+    ['status', 'Escalated', false],
+  ]);
+  assert.deepEqual(notes, ['My queue: 1 ticket needs action', 'My queue: 1 change']);
+  close();
+});
+
+test('a resting ticket asks for nothing: no SLA alerts, not in Next up', () => {
+  const { api, window, close } = load({ now: NOW });
+  const q = api.trackedQueues()[0];
+  const ticket = t('T20261001.0001', { status: 'Waiting Customer', due: NOW + 30 * MIN, slaEvent: 'Resolution' });
+  api.scanFull(q, grid([ticket]));
+  setNow(window, NOW + 40 * MIN);
+  api.scanFull(q, grid([ticket]));
+  assert.deepEqual(alerts(api), []);
+  assert.deepEqual(plain(api.nextUpItems()), []);
+  close();
+});
+
+test('a 1st line queue reports the status change that means a ticket needs action again', () => {
+  const queues = [{ key: 'first-line', nav: 'Support 1st Line', section: 'All', mode: 'intake' }];
+  const { api, close } = load({ now: NOW, storage: { 'atqm:queues': queues } });
+  const q = api.trackedQueues()[0];
+  const scan = status => api.scanIntake(q, grid([t('T20261001.0001', { status })]));
+  scan('In Progress');
+  scan('Waiting Vendor');     // not reported in this kind of queue
+  scan('Action Required');
+  assert.deepEqual(plain(alerts(api).map(a => a.type)), ['action']);
+  close();
+});

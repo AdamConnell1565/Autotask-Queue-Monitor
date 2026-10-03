@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.12.0 (2026-10-03)
+
+### Added
+
+- **Statuses that need action** (Settings), by default New, First Response, In Progress, Action Required, Waiting Internal, Escalated, Workshop and Dispatch. Tickets in any other status rest: visible, but not in Next up and with no SLA or response target warnings. Moving a ticket into a resting status is logged without a ping; a resting ticket moving back into a status that needs action raises a **Needs action** alert (in queues tracked for new tickets too) and goes to the top of Next up's changed tickets.
+- The dashboard lists **every ticket in My queue** (and any other queue tracked for all changes): those that need action first, most urgent at the top, then the resting ones, each with status, priority, next deadline, age and a **Seen** button.
+- Status and priority on every ticket row: Next up, the Overview lists and the dashboard.
+
+### Changed
+
+- **Statuses that pause the SLA** is replaced by **Statuses that need action**.
+- The dashboard's "Tickets in your queues" number is now **Need action**, out of all your tickets.
+
 ## 0.11.0 (2026-10-03)
 
 ### Added

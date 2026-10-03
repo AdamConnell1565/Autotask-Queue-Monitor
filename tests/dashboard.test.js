@@ -121,28 +121,29 @@ const DASH_STORAGE = {
   'atqm:state:q:first-line': { mode: 'ok', lastScan: NOW, ts: NOW, count: 2 },
   'atqm:snap:my-open-tickets': {
     'T20261001.0001': { status: 'In Progress', due: NOW - 30 * MIN, slaEvent: 'Resolution', title: 'Printer', priority: 'High' },
-    'T20261001.0002': { status: 'Waiting Customer', due: NOW + 25 * MIN, slaEvent: 'Resolution', title: 'Laptop' },
+    'T20261001.0002': { status: 'Action Required', due: NOW + 25 * MIN, slaEvent: 'Resolution', title: 'Laptop' },
+    'T20261001.0004': { status: 'Waiting Customer', due: NOW - 2 * HOUR, slaEvent: 'Resolution', title: 'Monitor', priority: 'Low' },
     'T20261001.0003': { status: 'In Progress', due: NOW + 3 * HOUR, slaEvent: 'Resolution', title: 'VPN' },
   },
   'atqm:snap:q:first-line': {
     'T20261002.0001': { status: 'New', created: NOW - 70 * MIN, title: 'Email' },
     'T20261002.0002': { status: 'New', created: NOW - 10 * MIN, frDue: NOW + 2 * HOUR + 5 * MIN, title: 'Phones' },
   },
-  'atqm:alerts': [{ ts: NOW - 5 * MIN, q: 'my', type: 'status', ticket: 'T20261001.0003', from: 'Waiting Customer', to: 'In Progress',
+  'atqm:alerts': [{ ts: NOW - 5 * MIN, q: 'my', type: 'action', ticket: 'T20261001.0003', from: 'Waiting Customer', to: 'In Progress',
     read: false, text: 'T20261001.0003 – VPN: Waiting Customer → In Progress' }],
 };
 
 test('dashboard numbers: overdue, due within the hour, waiting for a first response', () => {
   const { api, close } = load({ now: NOW, storage: DASH_STORAGE });
   const stats = Object.fromEntries(api.dashboardStats(api.nextUpItems()).map(s => [s.label, s]));
-  assert.equal(stats['Overdue'].value, 2);                         // an SLA and a no-SLA response target
+  assert.equal(stats['Overdue'].value, 2);  // an SLA and a no-SLA response target, not the resting Waiting Customer one
   assert.equal(stats['Overdue'].status, 'critical');
   assert.equal(stats['Due in the next hour'].value, 1);
   assert.equal(stats['Waiting for a first response'].value, 2);
   assert.equal(stats['Waiting for a first response'].sub, '1 past your 1h target');
   assert.equal(stats['Changed since you looked'].value, 1);
-  assert.equal(stats['Tickets in your queues'].value, 5);
-  assert.equal(stats['Tickets in your queues'].sub, '1 high priority');
+  assert.equal(stats['Need action'].value, 5);
+  assert.equal(stats['Need action'].sub, 'of 6 tickets · 1 high priority');
   close();
 });
 
@@ -175,8 +176,20 @@ test('boot: the dashboard button opens the full-window dashboard; Esc closes it'
     assert.equal(dash.querySelectorAll('.dash-cap').length, 1); // only the tallest column is labelled
 
     // The same numbers as a table
+    // Every ticket in My queue, those needing action first, each with its status and priority
+    const rows = [...dash.querySelectorAll('.dash-tt tr')].map(tr => tr.textContent);
+    assert.deepEqual(rows.filter(r => /^(Needs action|No action needed) · /.test(r)), ['Needs action · 3', 'No action needed · 1']);
+    const tickets = rows.filter(r => /^T\d{8}/.test(r)).map(r => r.slice(0, 14));
+    assert.deepEqual(tickets, ['T20261001.0001', 'T20261001.0002', 'T20261001.0003', 'T20261001.0004']);
+    const resting = [...dash.querySelectorAll('.dash-tt tr.resting')];
+    assert.equal(resting.length, 1);
+    assert.match(resting[0].textContent, /Waiting Customer/);
+    assert.match(resting[0].textContent, /Low/);
+    assert.match(dash.querySelector('.dash-tt tr.overdue').textContent, /In Progress.*High.*30m overdue/);
+
+    // The deadlines chart as a table
     [...dash.querySelectorAll('button')].find(b => b.textContent === 'Table').click();
-    assert.equal(doc.querySelectorAll('#atqm-dash .dash-table tr').length, 9);
+    assert.equal(doc.querySelectorAll('#atqm-dash .dash-table:not(.dash-tt) tr').length, 9);
 
     doc.body.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
     assert.equal(doc.getElementById('atqm-dash'), null);

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Autotask Queue Monitor
 // @namespace    autotask
-// @version      0.11.0
+// @version      0.12.0
 // @description  Track any My Workspace & Queues queue (My queue by default) in its own tab, with a live overview on every Autotask page
 // @author       AdamConnell1565
 // @homepageURL  https://github.com/AdamConnell1565/Autotask-Queue-Monitor
@@ -129,7 +129,9 @@
     dueSoonMinutes: 60,           // "SLA due soon" threshold (all-changes queues)
     frSoonMinutes: 15,            // "first response due soon" threshold (new-ticket queues)
     responseTarget: 60,           // minutes to respond to tickets in New with no first response SLA (0 = off)
-    pausedStatuses: 'Scheduled',  // ticket statuses where the SLA clock is paused (e.g. waiting for a service call)
+    // Statuses that need action. A ticket in any other status rests: visible, but no deadlines in Next up,
+    // no SLA warnings, and an alert when it moves back into one of these.
+    actionStatuses: 'New, First Response, In Progress, Action Required, Waiting Internal, Escalated, Workshop, Dispatch',
     autoColumns: false,           // add missing columns via the grid's Column Chooser without asking
     autoPageSize: false,          // switch the grid to its largest page size without asking
     dateOrder: 'auto',            // 'auto', 'DMY' (UK), 'MDY' (US) or 'YMD' (year first)
@@ -312,8 +314,12 @@
       : d.toLocaleString([], { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
   }
   // Tickets in these statuses have their SLA paused (Scheduled = waiting for the service call to start)
-  const pausedList = () => String(CONFIG.pausedStatuses || '').split(',').map(clean).filter(Boolean);
-  const slaPaused = t => !!t && pausedList().some(st => same(st, t.status || ''));
+  // Statuses that need action (Settings). A ticket in any other status is resting: it stays visible but
+  // gets no deadlines in Next up and no SLA warnings, and you're alerted when it moves back into one of
+  // these. A ticket without a status (no Status column), or an empty list, always counts as needing action.
+  const actionList = () => String(CONFIG.actionStatuses || '').split(',').map(clean).filter(Boolean);
+  const needsAction = t => !t?.status || !actionList().length || actionList().some(st => same(st, t.status));
+  const resting = t => !!t && !needsAction(t);
 
   function dueState(due, soonMinutes) {
     if (!due) return null;
@@ -408,12 +414,21 @@
     const from = t.created || t.firstSeen;
     return CONFIG.responseTarget > 0 && !t.frDue && from && /^new$/i.test(t.status || '') ? from + CONFIG.responseTarget * 60000 : null;
   }
-  const targetState = t => (slaPaused(t) ? null : dueState(targetDue(t), CONFIG.frSoonMinutes));
+  const targetState = t => (resting(t) ? null : dueState(targetDue(t), CONFIG.frSoonMinutes));
   // Alert when a ticket without an SLA comes up to, or passes, the response target. `before` is its state
   // at the last scan (snapshots from before 0.11 don't have one: no alert for those, just the baseline).
   function targetAlert(push, id, t, before) {
     if (!t.tgt || RANK[t.tgt] <= RANK[before || 'ok']) return;
     push(t.tgt, `Response target ${t.tgt === 'overdue' ? 'passed' : 'due soon'} (${dueAt(targetDue(t))}, no SLA): ${label(id, t)}`, id);
+  }
+
+  // A status change. Into a status that needs action from one that didn't: the alert to notice ('action').
+  // Into a resting status (usually your own doing): logged in the history without a ping.
+  function statusAlert(push, id, t, p) {
+    const from = p.status || '', to = t.status || '';
+    const text = `${label(id, t)}: ${from || '?'} → ${to || '?'}`;
+    if (resting(p) && !resting(t)) push('action', text, id, { from, to });
+    else push('status', text, id, { from, to, ...(resting(t) ? { read: true, quiet: true } : {}) });
   }
 
   // New arrivals were created moments ago. When their Created times sit a whole number of hours away
@@ -906,12 +921,12 @@
 
   // Each batch gets its own notification (no tag), so a newer one never silently replaces an unread one
   function notify(name, list) {
-    if (CONFIG.sound) beep(list.some(a => a.type === 'overdue' || a.type === 'new'));
+    if (CONFIG.sound) beep(list.some(a => a.type === 'overdue' || a.type === 'new' || a.type === 'action'));
     if (!CONFIG.notify || !('Notification' in window) || Notification.permission !== 'granted') return;
-    const allNew = list.every(a => a.type === 'new');
-    const title = allNew
-      ? `${name}: ${list.length} new ticket${list.length > 1 ? 's' : ''}`
-      : `${name}: ${list.length} change${list.length > 1 ? 's' : ''}`;
+    const n = list.length, s = n > 1 ? 's' : '';
+    const title = list.every(a => a.type === 'new') ? `${name}: ${n} new ticket${s}`
+      : list.every(a => a.type === 'action') ? `${name}: ${n} ticket${s} need${n > 1 ? '' : 's'} action`
+      : `${name}: ${n} change${s}`;
     const body = list.slice(0, 4).map(a => a.text).join('\n') + (list.length > 4 ? `\n…and ${list.length - 4} more` : '');
     try {
       const n = new Notification(title, { body });
@@ -926,7 +941,8 @@
   function commitAlerts(q, fresh) {
     if (!fresh.length) return;
     set(K.alerts, get(K.alerts, []).concat(fresh).slice(-CONFIG.maxAlerts));
-    notify(qName(q), fresh);
+    const loud = fresh.filter(a => !a.quiet);
+    if (loud.length) notify(qName(q), loud);
   }
 
   const label = (id, t) => (t?.title ? `${id} – ${t.title}` : id);
@@ -940,7 +956,7 @@
     const prev = readSnap(q);
     const current = {};
     for (const { id, ...t } of grid.tickets) {
-      const c = current[id] = { ...t, sla: slaPaused(t) ? null : dueState(t.due, CONFIG.dueSoonMinutes), firstSeen: prev?.[id]?.firstSeen ?? now };
+      const c = current[id] = { ...t, sla: resting(t) ? null : dueState(t.due, CONFIG.dueSoonMinutes), firstSeen: prev?.[id]?.firstSeen ?? now };
       c.tgt = targetState(c);
     }
     writeSnap(q, current);
@@ -959,7 +975,7 @@
     for (const [id, t] of Object.entries(current)) {
       const p = prev[id];
       if (!p) push('new', `New: ${label(id, t)}${t.status ? ` [${t.status}]` : ''}`, id, { status: t.status || '' });
-      else if (p.status !== t.status) push('status', `${label(id, t)}: ${p.status || '?'} → ${t.status || '?'}`, id, { from: p.status || '', to: t.status || '' });
+      else if (p.status !== t.status) statusAlert(push, id, t, p);
       if (t.sla && RANK[t.sla] > RANK[p?.sla || 'ok']) {
         const what = t.slaEvent ? `${t.slaEvent} ` : '';
         push(t.sla, `${t.sla === 'overdue' ? 'SLA breached' : 'SLA due soon'} (${dueAt(t.due)}): ${what}${label(id, t)}`, id);
@@ -987,14 +1003,14 @@
 
     const current = {};
     for (const { id, ...t } of grid.tickets) {
-      const c = current[id] = { ...t, fr: slaPaused(t) ? null : dueState(t.frDue, CONFIG.frSoonMinutes), firstSeen: prevSnap[id]?.firstSeen ?? seen[id] ?? now };
+      const c = current[id] = { ...t, fr: resting(t) ? null : dueState(t.frDue, CONFIG.frSoonMinutes), firstSeen: prevSnap[id]?.firstSeen ?? seen[id] ?? now };
       c.tgt = targetState(c);
     }
 
     const fresh = [];
     const qn = qName(q);
-    const push = (type, text, ticket) => fresh.push({
-      ts: now, q: q.key, qn, type, text, ticket, read: false, url: current[ticket]?.url || null, tid: current[ticket]?.tid || null,
+    const push = (type, text, ticket, extra) => fresh.push({
+      ts: now, q: q.key, qn, type, text, ticket, read: false, url: current[ticket]?.url || null, tid: current[ticket]?.tid || null, ...extra,
     });
 
     if (!rebase) {
@@ -1010,6 +1026,8 @@
         }
         // A ticket back on the visible page after a while away gets no catch-up alert
         const p = prevSnap[id];
+        // This kind of queue doesn't report every status change, only one that means it needs action again
+        if (p && p.status !== t.status && resting(p) && !resting(t)) statusAlert(push, id, t, p);
         targetAlert(push, id, t, p ? (p.tgt === undefined ? t.tgt : p.tgt) : seen[id] ? t.tgt : 'ok');
       }
     }
@@ -1953,9 +1971,22 @@
 .dash-ico{display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:50%;
   font-size:10px;font-weight:700;background:#3b4a5e;color:#e6e6e6;flex:none}
 .dash-kpi.critical .dash-ico{background:#e5484d;color:#fff}.dash-kpi.warning .dash-ico{background:#d29922;color:#141518}
-.dash-grid{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr) minmax(0,1fr);gap:14px;align-items:start}
-@media (max-width:1200px){.dash-grid{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}.dash-grid > :last-child{grid-column:1/-1}}
+.dash-main{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.9fr);gap:14px;align-items:start;margin-bottom:14px}
+.dash-main.solo{grid-template-columns:minmax(0,1fr)}
+.dash-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;align-items:start}
+@media (max-width:1200px){.dash-main{grid-template-columns:minmax(0,1fr)}.dash-grid{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}.dash-grid > :last-child{grid-column:1/-1}}
 @media (max-width:760px){.dash-grid{grid-template-columns:minmax(0,1fr)}#atqm-dash{padding:12px 16px}}
+.dash-tablewrap{overflow-x:auto}
+.dash-tt{font-size:13px}
+.dash-tt th{white-space:nowrap}.dash-tt th:last-child{text-align:right}
+.dash-tt td{padding:6px 8px}
+.dash-tt td.tk{white-space:nowrap}
+.dash-tt .tt{color:#e6e6e6}
+.dash-tt tr.dash-grp td{color:#9aa4b2;font-weight:600;padding-top:12px;border-bottom-color:#383835}
+.dash-tt tr:not(.dash-grp):hover td{background:#24262b}
+.dash-tt tr.overdue td:first-child{box-shadow:inset 3px 0 #e5484d}.dash-tt tr.soon td:first-child{box-shadow:inset 3px 0 #d29922}
+.dash-tt tr.overdue .when{color:#ff7b7f;font-weight:600}.dash-tt tr.soon .when{color:#e3b341;font-weight:600}
+.dash-tt tr.resting td{color:#9aa4b2}.dash-tt tr.resting .tt{color:#c9d1d9}
 .dash-stack{display:flex;flex-direction:column;gap:14px;min-width:0}
 .dash-card{background:#1e1f22;border:1px solid #2c2f35;border-radius:6px;padding:12px 14px;min-width:0}
 .dash-card h2{display:flex;align-items:center;gap:8px;font-size:14px;margin:0 0 10px}
@@ -1982,6 +2013,11 @@
 .dash-qh{display:flex;align-items:center;gap:8px}.dash-qh .atqm-sub{font-size:12px}
 .dash-qn{margin-left:auto;font-weight:600}
 .dash-qs{font-size:12px;margin:2px 0 6px}
+.atqm-st{font-weight:600}
+.atqm-meta{margin-right:6px}.atqm-meta > * + *{margin-left:6px}
+.atqm-pri{color:#9aa4b2}.atqm-pri.hi{color:#ff7b7f;font-weight:600}
+.atqm-list li.action{border-color:#f0883e}
+.atqm-tag.atqm-acttag{background:#3d2a14;color:#ffb86b}
 .atqm-mnote.atqm-mnext{color:#c9d1d9;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .atqm-act{background:#1f6feb;color:#fff;border:0;border-radius:4px;padding:1px 8px;margin-left:4px;cursor:pointer;font:inherit;font-size:11px;vertical-align:1px}
 .atqm-act:hover{filter:brightness(1.15)}
@@ -2148,6 +2184,15 @@
     if (c) w.style.color = c;
     return w;
   }
+  // Status (in its Autotask colour) and priority, for any ticket row
+  const isHighPriority = p => /high|critical|urgent/i.test(p || '');
+  function ticketMeta(t, { status = true } = {}) {
+    const meta = el('span', 'atqm-meta');
+    if (status && t.status) meta.append(statusWord(t.status));
+    if (t.priority) meta.append(el('span', isHighPriority(t.priority) ? 'atqm-pri hi' : 'atqm-pri', t.priority));
+    return meta;
+  }
+
   function statusChip(s, n) {
     const c = chip(s, n, statusClass(s));
     const color = statusColor(s);
@@ -2203,8 +2248,7 @@
       li.title = [t.account, t.priority, new Date(t[dueKey]).toLocaleString()].filter(Boolean).join(' | ');
       li.append(el('span', 'atqm-when', diff < 0 ? `${dur(diff)} overdue` : `in ${dur(diff)}`),
                 el('span', 'atqm-at', `(${dueAt(t[dueKey])})`), ticketLink(t.id, t));
-      li.append(document.createElement('br'));
-      li.append(el('span', 'atqm-sub', subFn(t)));
+      li.append(document.createElement('br'), ticketMeta(t), el('span', 'atqm-sub', subFn(t)));
       list.append(li);
     }
     return list;
@@ -2229,10 +2273,10 @@
     }
 
     panel.append(el('div', 'atqm-h', 'Next SLA events'));
-    const upcoming = tickets.filter(t => t.due && !slaPaused(t)).sort((a, b) => a.due - b.due).slice(0, CONFIG.upcomingCount);
+    const upcoming = tickets.filter(t => t.due && !resting(t)).sort((a, b) => a.due - b.due).slice(0, CONFIG.upcomingCount);
     panel.append(dueList(upcoming, 'due', CONFIG.dueSoonMinutes,
       t => [t.slaEvent, t.title].filter(Boolean).join(': '), 'No SLA deadlines in this queue.'));
-    pausedNote(panel, tickets);
+    restingNote(panel, tickets);
 
     const recent = get(K.alerts, []).filter(a => a.q === q.key).slice(-3).reverse();
     if (recent.length && !opts.compact) {
@@ -2249,7 +2293,7 @@
       return;
     }
 
-    const live = tickets.filter(t => !slaPaused(t));
+    const live = tickets.filter(t => !resting(t));
     const frOver = live.filter(t => dueState(t.frDue, CONFIG.frSoonMinutes) === 'overdue').length;
     const frSoon = live.filter(t => dueState(t.frDue, CONFIG.frSoonMinutes) === 'soon').length;
     const newCount = tickets.filter(t => /^new$/i.test(t.status || '')).length;
@@ -2277,8 +2321,7 @@
     for (const t of newest) {
       const li = el('li', 'new');
       li.append(el('span', 'atqm-when', ago(t.created || t.firstSeen)), ticketLink(t.id, t));
-      li.append(document.createElement('br'));
-      li.append(el('span', 'atqm-sub', [t.account, t.title, t.priority].filter(Boolean).join(': ')));
+      li.append(document.createElement('br'), ticketMeta(t), el('span', 'atqm-sub', [t.account, t.title].filter(Boolean).join(': ')));
       nl.append(li);
     }
     if (pool.length > cap) nl.append(el('li', 'atqm-empty', `…and ${pool.length - cap} more in New status`));
@@ -2294,19 +2337,19 @@
     return a;
   }
 
-  // Paused-SLA tickets: shown as waiting on their scheduled call rather than as SLA deadlines
-  function pausedNote(panel, tickets) {
-    const paused = tickets.filter(slaPaused);
-    if (!paused.length) return;
-    panel.append(el('div', 'atqm-h', `SLA paused (${paused.length}): ${pausedList().join(', ')}`));
+  // Tickets resting in a status that doesn't need action: listed, not chased
+  function restingNote(panel, tickets) {
+    const rest = tickets.filter(resting);
+    if (!rest.length) return;
+    panel.append(el('div', 'atqm-h', `No action needed (${rest.length})`));
     const list = el('ul', 'atqm-list');
-    for (const t of paused.slice(0, CONFIG.upcomingCount)) {
+    for (const t of rest.slice(0, CONFIG.upcomingCount)) {
       const li = el('li', 'paused');
-      li.append(el('span', 'atqm-when', t.status), ticketLink(t.id, t));
+      li.append(ticketLink(t.id, t), ' ', ticketMeta(t));
       li.append(document.createElement('br'), el('span', 'atqm-sub', [t.account, t.title].filter(Boolean).join(': ')));
       list.append(li);
     }
-    if (paused.length > CONFIG.upcomingCount) list.append(el('li', 'atqm-empty', `…and ${paused.length - CONFIG.upcomingCount} more`));
+    if (rest.length > CONFIG.upcomingCount) list.append(el('li', 'atqm-empty', `…and ${rest.length - CONFIG.upcomingCount} more`));
     panel.append(list);
   }
 
@@ -2403,7 +2446,7 @@
       ];
     }
 
-    const live = items.filter(t => !slaPaused(t));
+    const live = items.filter(t => !resting(t));
     const isNew = t => /^new$/i.test(t.status || '');
     const high = items.filter(t => /high|critical|urgent/i.test(t.priority || '')).length;
 
@@ -2426,12 +2469,12 @@
     // All changes
     const breached = live.filter(t => t.due && t.due < now).length;
     const soon = live.filter(t => dueState(t.due, CONFIG.dueSoonMinutes) === 'soon').length;
-    const paused = items.filter(slaPaused).length;
+    const restCount = items.filter(resting).length;
     return [
       stat('Tickets', items.length),
       stat('SLA breached', breached, breached ? 'overdue' : ''),
       stat(`SLA due < ${dur(CONFIG.dueSoonMinutes * 60000)}`, soon, soon ? 'soon' : ''),
-      stat('SLA paused', paused, '', paused ? pausedList().join(', ') : ''),
+      stat('No action needed', restCount, '', restCount ? 'in a status that needs nothing yet' : ''),
       stat('High priority', high, high ? 'overdue' : ''),
       stat('In New status', items.filter(isNew).length, items.some(isNew) ? 'new' : ''),
       stat('Oldest ticket', oldest(items), '', 'by created date, or first seen'),
@@ -2694,6 +2737,19 @@
     set(K.alerts, get(K.alerts, []).map(a => (a.ticket === id && !a.read ? { ...a, read: true } : a)));
   }
 
+  // A ticket's earliest deadline: first response SLA, another SLA (queues tracked for all changes), or the
+  // response target for a ticket in New without a first response SLA. Resting tickets have none, unless
+  // `all` (the dashboard's ticket table shows them, without asking for action).
+  function ticketDeadline(t, q, { all = false } = {}) {
+    if (!all && resting(t)) return null;
+    const options = [];
+    if (t.frDue) options.push({ due: t.frDue, soon: CONFIG.frSoonMinutes, what: 'First response' });
+    if (q.mode === 'full' && t.due && t.due !== t.frDue) options.push({ due: t.due, soon: CONFIG.dueSoonMinutes, what: t.slaEvent || 'SLA' });
+    if (targetDue(t)) options.push({ due: targetDue(t), soon: CONFIG.frSoonMinutes, what: 'Response target' });
+    return options.length ? options.sort((a, b) => a.due - b.due)[0] : null;
+  }
+  const isChange = a => a.type === 'status' || a.type === 'action';
+
   function nextUpItems() {
     const now = Date.now(), endOfDay = new Date(Date.now()).setHours(23, 59, 59, 999);
     const qs = activeQueues();
@@ -2725,15 +2781,10 @@
     const deadlines = [];
     for (const q of ticketQs) {
       for (const t of snapTickets(q) || []) {
-        if (slaPaused(t) || deadlineOf.has(t.id)) continue;
-        // Its earliest deadline: first response SLA, another SLA (queues tracked for all changes), or the
-        // response target for a ticket in New without a first response SLA
-        const options = [];
-        if (t.frDue) options.push({ due: t.frDue, soon: CONFIG.frSoonMinutes, what: 'First response' });
-        if (q.mode === 'full' && t.due && t.due !== t.frDue) options.push({ due: t.due, soon: CONFIG.dueSoonMinutes, what: t.slaEvent || 'SLA' });
-        if (targetDue(t)) options.push({ due: targetDue(t), soon: CONFIG.frSoonMinutes, what: 'Response target' });
-        if (!options.length) continue;
-        const d = { t, q, ...options.sort((a, b) => a.due - b.due)[0] };
+        if (deadlineOf.has(t.id)) continue;
+        const next = ticketDeadline(t, q);
+        if (!next) continue;
+        const d = { t, q, ...next };
         deadlines.push(d);
         deadlineOf.set(t.id, d);
       }
@@ -2750,17 +2801,20 @@
     const fresh = [];
     for (const q of ticketQs) {
       for (const t of snapTickets(q) || []) {
+        if (resting(t)) continue;
         const arrived = (unread.get(t.id) || []).some(a => a.type === 'new');
         if (q.mode === 'intake' ? /^new$/i.test(t.status || '') : arrived) fresh.push({ t, q, age: t.created || t.firstSeen });
       }
     }
     fresh.sort((a, b) => a.age - b.age).forEach(x => add('new', x));
 
-    // Status changes you haven't looked at yet, such as a customer replying. Longest waiting first.
+    // Status changes you haven't looked at yet that leave the ticket needing action, such as a customer
+    // replying. Longest waiting first.
     const changed = [];
     for (const q of ticketQs) {
       for (const t of snapTickets(q) || []) {
-        const last = (unread.get(t.id) || []).filter(a => a.type === 'status').pop();
+        if (resting(t)) continue;
+        const last = (unread.get(t.id) || []).filter(isChange).pop();
         if (last) changed.push({ t, q, ts: last.ts });
       }
     }
@@ -2777,7 +2831,7 @@
     if (it.kind === 'call') return `Service call now: ${callLabel(it.c)}`;
     const now = Date.now();
     if (it.due) return `${it.what} ${it.due < now ? `${dur(now - it.due)} overdue` : `in ${dur(it.due - now)}`}: ${it.t.id}`;
-    if (it.g === 'changed') return `${changeText(it.changes.filter(a => a.type === 'status').pop())}: ${it.t.id}`;
+    if (it.g === 'changed') return `${changeText(it.changes.filter(isChange).pop())}: ${it.t.id}`;
     return `New ticket waiting ${dur(now - it.age)}: ${it.t.id}`;
   }
 
@@ -2803,13 +2857,14 @@
     }
     li.append(document.createElement('br'));
     if (showQueue) li.append(el('span', 'atqm-tag', qName(it.q)));
-    const status = it.changes.filter(a => a.type === 'status').pop();
+    const status = it.changes.filter(isChange).pop();
     if (status) {
       const [from, to] = statusPair(status);
       const tag = el('span', 'atqm-tag atqm-chg');
       tag.append(statusWord(from || '?'), ' → ', statusWord(to || '?'));
       li.append(tag);
     }
+    li.append(ticketMeta(t, { status: !status }));
     // The deadline this row is about, or for a ticket listed for another reason, when its deadline falls
     const deadline = it.due ? it.what
       : it.dl ? `${it.dl.what} ${it.dl.due < now ? `${dur(now - it.dl.due)} overdue` : `in ${dur(it.dl.due - now)}`}` : '';
@@ -2835,7 +2890,6 @@
     if (ticketQs.some(q => q.mode === 'full')) soon.push(`SLAs within ${dur(CONFIG.dueSoonMinutes * 60000)}`);
     const parts = [`Due soon: ${soon.join(', ')}.`];
     if (CONFIG.responseTarget > 0) parts.push(`No SLA: respond within ${dur(CONFIG.responseTarget * 60000)}.`);
-    if (pausedList().length) parts.push(`${pausedList().join(', ')}: no deadlines.`);
     panel.append(el('div', 'atqm-hint atqm-basis-hint', parts.join(' ')));
   }
 
@@ -2898,8 +2952,9 @@
   function alertText(a, urlFor) {
     const frag = document.createDocumentFragment();
     const cut = a.text.lastIndexOf(': ');
-    const pair = a.type === 'status' && a.ticket && cut > 0 ? statusPair(a) : null;
+    const pair = (a.type === 'status' || a.type === 'action') && a.ticket && cut > 0 ? statusPair(a) : null;
     if (pair && pair.length === 2) {
+      if (a.type === 'action') frag.append(el('span', 'atqm-tag atqm-acttag', 'Needs action'));
       frag.append(linkify(a.text.slice(0, cut + 2), urlFor), statusWord(pair[0] || '?'), ' → ', statusWord(pair[1] || '?'));
     } else if (a.type === 'new' && a.status && a.text.endsWith(`[${a.status}]`)) {
       frag.append(linkify(a.text.slice(0, -(a.status.length + 2)), urlFor), '[', statusWord(a.status), ']');
@@ -2989,7 +3044,7 @@
       hint: 'Comma-separated minutes, e.g. 15, 10, 5, 0.' },
     { key: 'callPingAfterStart', label: 'Keep pinging after the call starts', type: 'checkbox',
       hint: 'Every minute until you press Dismiss or the call ends.' },
-    { group: 'SLA warnings' },
+    { group: 'Deadlines and statuses' },
     { key: 'dueSoonMinutes', label: 'Warn when an SLA is due within', unit: 'min', type: 'number', min: 5, max: 1440, step: 5,
       hint: 'Queues tracked for all changes.' },
     { key: 'frSoonMinutes', label: 'Warn when a first response is due within', unit: 'min', type: 'number', min: 5, max: 240, step: 5,
@@ -2997,9 +3052,10 @@
     { key: 'responseTarget', label: 'Respond to tickets without an SLA within', unit: 'min', type: 'number', min: 0, max: 480, step: 5,
       hint: 'Tickets in New status with no first response SLA get this as a target, so they sit next to your SLAs in Next up ' +
         'and the dashboard, with an alert when it passes. 0 turns it off.' },
-    { key: 'pausedStatuses', label: 'Statuses that pause the SLA', type: 'text',
+    { key: 'actionStatuses', label: 'Statuses that need action', type: 'text', wide: true,
       sanitize: v => String(v).split(',').map(clean).filter(Boolean).join(', '),
-      hint: 'Comma-separated. Tickets in these statuses get no SLA warnings, e.g. Scheduled while waiting for a service call. Leave empty to never pause.' },
+      hint: "Comma-separated. Tickets in any other status stay visible but don't ask for action: no deadlines in Next up and " +
+        'no SLA warnings. You get an alert when one moves into one of these. Leave empty to treat every status as needing action.' },
     { group: 'Alerts' },
     { key: 'notify', label: 'Desktop notifications', type: 'checkbox' },
     { key: 'sound', label: 'Sound on new alerts', type: 'checkbox' },
@@ -3105,6 +3161,11 @@
         wrap.append(state);
       }
       if (f.unit) wrap.append(el('span', 'atqm-sub', f.unit));
+      if (f.wide) {
+        lab.style.gridColumn = wrap.style.gridColumn = '1/-1';
+        wrap.style.justifySelf = 'stretch';
+        input.style.width = '100%';
+      }
       grid.append(lab, wrap);
       const hint = typeof f.hint === 'function' ? f.hint() : f.hint;
       if (hint) grid.append(el('div', 'atqm-hint', hint));
@@ -3473,11 +3534,12 @@
     const age = t => t.created || t.firstSeen;
     const overdue = items.filter(it => it.g === 'breached');
     const nextHour = items.filter(it => { const d = dueOf(it); return d && d >= now && d - now <= HOUR; }).sort((a, b) => dueOf(a) - dueOf(b));
-    const waiting = all.filter(t => /^new$/i.test(t.status || '') && !slaPaused(t));
+    const waiting = all.filter(t => /^new$/i.test(t.status || '') && !resting(t));
     const pastTarget = CONFIG.responseTarget > 0 ? waiting.filter(t => targetDue(t) && targetDue(t) < now).length : 0;
     const unread = unreadByTicket();
-    const changed = all.filter(t => (unread.get(t.id) || []).some(a => a.type === 'status')).length;
-    const high = all.filter(t => /high|critical|urgent/i.test(t.priority || '')).length;
+    const changed = all.filter(t => !resting(t) && (unread.get(t.id) || []).some(isChange)).length;
+    const high = all.filter(t => isHighPriority(t.priority)).length;
+    const acting = all.filter(t => !resting(t)).length;
     const stats = [
       { label: 'Overdue', value: overdue.length, status: overdue.length ? 'critical' : '', icon: '!',
         sub: overdue.length ? `longest ${dur(now - Math.min(...overdue.map(dueOf)))}` : 'nothing past due' },
@@ -3488,7 +3550,7 @@
           : pastTarget ? `${pastTarget} past your ${dur(CONFIG.responseTarget * 60000)} target`
           : `longest ${dur(now - Math.min(...waiting.map(age)))}` },
       { label: 'Changed since you looked', value: changed, sub: changed ? 'in Next up' : 'all seen' },
-      { label: 'Tickets in your queues', value: all.length, sub: high ? `${high} high priority` : '' },
+      { label: 'Need action', value: acting, sub: [`of ${all.length} ticket${all.length === 1 ? '' : 's'}`, high ? `${high} high priority` : ''].filter(Boolean).join(' · ') },
     ];
     if (activeQueues().some(q => q.mode === 'calls')) {
       const calls = activeQueues().filter(q => q.mode === 'calls').flatMap(q => snapTickets(q) || [])
@@ -3595,6 +3657,84 @@
     return card;
   }
 
+  // Every ticket in a queue tracked for all changes (My queue), so you can work from the dashboard: those
+  // that need action first, most urgent at the top, then those resting in a status that needs nothing yet
+  function ticketTable(q) {
+    const card = el('section', 'dash-card');
+    const tickets = snapTickets(q);
+    const head = el('h2', null, qName(q));
+    if (tickets) head.append(el('span', null, `${tickets.length} ticket${tickets.length === 1 ? '' : 's'}`));
+    card.append(head);
+    if (!tickets) {
+      card.append(el('div', 'atqm-empty', `No data yet. Fills in after the first scan of ${qWhere(q)}.`));
+      return card;
+    }
+    const unread = unreadByTicket();
+    const rows = tickets.map(t => ({ t, d: ticketDeadline(t, q, { all: true }), age: t.created || t.firstSeen, changes: unread.get(t.id) || [] }));
+    const byUrgency = (a, b) => (a.d ? a.d.due : Infinity) - (b.d ? b.d.due : Infinity) || a.age - b.age;
+    const act = rows.filter(r => !resting(r.t)).sort(byUrgency);
+    const rest = rows.filter(r => resting(r.t)).sort((a, b) => clean(a.t.status).localeCompare(clean(b.t.status)) || a.age - b.age);
+    const table = el('table', 'dash-table dash-tt');
+    const hr = el('tr');
+    for (const h of ['Ticket', 'Title', 'Status', 'Priority', 'Next deadline', 'Age']) hr.append(el('th', null, h));
+    table.append(hr);
+    for (const [name, list] of [['Needs action', act], ['No action needed', rest]]) {
+      if (!list.length) continue;
+      const tr = el('tr', 'dash-grp');
+      const td = el('td', null, `${name} · ${list.length}`);
+      td.colSpan = 6;
+      tr.append(td);
+      table.append(tr);
+      for (const r of list) table.append(ticketRow(r));
+    }
+    if (!rows.length) {
+      const tr = el('tr');
+      const td = el('td', 'atqm-empty', 'No tickets in this queue.');
+      td.colSpan = 6;
+      tr.append(td);
+      table.append(tr);
+    }
+    const wrap = el('div', 'dash-tablewrap');
+    wrap.append(table);
+    card.append(wrap);
+    return card;
+  }
+  function ticketRow({ t, d, age, changes }) {
+    const now = Date.now(), rests = resting(t);
+    const tr = el('tr', rests ? 'resting' : d ? dueState(d.due, d.soon) : '');
+    const tk = el('td', 'tk');
+    tk.append(ticketLink(t.id, t));
+    if (changes.length) {
+      const seen = el('button', 'atqm-seen', 'Seen');
+      seen.title = 'Mark the changes to this ticket as read';
+      seen.setAttribute('aria-label', `Mark the changes to ${t.id} as read`);
+      seen.onclick = () => { markTicketRead(t.id); render(); };
+      tk.append(seen);
+    }
+    const title = el('td');
+    title.append(el('div', 'tt', t.title || '–'));
+    if (t.account) title.append(el('div', 'atqm-sub', t.account));
+    const status = el('td');
+    status.append(statusWord(t.status || '–'));
+    const change = changes.filter(isChange).pop();
+    if (change) {
+      const was = el('div', 'atqm-sub');
+      was.append(change.type === 'action' ? 'needs action, was ' : 'was ', statusWord(statusPair(change)[0] || '?'));
+      status.append(was);
+    }
+    const prio = el('td');
+    prio.append(t.priority ? el('span', isHighPriority(t.priority) ? 'atqm-pri hi' : 'atqm-pri', t.priority) : '–');
+    const due = el('td');
+    if (d) {
+      const diff = d.due - now;
+      due.append(el('span', 'when', diff < 0 ? `${dur(diff)} overdue` : `in ${dur(diff)}`), el('div', 'atqm-sub', `${d.what} · ${dueAt(d.due)}`));
+    } else {
+      due.append(el('span', 'atqm-sub', '–'));
+    }
+    tr.append(tk, title, status, prio, due, el('td', 'num', age ? dur(now - age) : '–'));
+    return tr;
+  }
+
   function dashQueueCard(q) {
     const h = health(q), st = get(q.state, {});
     const card = el('div', 'dash-q');
@@ -3655,16 +3795,23 @@
     }
     d.append(kpis);
 
-    const grid = el('div', 'dash-grid');
+    // What to do next beside every ticket in your queue, then the wider picture
+    const main = el('div', 'dash-main');
     const next = el('section', 'dash-card');
     next.append(el('h2', null, 'Next up'));
     renderNextUp(next, items, { history: false, cap: 15 });
-    const middle = el('div', 'dash-stack');
+    const tables = el('div', 'dash-stack');
+    for (const q of activeQueues().filter(x => x.mode === 'full')) tables.append(ticketTable(q));
+    main.append(next);
+    if (tables.childElementCount) main.append(tables);
+    else main.classList.add('solo');
+    d.append(main);
+
+    const grid = el('div', 'dash-grid');
     const queues = el('section', 'dash-card');
     queues.append(el('h2', null, 'Queues'));
     for (const q of activeQueues()) queues.append(dashQueueCard(q));
     if (!activeQueues().length) queues.append(el('div', 'atqm-empty', 'No queues tracked.'));
-    middle.append(deadlineChart(items), queues);
     const changes = el('section', 'dash-card');
     const ch = el('h2', null, 'Recent changes');
     const all = get(K.alerts, []);
@@ -3677,7 +3824,7 @@
     }
     changes.append(ch, all.length ? alertList(all.slice(-CONFIG.displayAlerts).reverse())
       : el('div', 'atqm-empty', 'No changes since monitoring started.'));
-    grid.append(next, middle, changes);
+    grid.append(deadlineChart(items), queues, changes);
     d.append(grid);
     d.scrollTop = scroll;
     if (opening) d.focus();
@@ -4170,6 +4317,7 @@
       rotate, rotationTab, rotationStep, switchToQueue, gridSignature, monitorElsewhere,
       openQueueTab, popupsBlocked,
       readableColor, statusColor, statusWord, alertText, targetDue, dashboardStats, deadlineBuckets,
+      needsAction, resting, ticketDeadline,
     });
     return;
   }

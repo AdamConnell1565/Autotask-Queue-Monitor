@@ -278,10 +278,10 @@ test('boot: Next up shows the moves, the queues it is based on, and the change h
       'atqm:state': { mode: 'ok', lastScan: NOW, ts: NOW, count: 2 },
       'atqm:snap:my-open-tickets': {
         [T1]: { status: 'In Progress', due: NOW - 10 * MIN, slaEvent: 'Resolution', title: 'Printer' },
-        [T2]: { status: 'Customer Note Added', title: 'Laptop', firstSeen: NOW - 60 * MIN },
+        [T2]: { status: 'Action Required', title: 'Laptop', firstSeen: NOW - 60 * MIN },
       },
-      'atqm:alerts': [{ ts: NOW - 5 * MIN, q: 'my', type: 'status', ticket: T2, from: 'Waiting Customer', to: 'Customer Note Added',
-        read: false, text: `${T2} – Laptop: Waiting Customer → Customer Note Added` }],
+      'atqm:alerts': [{ ts: NOW - 5 * MIN, q: 'my', type: 'action', ticket: T2, from: 'Waiting Customer', to: 'Action Required',
+        read: false, text: `${T2} – Laptop: Waiting Customer → Action Required` }],
     },
   });
   try {
@@ -294,7 +294,7 @@ test('boot: Next up shows the moves, the queues it is based on, and the change h
     assert.deepEqual(heads(), ['Overdue', 'Changed since you last looked']);
     assert.match(panel.querySelector('.atqm-basis').textContent, /Watching\s*My queue/);
     assert.match(panel.textContent, /Recent changes/);
-    assert.match(panel.querySelector('.atqm-chg').textContent, /Waiting Customer → Customer Note Added/);
+    assert.match(panel.querySelector('.atqm-chg').textContent, /Waiting Customer → Action Required/);
     // The minimised window shows the top move
     assert.match(doc.getElementById('atqm-mini').textContent, /Next: Resolution 10m overdue: T20261001\.0001/);
 

@@ -22,7 +22,7 @@ const myQueue = {
   [OVERDUE]: { status: 'In Progress', due: NOW - 10 * MIN, slaEvent: 'Resolution', firstSeen: NOW - 5 * HOUR },
   [SOON]: { status: 'In Progress', due: NOW + 30 * MIN, slaEvent: 'Resolution', firstSeen: NOW - 5 * HOUR },
   [LATER]: { status: 'In Progress', due: NOW + 5 * HOUR, slaEvent: 'Resolution', firstSeen: NOW - 5 * HOUR },
-  [REPLIED]: { status: 'Customer Note Added', due: NOW + 10 * HOUR, slaEvent: 'Resolution', firstSeen: NOW - 5 * HOUR },
+  [REPLIED]: { status: 'Action Required', due: NOW + 10 * HOUR, slaEvent: 'Resolution', firstSeen: NOW - 5 * HOUR },
   [ARRIVED]: { status: 'New', firstSeen: NOW - 20 * MIN },
   [PAUSED]: { status: 'Scheduled', due: NOW - HOUR, slaEvent: 'Resolution', firstSeen: NOW - 5 * HOUR },
 };
@@ -33,8 +33,8 @@ const firstLine = {
   [OVERDUE]: { status: 'New', created: NOW - 6 * HOUR }, // also in My queue: listed once
 };
 const alerts = [
-  { ts: NOW - 15 * MIN, q: 'my', type: 'status', ticket: REPLIED, from: 'Waiting Customer', to: 'Customer Note Added', read: false,
-    text: `${REPLIED}: Waiting Customer → Customer Note Added` },
+  { ts: NOW - 15 * MIN, q: 'my', type: 'action', ticket: REPLIED, from: 'Waiting Customer', to: 'Action Required', read: false,
+    text: `${REPLIED}: Waiting Customer → Action Required` },
   { ts: NOW - 20 * MIN, q: 'my', type: 'new', ticket: ARRIVED, read: false, text: `New: ${ARRIVED}` },
   { ts: NOW - 5 * MIN, q: 'my', type: 'removed', ticket: 'T20261001.0099', read: false, text: 'Left queue: T20261001.0099' },
 ];
@@ -86,10 +86,10 @@ test('Seen takes a change off the list; the ticket stays if it still has a deadl
   close();
 });
 
-test('Next up follows the settings: thresholds and paused statuses', () => {
-  const { api, close } = load({ now: NOW, storage, settings: { dueSoonMinutes: 15, pausedStatuses: '' } });
+test('Next up follows the settings: thresholds and statuses that need action', () => {
+  const { api, close } = load({ now: NOW, storage, settings: { dueSoonMinutes: 15, actionStatuses: '' } });
   const items = api.nextUpItems();
-  // 30 minutes away is no longer "due soon", and Scheduled no longer pauses the SLA
+  // 30 minutes away is no longer "due soon", and with no list every status (Scheduled too) needs action
   assert.equal(items.find(it => it.t?.id === SOON).g, 'later');
   assert.equal(items.find(it => it.t?.id === PAUSED).g, 'breached');
   close();
@@ -135,9 +135,9 @@ test('status changes record where they came from and went to', () => {
   const q = api.trackedQueues()[0];
   const t = status => ({ id: OVERDUE, status, title: 'Printer', due: null, frDue: null });
   api.scanFull(q, { tickets: [t('Waiting Customer')], rowCount: 1 });
-  api.scanFull(q, { tickets: [t('Customer Note Added')], rowCount: 1 });
+  api.scanFull(q, { tickets: [t('Action Required')], rowCount: 1 });
   const [a] = api.get('atqm:alerts', []);
   assert.equal(a.from, 'Waiting Customer');
-  assert.equal(a.to, 'Customer Note Added');
+  assert.equal(a.to, 'Action Required');
   close();
 });

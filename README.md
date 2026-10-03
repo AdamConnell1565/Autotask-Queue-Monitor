@@ -45,7 +45,7 @@ Quick start opens several tabs from one click, which browsers block unless pop-u
 
 ## Next up
 
-The first tab in the window lists what to do next, most urgent first, across every queue you track:
+The first tab in the window lists what to do next, most urgent first, across every queue you track. Only tickets in a status that needs action are listed (see [Statuses that need action](#statuses-that-need-action)):
 
 1. **Service call now**: a scheduled call that has started.
 2. **Overdue**: first responses, SLAs and response targets that are past due.
@@ -61,7 +61,17 @@ Each ticket appears once, in its most urgent group, under its earliest deadline.
 
 What goes in the list follows your setup: which queues you track and how (a queue tracked for new tickets & first response only contributes new tickets and first responses), the "due soon" thresholds, the statuses that pause the SLA, and whether service calls are on. The top of the tab shows the queues and settings it's working from.
 
+Every ticket shows its status (in its Autotask colour) and priority.
+
 Underneath is **Recent changes**, the full history: new tickets, status changes, tickets leaving a queue, SLA warnings and service call changes. **Mark read** marks them all as read.
+
+## Statuses that need action
+
+Some statuses need you (a new ticket, a customer reply) and some don't (waiting on the customer or a vendor). **Statuses that need action** in Settings lists the first kind; the default is:
+
+New, First Response, In Progress, Action Required, Waiting Internal, Escalated, Workshop, Dispatch
+
+A ticket in any other status rests: it stays visible (in the dashboard's ticket table and the Overview), but it isn't in Next up, gets no SLA or response target warnings, and doesn't ping you when you set it to that status. When a resting ticket moves back into a status that needs action (Waiting Customer → Action Required, say), you get a **Needs action** alert and it goes to the top of Next up's changed tickets. Leave the setting empty to treat every status as needing action.
 
 ## Dashboard
 
@@ -69,6 +79,7 @@ Turn on **Dashboard button** in Settings and a ⛶ button appears at the top of 
 
 - **The numbers:** overdue, due in the next hour, waiting for a first response (and how many are past your response target), changed since you looked, tickets in your queues, and your next service call.
 - **Next up**, as in the window, with longer lists.
+- **Every ticket in My queue** (and any other queue tracked for all changes) in a table: those that need action first, most urgent at the top, then those in a status that needs nothing yet. Each row has the status, priority, next deadline and age, and a **Seen** button when it has changed.
 - **Deadlines in the next 8 hours:** a column per hour. Hover or tab to a column for its tickets, or press **Table** for the same as a table.
 - **Queues:** each queue's status and its tickets per status.
 - **Recent changes**, with **Mark all read**.
@@ -123,7 +134,7 @@ All in the window's **Settings** tab. The ones most people change:
 - **Warn when an SLA / first response is due within**: the "due soon" thresholds, for alerts and for Next up.
 - **Respond to tickets without an SLA within**: the response target for tickets in New with no first response SLA (0 turns it off).
 - **Dashboard button**: adds the ⛶ button that opens the dashboard.
-- **Statuses that pause the SLA**: no SLA warnings or deadlines for tickets in these statuses (Scheduled by default).
+- **Statuses that need action**: see [Statuses that need action](#statuses-that-need-action).
 - **Service calls** and **Call reminders**.
 - **Desktop notifications** and **Sound on new alerts**. **Test alert** checks both.
 - **Export settings** / **Import settings**: move your settings and tracked queues to another browser or PC.

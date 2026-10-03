@@ -112,7 +112,74 @@ test('boot: Quick start opens a tab for every queue, including the one this tab 
   }
 });
 
-test('boot: when the browser lets only one tab open, Quick start says so and opens the rest next time', async () => {
+test('boot: when the browser blocks tabs, the Quick start box says so and opens the rest one per click', async () => {
+  const { window, close } = load({ boot: true, html: fixture('queue-grid.html'), storage: TWO_QUEUES });
+  try {
+    const doc = window.document;
+    const opened = [];
+    let allowed = 1; // like a browser without pop-ups allowed: one tab per click
+    window.open = (url, name) => { if (!allowed) return null; allowed--; opened.push(name.split('~')[0]); return {}; };
+    await sleep(400);
+    button(doc.getElementById('atqm-qs'), /^Quick start$/).click();
+    assert.deepEqual(opened, ['atqm-my']);
+    await sleep(200);
+    // The box shows even when the window is minimised
+    const qs = doc.getElementById('atqm-qs');
+    assert.match(qs.textContent, /Your browser blocked a queue tab: Support 1st Line/);
+    assert.match(qs.textContent, /Allow pop-ups for autotask\.net/);
+    assert.ok(button(qs, /One tab for all queues/));
+
+    // Next click opens the queue that didn't get a tab, not My queue a second time
+    allowed = 1;
+    button(qs, /^Open Support 1st Line$/).click();
+    assert.deepEqual(opened, ['atqm-my', 'atqm-first-line']);
+    await sleep(200);
+    // Every queue has its tab; the pop-up notice stays until it's dealt with
+    const after = doc.getElementById('atqm-qs');
+    assert.match(after.textContent, /Your browser is blocking pop-ups from Autotask/);
+    button(after, /^Got it$/).click();
+    await sleep(50);
+    assert.equal(doc.getElementById('atqm-qs').textContent, '');
+  } finally {
+    close();
+  }
+});
+
+test('boot: a blocked Start tracking tab raises the pop-up notice, shown in the minimised window', async () => {
+  const { window, close } = load({ boot: true, html: fixture('queue-grid.html'), storage: { 'atqm:queues': [] } });
+  try {
+    const doc = window.document;
+    window.open = () => null;
+    await sleep(400);
+    button(doc.getElementById('atqm-page'), /Start tracking: all changes/).click();
+    await sleep(200);
+    assert.ok(doc.getElementById('atqm').classList.contains('min'));
+    const qs = doc.getElementById('atqm-qs');
+    assert.match(qs.textContent, /Your browser is blocking pop-ups from Autotask/);
+    assert.ok(button(qs, /One tab for all queues/));
+    // Shared with every tab
+    assert.equal(JSON.parse(window.localStorage.getItem('atqm:popups')).state, 'blocked');
+  } finally {
+    close();
+  }
+});
+
+test('boot: Quick start warns about pop-ups before the first try, and stops once tabs get through', async () => {
+  const { window, close } = load({ boot: true, html: fixture('queue-grid.html'), storage: TWO_QUEUES });
+  try {
+    const doc = window.document;
+    window.open = () => ({});
+    await sleep(400);
+    const qs = doc.getElementById('atqm-qs');
+    assert.match(qs.textContent, /Opens 2 tabs\. If your browser blocks pop-ups from autotask\.net, only the first gets through/);
+    button(qs, /^Quick start$/).click();
+    assert.equal(JSON.parse(window.localStorage.getItem('atqm:popups')).state, 'allowed');
+  } finally {
+    close();
+  }
+});
+
+test('boot: "One tab for all queues" turns the setting on and opens that one tab', async () => {
   const { window, close } = load({ boot: true, html: fixture('queue-grid.html'), storage: TWO_QUEUES });
   try {
     const doc = window.document;
@@ -121,16 +188,51 @@ test('boot: when the browser lets only one tab open, Quick start says so and ope
     window.open = (url, name) => { if (!allowed) return null; allowed--; opened.push(name.split('~')[0]); return {}; };
     await sleep(400);
     button(doc.getElementById('atqm-qs'), /^Quick start$/).click();
-    assert.deepEqual(opened, ['atqm-my']);
-    assert.match(doc.getElementById('atqm-health').textContent, /only let 1 of 2 tabs open/);
-
-    // Press again: only the queue that didn't get a tab is opened, not My queue a second time
-    allowed = 5;
     await sleep(200);
+    allowed = 1;
+    button(doc.getElementById('atqm-qs'), /One tab for all queues/).click();
+    assert.deepEqual(opened, ['atqm-my', 'atqm-*']);
+    assert.equal(JSON.parse(window.localStorage.getItem('atqm:settings')).oneTab, true);
+  } finally {
+    close();
+  }
+});
+
+test('boot: with one tab for all queues, Quick start opens a single tab', async () => {
+  const { window, close } = load({ boot: true, html: fixture('queue-grid.html'), storage: TWO_QUEUES, settings: { oneTab: true } });
+  try {
+    const doc = window.document;
+    const opened = [];
+    window.open = (url, name) => { opened.push(name.split('~')[0]); return {}; };
+    await sleep(400);
     const qs = doc.getElementById('atqm-qs');
-    assert.match(qs.textContent, /Support 1st Line/);
+    assert.match(qs.textContent, /2 tracked queues aren't being monitored/);
     button(qs, /^Quick start$/).click();
-    assert.deepEqual(opened, ['atqm-my', 'atqm-first-line']);
+    assert.deepEqual(opened, ['atqm-*']);
+    await sleep(200);
+    assert.match(doc.getElementById('atqm-page').textContent, /Opening the tab that monitors all your queues/);
+  } finally {
+    close();
+  }
+});
+
+test('boot: with one tab for all queues running, Start tracking leaves the new queue to it', async () => {
+  const { window, close } = load({
+    boot: true,
+    html: fixture('queue-grid.html'),
+    settings: { oneTab: true },
+    storage: { 'atqm:queues': [], 'atqm:enabled': true, 'atqm:rotator': { id: 'other', tab: 'other', ts: Date.now(), queues: [] } },
+  });
+  try {
+    const doc = window.document;
+    const opened = [];
+    window.open = (url, name) => { opened.push(name); return {}; };
+    await sleep(400);
+    button(doc.getElementById('atqm-page'), /Start tracking: all changes/).click();
+    assert.deepEqual(opened, []);
+    assert.match(doc.getElementById('atqm-health').textContent, /picks it up on its next round/);
+    await sleep(300);
+    assert.match(doc.getElementById('atqm-page').textContent, /Your monitoring tab will check Open Tickets on its next round/);
   } finally {
     close();
   }

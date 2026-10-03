@@ -37,7 +37,10 @@ Tampermonkey checks the same link for new versions, so updates arrive by themsel
 
 After that, **Quick start** (in the window, or at the top of Settings) opens a monitoring tab for every tracked queue in one go, and leaves the tab you're in alone. Press it from another window later to move them all there, for example to a window you keep minimised.
 
-Quick start opens several tabs from one click, which browsers block unless pop-ups are allowed: click the pop-up icon at the right of the address bar and choose to always allow pop-ups from autotask.net. Until you do, each press opens one more tab.
+Quick start opens several tabs from one click, which browsers block unless pop-ups are allowed. If that happens the window tells you, and you have two ways round it:
+
+- **Allow pop-ups:** click the pop-up icon at the right of the address bar and choose to always allow pop-ups from autotask.net. Quick start then opens every tab at once. Until then, **Open <queue>** in the window opens the rest one per click.
+- **Use one tab for all queues:** press **One tab for all queues** in the window, or turn on **Monitor all queues from one tab** in Settings. Quick start then opens a single tab that checks every queue in turn (see below), which browsers allow without pop-up permission.
 
 ## Next up
 
@@ -62,6 +65,10 @@ Underneath is **Recent changes**, the full history: new tickets, status changes,
 Each tracked queue is monitored by one tab. That tab refreshes the queue (every 2 minutes by default), compares it with the last scan and sends alerts for what changed. Every other Autotask tab shows the overview.
 
 If the monitoring tab closes, or moves off the queue, that queue stops updating. The light in the window turns amber, and one tab sends a single "stopped updating" notification.
+
+### One tab for all queues
+
+With **Monitor all queues from one tab** on, Quick start and Start tracking open a single monitoring tab instead of one per queue. That tab takes every tracked queue nobody else is monitoring and goes round them: it clicks a queue in the menu, refreshes it, scans it and moves on, so each queue is still checked about once per refresh interval (with lots of queues, a round takes about 30 seconds per queue). Its locked view shows each queue's status and Next up across all of them. Queues you start tracking later join its rounds by themselves.
 
 ### Locked monitoring tabs
 
@@ -95,6 +102,7 @@ If a queue has more tickets than one page of the grid shows, the window offers *
 All in the window's **Settings** tab. The ones most people change:
 
 - **Refresh queues every**: how often monitoring tabs refresh.
+- **Monitor all queues from one tab**: one monitoring tab for every queue instead of a tab each (see [One tab for all queues](#one-tab-for-all-queues)).
 - **Date format in Autotask**: detected from your queues; set it if the window shows the wrong dates.
 - **Autotask time zone**: set this if the time zone in your Autotask profile differs from your PC's. The window warns you when due times look hours out.
 - **Warn when an SLA / first response is due within**: the "due soon" thresholds, for alerts and for Next up.

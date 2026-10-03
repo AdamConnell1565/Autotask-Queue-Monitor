@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.10.0 (2026-10-03)
+
+### Added
+
+- **Monitor all queues from one tab** (Settings, off by default). Quick start and Start tracking open a single monitoring tab that goes round every tracked queue: it clicks each one in the menu, refreshes it and scans it. Opening one tab works without pop-up permission. It won't scan a grid that hasn't switched to the new queue yet, so one queue's tickets are never credited to another. Its locked view shows each queue's status and Next up across all of them.
+- The window notices when the browser blocks a tab it opens (including blockers that open a tab and close it straight away) and says so in a box that shows even when minimised, with how to allow pop-ups for autotask.net and a **One tab for all queues** button. The notice clears once one click opens several tabs, or when you press **Got it**.
+- When Quick start's tabs are blocked, the box lists the queues that didn't get one, with **Open <queue>** to open them one per click.
+- Before the first Quick start that opens several tabs, the box mentions that blocked pop-ups would stop all but the first.
+
+### Fixed
+
+- Start tracking opened its tab after asking for notification permission, which could use up the click and get the tab blocked. It now opens the tab first.
+- "Today" checks (service calls later today, changes today) used the real clock instead of the one the rest of the script uses; this only affected tests.
+
 ## 0.9.2 (2026-10-02)
 
 ### Fixed

@@ -108,3 +108,13 @@ test('import checks everything in the file', () => {
   assert.match(api.importSettings('not json'), /isn't a Queue monitor settings file/);
   close();
 });
+
+test('a tab the browser closes straight after opening counts as a blocked pop-up', async () => {
+  const { api, window, close } = load();
+  window.open = () => ({ closed: true });
+  assert.equal(api.openQueueTab({ key: 'my' }, 'https://ww5.autotask.net/x'), true);
+  assert.equal(api.popupsBlocked(), false);
+  await new Promise(r => setTimeout(r, 1700));
+  assert.equal(api.popupsBlocked(), true);
+  close();
+});

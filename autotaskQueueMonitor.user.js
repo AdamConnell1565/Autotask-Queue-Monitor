@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Autotask Queue Monitor
 // @namespace    autotask
-// @version      0.9.2
+// @version      0.10.0
 // @description  Track any My Workspace & Queues queue (My queue by default) in its own tab, with a live overview on every Autotask page
 // @author       AdamConnell1565
 // @homepageURL  https://github.com/AdamConnell1565/Autotask-Queue-Monitor
@@ -141,6 +141,7 @@
     opacity: 100,                 // window opacity (%) when expanded
     opacityMin: 85,               // window opacity (%) when minimised
     lockMonitorTabs: true,        // monitoring tabs: big centred window, page greyed out and not clickable
+    oneTab: false,                // Quick start opens one tab that monitors every queue in turn
     notify: true,
     sound: true,
     hideInPopups: true,
@@ -178,6 +179,8 @@
     beepClaims: P + 'beep:claims',
     healthPinged: P + 'health:pinged',// queue -> the outage we already sent a "stopped updating" alert for
     launchPending: P + 'launch:pending',// queue -> when a tab was opened to monitor it (it's on its way)
+    rotator: P + 'rotator',           // the one-tab monitor's heartbeat: { id, tab, ts, queues }
+    popups: P + 'popups',             // what opening tabs has shown: { state: 'blocked' | 'allowed', ts, dismissed }
   };
 
   const CONFIG = { ...DEFAULTS };
@@ -289,7 +292,7 @@
     return Math.floor(h / 24) + 'd';
   }
   function dueAt(ts) {
-    const d = new Date(ts), now = new Date();
+    const d = new Date(ts), now = new Date(Date.now());
     const time = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     const days = Math.round((new Date(d).setHours(0, 0, 0, 0) - new Date(now).setHours(0, 0, 0, 0)) / 86400000);
     if (days === 0) return `today ${time}`;
@@ -301,7 +304,7 @@
   const ago = ts => (!ts ? 'never' : Date.now() - ts < 60000 ? 'just now' : dur(Date.now() - ts) + ' ago');
   function fmtTime(ts) {
     const d = new Date(ts);
-    return d.toDateString() === new Date().toDateString()
+    return d.toDateString() === new Date(Date.now()).toDateString()
       ? d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
       : d.toLocaleString([], { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
   }
@@ -477,7 +480,10 @@
     if (h) { held.delete(q.key); h.release(); }
     if (get(q.lock, null)?.id === ID) del(q.lock);
   }
-  addEventListener('pagehide', () => trackedQueues().forEach(releaseLock));
+  addEventListener('pagehide', () => {
+    trackedQueues().forEach(releaseLock);
+    if (get(K.rotator, null)?.id === ID) del(K.rotator);
+  });
 
   function setState(q, patch) {
     set(q.state, { ...get(q.state, {}), ...patch, id: ID, ts: Date.now() });
@@ -611,6 +617,7 @@
       v.cur = currentQueue();
       v.isCalls = isCallGrid();
       v.url = location.href;
+      v.ownsAny = trackedQueues().some(ownsLock);
       if (v.cur) {
         // Quick start opens queues it hasn't seen yet from here
         if (!get(K.wsUrl, null)) set(K.wsUrl, location.href);
@@ -626,6 +633,7 @@
       v.q = findTracked(v.cur);
       v.owns = !!remotePage.owns;
       v.foreign = !!remotePage.foreign;
+      v.ownsAny = !!remotePage.ownsAny;
       v.choose = !!remotePage.choose;
       v.isCalls = !!remotePage.isCalls;
       v.url = remotePage.url;
@@ -1251,7 +1259,7 @@
     });
   }
 
-  async function refreshAndScan(q) {
+  async function refreshAndScan(q, { staleSig = '' } = {}) {
     const resized = await ensureMaxPageSize();
     const btn = resized ? null : findRefreshButton();
     if (btn) {
@@ -1263,6 +1271,11 @@
     if (pageInfo(true).q?.key !== q.key) return setState(q, { mode: 'waiting', note: `Monitoring tab moved off ${qWhere(q)}` });
 
     await ensureColumns(q);
+    if (staleSig && gridSignature() === staleSig) {
+      staleSkips.set(q.key, (staleSkips.get(q.key) || 0) + 1);
+      return setState(q, { note: 'Waiting for the grid to switch to this queue' });
+    }
+    staleSkips.delete(q.key);
 
     if (q.mode === 'calls') {
       const cg = readCallGrid();
@@ -1294,6 +1307,14 @@
     if (!manual && !get(K.enabled, false)) return;
     handleMoveRequest();
     if (!manual && Date.now() < retiredUntil) { renderSoon(); return; }
+    if (rotationTab()) {
+      // Only the page that shows the queue grid does the rounds (not the outer page around a frame)
+      if (!gridPresent() || !get(K.enabled, false)) return;
+      busy = true;
+      lastTick = Date.now();
+      try { await rotate(); } catch (e) { console.error('[ATQM]', e); } finally { busy = false; renderSoon(); }
+      return;
+    }
     busy = true;
     lastTick = Date.now();
     let q = null;
@@ -1340,23 +1361,25 @@
 
   function slug(s) { return clean(s).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 60); }
 
-  // Track a queue and open a copy of this page in a new tab to monitor it, so the tab you're working
-  // in isn't taken over and locked. Runs from the button press (browsers block tabs opened later).
-  // Returns false if the browser blocked the new tab; the page banner then offers to monitor here.
+  // Track a queue and get it monitored somewhere other than the tab you're working in, so that tab isn't
+  // taken over and locked: a copy of this page in a new tab, or (one-tab setting) the tab that monitors
+  // every queue. Runs from the button press (browsers block tabs opened later). Returns what
+  // monitorElsewhere did: 'opened', 'running' or 'blocked'.
   function startTracking(cur, mode, url) {
     const list = trackedQueues();
     const existing = findTracked(cur);
-    if (existing) return openMonitorTab(existing, url);
+    if (existing) return monitorElsewhere(existing, url);
     let key = slug(`${cur.section}-${cur.nav}`) || 'queue';
     while (list.some(q => q.key === key)) key += '-2';
     list.push({ key, nav: cur.nav, section: cur.section, mode });
     saveQueues(list);
     if (!get(K.enabled, false)) set(K.enabled, true);
+    // The tab first, while the click still counts: browsers only allow a new tab straight after a click
+    const result = monitorElsewhere(trackedQueues().find(q => q.key === key), url);
     if (CONFIG.notify && 'Notification' in window && Notification.permission === 'default') Notification.requestPermission();
     if (CONFIG.sound) beep(false);
-    const opened = openMonitorTab(trackedQueues().find(q => q.key === key), url);
     render();
-    return opened;
+    return result;
   }
 
   // ---------------------------------------------------------------------------
@@ -1398,6 +1421,7 @@
   // A tab opened for a queue (Quick start, Start tracking) monitors only that queue while it's on its way
   // there: it usually opens on whichever queue My Workspace shows first, and mustn't grab that one.
   function mayMonitorHere(q) {
+    if (rotationTab()) return true;
     const going = launchKey();
     if (going) return going === q.key;
     return launchedTab() || consented().includes(q.key);
@@ -1405,8 +1429,20 @@
 
   // Open one queue's tab in this window; the window name tells the new tab which queue it's for
   function openQueueTab(q, url) {
-    return !!W.open(url, LAUNCH + q.key + '~' + Date.now().toString(36));
+    const win = W.open(url, LAUNCH + q.key + '~' + Date.now().toString(36));
+    if (!win) { notePopups('blocked'); return false; }
+    // Some blockers hand back a tab and close it straight away
+    setTimeout(() => { try { if (win.closed) notePopups('blocked'); } catch { /* ignore */ } }, 1500);
+    return true;
   }
+  // Remembered for every tab, so the notice shows wherever you are next
+  function notePopups(state) {
+    const cur = get(K.popups, null);
+    if (cur && cur.state === state && (state === 'allowed' || !cur.dismissed)) return;
+    set(K.popups, { state, ts: Date.now() });
+    renderSoon();
+  }
+  const popupsBlocked = () => { const p = get(K.popups, null); return !!p && p.state === 'blocked' && Date.now() - p.ts < 7 * 86400000; };
   // A tab of its own to monitor q: it starts by itself (see mayMonitorHere) and clicks the queue in the
   // menu if the page doesn't open on it. Meanwhile the page banner here says it's on its way.
   function openMonitorTab(q, url) {
@@ -1427,7 +1463,7 @@
   function idleQueues() {
     const pg = pageInfo();
     const mine = pg.q && pg.owns ? pg.q.key : null;
-    return activeQueues().filter(q => q.key !== mine && !foreignActive(q) && !ownsLock(q) && !launchPending(q));
+    return activeQueues().filter(q => q.key !== mine && !foreignActive(q) && !ownsLock(q) && !monitorPending(q));
   }
 
   // Tracked queues currently monitored by some other tab
@@ -1436,8 +1472,10 @@
   // Quick start / move here. Opens a tab in THIS window for every tracked queue, including the one this
   // tab shows (this tab is never taken over). When queues are already monitored elsewhere, those tabs
   // are asked to stop and close themselves first; a queue this tab monitors itself stays here.
+  let qsBlockedAt = 0; // when the browser last blocked some of Quick start's tabs (the Quick start box says so)
   function quickStart() {
     const moving = busyElsewhere().length > 0;
+    if (CONFIG.oneTab) return quickStartOneTab(moving);
     const here = pageInfo(true);
     const mine = here.q && here.owns ? here.q.key : null;
     if (moving) set(K.moveReq, { ts: Date.now(), tab: tabId() });
@@ -1447,6 +1485,8 @@
     let opened = 0;
     for (const q of ready) if (openMonitorTab(q, queueUrl(q))) opened++;
     const blocked = ready.length - opened;
+    qsBlockedAt = blocked ? Date.now() : 0;
+    if (opened > 1) notePopups('allowed');
     if (!get(K.enabled, false)) set(K.enabled, true);
     if (!blocked) set(K.qsSnooze, Date.now() + 3 * 60000); // give the new tabs time to start monitoring
     const notes = [];
@@ -1460,6 +1500,10 @@
     flashNote(notes.join(' '), 15000);
   }
 
+  // q's entry in the queue menu
+  const menuEntryFor = q => navItems().find(i => same(i.name, q.nav) &&
+    (!q.section || !sectionOf(i.el) || same(sectionOf(i.el), q.section)));
+
   // In a tab opened by Quick start: click the queue's entry in the menu (or the page tab) until it's showing
   let launchTries = 0, launchSeen = 0;
   function handleLaunch() {
@@ -1471,12 +1515,122 @@
     if (!q) { if (isTop) clearLaunch(); return; }
     if (pageInfo(true).q?.key === key) { clearLaunch(); return; } // arrived: monitoring takes over from here
     if (!gridPresent() && !navItems().length) return;              // this frame isn't the queue page (yet)
-    const target = navItems().find(i => same(i.name, q.nav) &&
-      (!q.section || !sectionOf(i.el) || same(sectionOf(i.el), q.section)));
+    const target = menuEntryFor(q);
     if (!target) return;
     if (++launchTries > 8) { clearLaunch(); return; }               // give up quietly after ~20 s
     press(target.el);
     pageCache.t = 0;
+  }
+
+  // ---------------------------------------------------------------------------
+  // One tab for all queues (setting "Monitor all queues from one tab"). Quick start opens a single tab
+  // that takes every queue nobody else is monitoring and checks them in turn: it clicks the queue in
+  // the menu, refreshes it and scans it, then moves on. One new tab needs no pop-up permission.
+  // ---------------------------------------------------------------------------
+  const ROTATE_KEY = '*';           // launch key of the one-tab monitor (queue keys are slugs, never '*')
+  const ROTATE_SS = P + 'rotate';   // in that tab's sessionStorage, so it stays one across page reloads
+  const ROTATOR = { key: ROTATE_KEY };
+  function rotationTab() {
+    try { if (sessionStorage.getItem(ROTATE_SS)) return true; } catch { /* ignore */ }
+    return launchKey() === ROTATE_KEY;
+  }
+  // Each queue should come round about once per refresh interval. Switching takes a few seconds, so
+  // never move on more often than every 20 s.
+  const rotationStep = n => Math.max(20000, CONFIG.refreshMs / Math.max(1, n));
+  const rotatorAlive = () => { const r = get(K.rotator, null); return !!r && Date.now() - r.ts < staleMs(); };
+  // How old a queue's last scan may get before it counts as stopped. The one-tab monitor reaches each
+  // queue once per round, and with many queues a round takes longer than one refresh (about 30 s a queue).
+  function scanStaleMs(q) {
+    const r = get(K.rotator, null);
+    const queues = r && Date.now() - r.ts < staleMs() && (r.queues || []).includes(q.key) ? r.queues.length : 0;
+    return Math.max(staleMs(), queues * 30000 * 2.5);
+  }
+
+  // What the grid shows, to tell whether it has really switched to another queue
+  const gridSignature = () => [...gridScope().querySelectorAll(AT.sel.row)].slice(0, 30).map(r => clean(r.textContent)).join('\n');
+
+  // Show q in this page by clicking it in the queue menu. True once the menu shows it and the grid
+  // has been redrawn.
+  async function switchToQueue(q) {
+    if (pageInfo(true).q?.key === q.key) return true;
+    const target = menuEntryFor(q);
+    if (!target) return false;
+    const marker = gridScope().querySelector(AT.sel.row);
+    press(target.el);
+    const shown = await waitFor(() => { pageCache.t = 0; return pageInfo(true).q?.key === q.key; }, 20000);
+    if (!shown) return false;
+    if (marker) await waitForRefresh(marker, CONFIG.postRefreshTimeoutMs);
+    await sleep(600);
+    return pageInfo(true).q?.key === q.key;
+  }
+
+  const lastTry = new Map();    // queue key -> when this tab last tried it (a queue that fails can't hog the turn)
+  const staleSkips = new Map(); // queue key -> scans skipped because the grid still showed the previous queue
+
+  // One step of the rounds: take the queue whose turn it is, switch to it and scan it
+  async function rotate() {
+    const r = get(K.rotator, null);
+    // Another page in this same tab (another frame) is already doing the rounds
+    if (r && r.id !== ID && r.tab === tabId() && Date.now() - r.ts < staleMs()) return;
+    const qs = activeQueues();
+    // Take every queue nobody else monitors, keep the ones held, let go of ones no longer tracked
+    for (const q of qs) if (await acquireLock(q)) owned.add(q.key);
+    for (const key of [...owned]) {
+      if (qs.some(q => q.key === key)) continue;
+      releaseLock({ key, ...qStore({ key }) });
+      owned.delete(key);
+    }
+    const mine = qs.filter(q => owned.has(q.key) && ownsLock(q));
+    set(K.rotator, { id: ID, tab: tabId(), ts: Date.now(), queues: mine.map(q => q.key) });
+    if (!mine.length) return;
+
+    const turn = q => Math.max(get(q.state, {}).lastScan || 0, lastTry.get(q.key) || 0);
+    const q = mine.slice().sort((a, b) => turn(a) - turn(b))[0];
+    lastTry.set(q.key, Date.now());
+    const switching = pageInfo(true).q?.key !== q.key;
+    const before = switching ? gridSignature() : '';
+    if (switching && !(await switchToQueue(q))) {
+      return setState(q, { mode: 'error', note: `The monitoring tab couldn't open ${qWhere(q)} from the queue menu` });
+    }
+    if (get(q.state, {}).url !== location.href) setState(q, { url: location.href });
+    // The grid can lag behind the menu. Scanning it then would credit one queue's tickets to another, so
+    // wait for it (but not forever: two queues can genuinely show the same tickets)
+    await refreshAndScan(q, { staleSig: (staleSkips.get(q.key) || 0) < 2 ? before : '' });
+  }
+
+  // Get q monitored without using this tab. Returns 'opened', 'running' (the one-tab monitor will pick
+  // it up on its next round) or 'blocked' (the browser stopped the new tab).
+  function monitorElsewhere(q, url) {
+    if (CONFIG.oneTab) {
+      if (rotatorAlive()) return 'running';
+      return openMonitorTab(ROTATOR, url) ? 'opened' : 'blocked';
+    }
+    return openMonitorTab(q, url) ? 'opened' : 'blocked';
+  }
+  // A tab is on its way to monitor q (its own, or the one-tab monitor)
+  const monitorPending = q => launchPending(q) || (CONFIG.oneTab && launchPending(ROTATOR));
+
+  // Quick start in one-tab mode: open the tab that monitors every queue, unless one is already running
+  function quickStartOneTab(moving) {
+    if (!moving && rotatorAlive()) {
+      flashNote('Your monitoring tab is running. It picks up new queues on its next round.', 6000);
+      return;
+    }
+    const url = get(K.wsUrl, null) || activeQueues().map(queueUrl).find(Boolean);
+    if (!url) {
+      flashNote('Open My Workspace & Queues once so Quick start knows where your queues are.', 8000);
+      return;
+    }
+    if (moving) set(K.moveReq, { ts: Date.now(), tab: tabId() });
+    if (!get(K.enabled, false)) set(K.enabled, true);
+    if (openMonitorTab(ROTATOR, url)) {
+      qsBlockedAt = 0;
+      set(K.qsSnooze, Date.now() + 3 * 60000);
+      flashNote(`${moving ? 'Moving monitoring to' : 'Opening'} one tab for all your queues…`, 6000);
+    } else {
+      qsBlockedAt = Date.now();
+      flashNote(BLOCKED, 10000);
+    }
   }
 
   let retiredUntil = 0, moveHandled = Date.now(); // ignore requests made before this page loaded
@@ -1487,10 +1641,11 @@
     const mine = trackedQueues().filter(q => owned.has(q.key) || ownsLock(q));
     // A queue tab is one that's monitoring, one Quick start opened that's still on its way,
     // or one showing a tracked queue. Other Autotask tabs are left alone.
-    if (!mine.length && !launchKey() && !pageInfo(true).q) return;
+    if (!mine.length && !launchKey() && !rotationTab() && !pageInfo(true).q) return;
     mine.forEach(q => { releaseLock(q); owned.delete(q.key); });
     retiredUntil = Date.now() + 2 * 60000;                 // don't grab the queues back while the new tabs start
     clearLaunch();
+    try { sessionStorage.removeItem(ROTATE_SS); } catch { /* ignore */ }
     setTimeout(() => {
       try { W.top.close(); } catch { /* not allowed */ }
       // Still here: browsers only let a tab close itself if a script opened it
@@ -1730,6 +1885,8 @@
 .atqm-next li.atqm-next-more{font-weight:400}
 .atqm-more{background:none;border:0;color:#7fb8ff;cursor:pointer;font:inherit;padding:2px 0}
 .atqm-more:hover{text-decoration:underline}
+.atqm-qsbox.atqm-popwarn{border-left-color:#d29922;background:#2e2a1f}
+#atqm-qs .atqm-qsbox + .atqm-qsbox{margin-top:6px}
 .atqm-mnote.atqm-mnext{color:#c9d1d9;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .atqm-act{background:#1f6feb;color:#fff;border:0;border-radius:4px;padding:1px 8px;margin-left:4px;cursor:pointer;font:inherit;font-size:11px;vertical-align:1px}
 .atqm-act:hover{filter:brightness(1.15)}
@@ -1805,12 +1962,12 @@
   function health(q) {
     if (!get(K.enabled, false)) return { cls: 'off', text: 'Paused.' };
     const st = get(q.state, null);
-    const openIt = { cls: 'warn', text: `Open ${qWhere(q)} in a tab and leave it open.` };
+    const openIt = { cls: 'warn', text: rotatorAlive() ? 'Waiting for its turn in the monitoring tab.' : `Open ${qWhere(q)} in a tab and leave it open.` };
     if (!st) return openIt;
     const fresh = Date.now() - (st.ts || 0) < staleMs();
     if (fresh && (st.mode === 'waiting' || st.mode === 'error')) return { cls: 'warn', text: st.note };
     if (!st.lastScan) return openIt;
-    if (Date.now() - st.lastScan > staleMs()) {
+    if (Date.now() - st.lastScan > scanStaleMs(q)) {
       return { cls: 'warn', text: `Last scan ${ago(st.lastScan)}. Is the ${qWhere(q)} tab still open? ` +
         'If it is, your browser may have put it to sleep (see "Keeping monitoring alive" in the README).' };
     }
@@ -2057,7 +2214,7 @@
     const live = calls.filter(c => c.start && c.end > now).sort((a, b) => a.start - b.start);
     const inProgress = live.filter(c => c.start <= now);
     const upcoming = live.filter(c => c.start > now);
-    const endOfDay = new Date().setHours(23, 59, 59, 999);
+    const endOfDay = new Date(Date.now()).setHours(23, 59, 59, 999);
     const today = upcoming.filter(c => c.start <= endOfDay);
     const notDone = calls.filter(c => c.end && c.end <= now).sort((a, b) => b.end - a.end);
 
@@ -2091,8 +2248,8 @@
   function queueStats(q) {
     const items = snapTickets(q) || [];
     const now = Date.now();
-    const startOfDay = new Date().setHours(0, 0, 0, 0);
-    const endOfDay = new Date().setHours(23, 59, 59, 999);
+    const startOfDay = new Date(Date.now()).setHours(0, 0, 0, 0);
+    const endOfDay = new Date(Date.now()).setHours(23, 59, 59, 999);
     const today = get(K.alerts, []).filter(a => a.q === q.key && a.ts >= startOfDay);
     const stat = (label, value, cls = '', sub = '') => ({ label, value, cls, sub });
     const age = t => t.created || t.firstSeen;
@@ -2175,11 +2332,7 @@
     const line = healthLine(h);
     line.className = 'lv-health ' + h.cls;
     box.append(title, line);
-    for (const w of globalWarnings()) box.append(el('div', 'lv-health warn', w));
-    if (CONFIG.sound && !canPlay()) {
-      box.append(el('div', 'lv-health warn', 'Click anywhere in this window once to allow sound alerts. ' +
-        'Browsers only play sound in a page that has been clicked.'));
-    }
+    lockNotes(box);
     box.append(why);
 
     if (!snapTickets(q)) {
@@ -2221,6 +2374,49 @@
     box.scrollTop = scroll;
   }
 
+  // Warnings for the locked views: problems with the monitor as a whole, and sound needing a click
+  function lockNotes(box) {
+    for (const w of globalWarnings()) box.append(el('div', 'lv-health warn', w));
+    if (CONFIG.sound && !canPlay()) {
+      box.append(el('div', 'lv-health warn', 'Click anywhere in this window once to allow sound alerts. ' +
+        'Browsers only play sound in a page that has been clicked.'));
+    }
+  }
+
+  // The locked one-tab monitor: each queue it checks, then Next up across all of them
+  function renderRoundsView(box) {
+    const scroll = box.scrollTop;
+    box.replaceChildren();
+    const r = get(K.rotator, null);
+    const n = r && Date.now() - r.ts < staleMs() ? (r.queues || []).length : 0;
+    const title = el('div', 'lv-title');
+    title.append(el('b', null, 'Queue monitor'),
+      el('span', null, n ? `Checking ${n} queue${n === 1 ? '' : 's'} in turn` : 'Starting…'),
+      el('span', 'lv-mode', 'One tab for all queues'));
+    box.append(title);
+    for (const q of activeQueues()) {
+      const h = health(q);
+      const line = healthLine(h, qName(q) + ': ');
+      line.className = 'lv-health ' + h.cls;
+      box.append(line);
+    }
+    lockNotes(box);
+    const why = el('div', 'lv-why');
+    why.append(el('b', null, 'Page locked to keep monitoring running.'),
+      " This tab switches between your queues by itself to check each one, so it's greyed out. Use ",
+      el('b', null, 'Unlock for 5 min'), ' if you need it.');
+    box.append(why);
+    const next = el('div');
+    renderNextUp(next, nextUpItems());
+    box.append(next);
+    const foot = el('div', 'lv-foot');
+    const scan = el('button', null, 'Scan now');
+    scan.onclick = requestScan;
+    foot.append(el('span', null, 'Keep this tab open: it checks every tracked queue in turn and feeds the Queue monitor in your other tabs.'), scan);
+    box.append(foot);
+    box.scrollTop = scroll;
+  }
+
   const BLOCKED = 'Your browser blocked the monitoring tab. Allow pop-ups for autotask.net and try again, or monitor in this tab.';
 
   // Page-specific banner: what this tab is doing with the queue it shows
@@ -2230,6 +2426,11 @@
     if (!pg.cur) { box.hidden = true; return; }
     box.hidden = false;
     const where = pg.cur.section ? `${pg.cur.section} > ${pg.cur.nav}` : pg.cur.nav;
+    if (rotationTab()) {
+      box.className = 'here';
+      box.append(el('b', null, 'This tab monitors all your queues.'), ' It switches between them by itself, so keep it open.');
+      return;
+    }
 
     if (pg.q) {
       const enabled = get(K.enabled, false);
@@ -2259,9 +2460,18 @@
       } else if (enabled && !pg.choose) {
         box.className = 'here';
         box.append(el('b', null, `${qName(pg.q)} is tracked.`), ' Starting monitoring in this tab…');
-      } else if (enabled && launchPending(pg.q)) {
+      } else if (enabled && CONFIG.oneTab && rotatorAlive()) {
         box.className = 'here';
-        box.append(el('b', null, `Opening a tab to monitor ${qName(pg.q)}…`), ' This tab stays free to use.');
+        box.append(el('b', null, `Your monitoring tab will check ${qName(pg.q)} on its next round.`), ' This tab stays free to use.');
+        const btns = el('div', 'atqm-start');
+        const here = el('button', null, 'Monitor in this tab instead');
+        here.onclick = () => takeHere('Starting monitoring in this tab…');
+        btns.append(here);
+        box.append(btns);
+      } else if (enabled && monitorPending(pg.q)) {
+        box.className = 'here';
+        box.append(el('b', null, CONFIG.oneTab ? 'Opening the tab that monitors all your queues…' : `Opening a tab to monitor ${qName(pg.q)}…`),
+          ' This tab stays free to use.');
         const btns = el('div', 'atqm-start');
         const here = el('button', null, 'Monitor in this tab instead');
         here.onclick = () => takeHere('Starting monitoring in this tab…');
@@ -2272,11 +2482,13 @@
         box.className = 'untracked';
         box.append(el('b', null, `Nobody is monitoring ${qName(pg.q)}.`), enabled ? '' : ' Monitoring is paused.');
         const btns = el('div', 'atqm-start');
-        const sep = el('button', null, 'Open a separate monitoring tab');
-        sep.title = 'Recommended: a tab of its own stays on this queue while you keep working here';
+        const sep = el('button', null, CONFIG.oneTab ? 'Open the monitoring tab' : 'Open a separate monitoring tab');
+        sep.title = CONFIG.oneTab
+          ? 'Recommended: one tab checks all your queues in turn while you keep working here'
+          : 'Recommended: a tab of its own stays on this queue while you keep working here';
         sep.onclick = () => {
           if (!get(K.enabled, false)) set(K.enabled, true);
-          if (!openMonitorTab(pg.q, pg.url)) flashNote(BLOCKED, 10000);
+          if (monitorElsewhere(pg.q, pg.url) === 'blocked') flashNote(BLOCKED, 10000);
           else render();
         };
         const here = el('button', null, CONFIG.lockMonitorTabs ? 'Monitor in this tab (it will be locked)' : 'Monitor in this tab');
@@ -2304,9 +2516,13 @@
       b.title = m.hint;
       b.onclick = () => {
         // The new tab opens from here, the page the button is on, even when the queue is in a frame
-        const opened = startTracking(pg.cur, mode, pg.url);
+        const result = startTracking(pg.cur, mode, pg.url);
         pageCache.t = 0;
-        flashNote(opened ? `Tracking ${pg.cur.nav}. Opening a tab to monitor it…` : `Tracking ${pg.cur.nav}. ${BLOCKED}`, opened ? 4000 : 10000);
+        flashNote(`Tracking ${pg.cur.nav}. ` + ({
+          opened: 'Opening a tab to monitor it…',
+          running: 'Your monitoring tab picks it up on its next round.',
+          blocked: BLOCKED,
+        })[result], result === 'blocked' ? 10000 : 5000);
       };
       btns.append(b);
     }
@@ -2348,7 +2564,7 @@
   }
 
   function nextUpItems() {
-    const now = Date.now(), endOfDay = new Date().setHours(23, 59, 59, 999);
+    const now = Date.now(), endOfDay = new Date(Date.now()).setHours(23, 59, 59, 999);
     const qs = activeQueues();
     const ticketQs = qs.filter(q => q.mode !== 'calls');
     const unread = unreadByTicket();
@@ -2584,6 +2800,9 @@
       options: [['detail', 'Ticket page'], ['command', 'Autotask command link'], ['grid', 'Grid link']],
       hint: 'Ticket page opens the normal ticket tab. The other two tend to pop out into a separate window.' },
     { group: 'Window' },
+    { key: 'oneTab', label: 'Monitor all queues from one tab', type: 'checkbox',
+      hint: 'Quick start and Start tracking open a single monitoring tab that switches between all your tracked queues, ' +
+        "instead of a tab per queue. Use it if your browser blocks Quick start's extra tabs. Each queue is still checked about once per refresh." },
     { key: 'lockMonitorTabs', label: 'Lock monitoring tabs', type: 'checkbox',
       hint: "A tab that's monitoring a queue shows this window large in the middle and greys out the page, so it can't be changed by accident. Automatic refreshes still work. You can unlock it for 5 minutes from the window." },
     { key: 'opacity', label: 'Opacity when expanded', unit: '%', type: 'number', min: 20, max: 100, step: 5 },
@@ -3065,7 +3284,7 @@
   // Is this tab a locked monitoring tab? (the frame doing the monitoring owns the lock; the top window learns it from the frame)
   function lockActive(pg = pageInfo()) {
     if (!CONFIG.lockMonitorTabs || !get(K.enabled, false) || Date.now() < unlockedUntil()) return false;
-    return trackedQueues().some(ownsLock) || !!(pg.q && pg.owns);
+    return trackedQueues().some(ownsLock) || !!(pg.q && pg.owns) || !!pg.ownsAny;
   }
   // Keyboard input to the page is swallowed while locked (mouse input is stopped by the overlay).
   // Our automations never use the keyboard, so they're unaffected.
@@ -3099,7 +3318,7 @@
 
     // Unlock / re-lock control in the header
     let btn = w.querySelector('#atqm-unlock');
-    const showBtn = isTop && CONFIG.lockMonitorTabs && pg.q && pg.owns;
+    const showBtn = isTop && CONFIG.lockMonitorTabs && (pg.ownsAny || (pg.q && pg.owns));
     if (!showBtn) { btn?.remove(); return; }
     if (!btn) {
       btn = el('button');
@@ -3133,7 +3352,7 @@
 
     // Start/stop monitoring promptly when this tab moves onto or off a tracked queue
     // (at most every 5 s, in case another tab holds the queue without the record showing it yet)
-    if (!pg.remote && get(K.enabled, false) && !busy && Date.now() - lastTick > 5000) {
+    if (!pg.remote && !rotationTab() && get(K.enabled, false) && !busy && Date.now() - lastTick > 5000) {
       const wantsLock = pg.q && !pg.foreign && !pg.owns && !pg.choose;
       const movedOff = [...owned].some(k => k !== pg.q?.key);
       if (wantsLock || movedOff) setTimeout(() => tick(), 0);
@@ -3141,11 +3360,15 @@
     reportPage(pg);
     if (!w) return;
 
-    const monitoring = !!(pg.q && pg.owns);
+    const monitoring = !!(pg.q && pg.owns) || !!pg.ownsAny;
     if (monitoring && !wasMonitoring) w.classList.remove('min');
     renderLock(w, pg);
-    w.classList.toggle('lv-calls', !!(pg.q && pg.q.mode === 'calls'));
-    if (w.classList.contains('locked') && pg.q) renderLockView(w.querySelector('#atqm-lockview'), pg.q);
+    const rounds = rotationTab();
+    w.classList.toggle('lv-calls', rounds ? activeQueues().some(q => q.mode === 'calls') : !!(pg.q && pg.q.mode === 'calls'));
+    if (w.classList.contains('locked')) {
+      if (rounds) renderRoundsView(w.querySelector('#atqm-lockview'));
+      else if (pg.q) renderLockView(w.querySelector('#atqm-lockview'), pg.q);
+    }
     wasMonitoring = monitoring;
 
     renderReminders(w.querySelector('#atqm-rem'));
@@ -3176,7 +3399,7 @@
       const note = el('button', 'atqm-mnote', `${pg.cur.nav} isn't tracked. Expand to track it.`);
       note.onclick = () => { w.classList.remove('min'); render(); };
       mini.append(note);
-    } else if (pg.q && pg.choose && !launchPending(pg.q) && !launchKey()) {
+    } else if (pg.q && pg.choose && !monitorPending(pg.q) && !launchKey() && !(CONFIG.oneTab && rotatorAlive())) {
       const note = el('button', 'atqm-mnote', `Nobody is monitoring ${qName(pg.q)}. Expand to choose where.`);
       note.onclick = () => { w.classList.remove('min'); render(); };
       mini.append(note);
@@ -3318,7 +3541,7 @@
     for (const q of activeQueues()) {
       const st = get(q.state, null);
       const age = st?.lastScan ? now - st.lastScan : 0;
-      if (!age || age <= staleMs() || age > staleMs() + 10 * 60000) continue;
+      if (!age || age <= scanStaleMs(q) || age > scanStaleMs(q) + 10 * 60000) continue;
       if (!(await claim(K.healthPinged, q.key, st.lastScan))) continue;
       if (CONFIG.sound) beep(true);
       if (CONFIG.notify && 'Notification' in window && Notification.permission === 'granted') {
@@ -3330,19 +3553,77 @@
     }
   }
 
+  // The browser blocked a tab the monitor opened (any kind): say so until it's fixed or dismissed
+  function popupNotice() {
+    const p = get(K.popups, null);
+    if (!popupsBlocked() || p.dismissed) return null;
+    const r = el('div', 'atqm-qsbox atqm-popwarn');
+    r.append(el('b', null, 'Your browser is blocking pop-ups from Autotask'));
+    r.append(el('div', 'atqm-sub', 'So Quick start and Start tracking only get one new tab per click. To fix it, click the pop-up ' +
+      'icon at the right of the address bar and choose to always allow pop-ups from autotask.net.'));
+    const btns = el('div', 'atqm-qsbtns');
+    const ok = el('button', null, 'Got it');
+    ok.onclick = () => { set(K.popups, { ...p, dismissed: true }); render(); };
+    btns.append(ok);
+    if (!CONFIG.oneTab) {
+      const all = el('button', null, 'One tab for all queues');
+      all.title = 'Turns on "Monitor all queues from one tab" in Settings: it needs only one new tab';
+      all.onclick = () => {
+        set(K.settings, { ...get(K.settings, {}), oneTab: true });
+        loadSettings();
+        if (idleQueues().length) quickStartOneTab(false);
+        render();
+      };
+      btns.append(all);
+    }
+    r.append(btns);
+    return r;
+  }
+
   function renderQuickStart(box) {
     if (!box) return;
     box.replaceChildren();
-    if (!isTop || launchKey() || Date.now() < get(K.qsSnooze, 0)) return;
+    if (!isTop || launchKey() || rotationTab()) return;
     const idle = idleQueues();
-    if (!idle.length) return;
     const r = el('div', 'atqm-qsbox');
+    const btns = el('div', 'atqm-qsbtns');
+    const next = idle.find(queueUrl);
+    const blockedBox = !CONFIG.oneTab && next && Date.now() - qsBlockedAt < 10 * 60000;
+    if (!blockedBox) { const notice = popupNotice(); if (notice) box.append(notice); }
+    if (Date.now() < get(K.qsSnooze, 0) || !idle.length || (CONFIG.oneTab && rotatorAlive())) return;
+    if (blockedBox) {
+      // The browser let Quick start open only some tabs: open the rest one per click, or switch to one tab
+      r.append(el('b', null, `Your browser blocked ${idle.length === 1 ? 'a queue tab' : `${idle.length} queue tabs`}: ${idle.map(qName).join(', ')}`));
+      r.append(el('div', 'atqm-sub', 'Allow pop-ups for autotask.net (the icon at the right of the address bar) so Quick start can open ' +
+        'them all at once. Or open them one at a time, or use one tab for all queues.'));
+      const one = el('button', 'atqm-qsgo', `Open ${qName(next)}`);
+      one.onclick = () => { if (!openMonitorTab(next, queueUrl(next))) flashNote(BLOCKED, 10000); render(); };
+      const all = el('button', null, 'One tab for all queues');
+      all.title = 'Turns on "Monitor all queues from one tab" in Settings and opens that tab';
+      all.onclick = () => {
+        set(K.settings, { ...get(K.settings, {}), oneTab: true });
+        loadSettings();
+        quickStartOneTab(false);
+        render();
+      };
+      btns.append(one, all);
+      const later = el('button', null, 'Not now');
+      later.onclick = () => { qsBlockedAt = 0; set(K.qsSnooze, Date.now() + 8 * 3600000); render(); };
+      btns.append(later);
+      r.append(btns);
+      box.append(r);
+      return;
+    }
     r.append(el('b', null, `${idle.length} tracked queue${idle.length > 1 ? 's aren\'t' : ' isn\'t'} being monitored`));
     r.append(el('div', 'atqm-sub', idle.map(qName).join(', ')));
-    const btns = el('div', 'atqm-qsbtns');
-    if (idle.some(queueUrl)) {
+    const ready = idle.filter(queueUrl).length;
+    // Several tabs from one click only work with pop-ups allowed; say so before the first try
+    if (!CONFIG.oneTab && ready > 1 && !popupsBlocked() && get(K.popups, null)?.state !== 'allowed') {
+      r.append(el('div', 'atqm-sub', `Opens ${ready} tabs. If your browser blocks pop-ups from autotask.net, only the first gets through.`));
+    }
+    if (ready) {
       const go = el('button', 'atqm-qsgo', 'Quick start');
-      go.title = 'Open a tab for each queue and start monitoring';
+      go.title = CONFIG.oneTab ? 'Open one tab that monitors all your queues' : 'Open a tab for each queue and start monitoring';
       go.onclick = quickStart;
       btns.append(go);
     } else {
@@ -3420,7 +3701,7 @@
     if (!pg.cur && !lastReportHadQueue) return;
     lastReportHadQueue = !!pg.cur;
     postToTop({
-      atqm: 'page', ts: Date.now(), cur: pg.cur || null, qKey: pg.q?.key || null, owns: !!pg.owns, foreign: !!pg.foreign,
+      atqm: 'page', ts: Date.now(), cur: pg.cur || null, qKey: pg.q?.key || null, owns: !!pg.owns, foreign: !!pg.foreign, ownsAny: !!pg.ownsAny,
       choose: !!pg.choose, isCalls: !!pg.isCalls, url: location.href, storageFail: storageFail?.ts || 0,
     });
   }
@@ -3456,9 +3737,13 @@
   let loopTimer = null;
   function schedule(delay) {
     clearTimeout(loopTimer);
-    loopTimer = setTimeout(async () => { await tick(); schedule(CONFIG.refreshMs); }, delay);
+    loopTimer = setTimeout(async () => {
+      await tick();
+      schedule(rotationTab() ? rotationStep(owned.size || activeQueues().length) : CONFIG.refreshMs);
+    }, delay);
   }
   function reschedule() {
+    if (rotationTab()) return schedule(2000);
     const mine = trackedQueues().filter(q => owned.has(q.key)).map(q => get(q.state, {}).lastScan || 0);
     const last = mine.length ? Math.max(...mine) : 0;
     schedule(Math.max(2000, last + CONFIG.refreshMs - Date.now()));
@@ -3480,6 +3765,8 @@
       scanFull, scanIntake, scanCalls, health, globalWarnings, navItems, currentQueue, diagnose,
       claim, mayMonitorHere, consentHere,
       nextUpItems, urgentCount, markTicketRead, nextSummary,
+      rotate, rotationTab, rotationStep, switchToQueue, gridSignature, monitorElsewhere,
+      openQueueTab, popupsBlocked,
     });
     return;
   }
@@ -3491,6 +3778,10 @@
   try { topHasNoBody = !isTop && W.top.document.body?.tagName === 'FRAMESET'; } catch { /* ignore */ }
   if (isTop && launchKey()) {
     try { sessionStorage.setItem(SS_KEY, launchKey()); sessionStorage.setItem(P + 'launched', '1'); } catch { /* ignore */ }
+    if (launchKey() === ROTATE_KEY) {
+      try { sessionStorage.setItem(ROTATE_SS, '1'); } catch { /* ignore */ }
+      clearLaunch(); // nothing to click on the way: it takes whatever queue is showing first
+    }
   }
   const isPopup = () => isTop && !!W.opener && !launchedTab();
 

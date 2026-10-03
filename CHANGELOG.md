@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.12.1 (2026-10-03)
+
+### Changed
+
+- Dashboard layout: two columns that each fill downwards on their own, so a long list on one side no longer leaves gaps on the other. Next up and My queue on the left, Queues, deadlines and Recent changes on the right; stacked on narrower screens.
+- Next up on the dashboard is a table like My queue, one line per ticket: when, ticket, status, priority, queue, title and deadline. Long titles are shortened, with the full text on hover.
+- My queue's table puts status and priority next to the ticket, and only shows a deadline column when a ticket has one.
+- The deadlines chart only appears when something is due in the next 8 hours. Recent changes shows 15 with **Show more**.
+
+### Added
+
+- **Priority colours:** like statuses, the colour Autotask shows each priority in is read from the grid and used wherever a priority is shown. Until it's known, high priorities are picked out in red.
+
 ## 0.12.0 (2026-10-03)
 
 ### Added

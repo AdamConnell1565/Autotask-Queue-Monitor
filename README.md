@@ -13,7 +13,7 @@ A Tampermonkey userscript that watches your Autotask queues and tells you when s
 - **Service calls** (optional): your scheduled calls, with reminders before each one.
 - **Next up**, the first tab: your next move, worked out from every queue you track and your settings (see [Next up](#next-up)).
 - **Dashboard** (optional): a full-window view of everything at once (see [Dashboard](#dashboard)).
-- Desktop notifications and a sound for each change, plus a history of changes under Next up. Statuses show in the colours Autotask gives them.
+- Desktop notifications and a sound for each change, plus a history of changes under Next up. Statuses and priorities show in the colours Autotask gives them.
 
 ## Install
 
@@ -78,11 +78,13 @@ A ticket in any other status rests: it stays visible (in the dashboard's ticket 
 Turn on **Dashboard button** in Settings and a ⛶ button appears at the top of the window. It opens a dashboard over the whole browser window, for keeping SLAs and the tickets without one in view at the same time:
 
 - **The numbers:** overdue, due in the next hour, waiting for a first response (and how many are past your response target), changed since you looked, tickets in your queues, and your next service call.
-- **Next up**, as in the window, with longer lists.
-- **Every ticket in My queue** (and any other queue tracked for all changes) in a table: those that need action first, most urgent at the top, then those in a status that needs nothing yet. Each row has the status, priority, next deadline and age, and a **Seen** button when it has changed.
-- **Deadlines in the next 8 hours:** a column per hour. Hover or tab to a column for its tickets, or press **Table** for the same as a table.
+- **Next up** as a table: one line per ticket with when, status, priority, queue, title and deadline.
+- **Every ticket in My queue** (and any other queue tracked for all changes) in a table under it: those that need action first, most urgent at the top, then those in a status that needs nothing yet. Each row has the status, priority, title, next deadline (when any ticket has one) and age, and a **Seen** button when it has changed.
+- **Deadlines in the next 8 hours** (only when something is due): a column per hour. Hover or tab to a column for its tickets, or press **Table** for the same as a table.
 - **Queues:** each queue's status and its tickets per status.
 - **Recent changes**, with **Mark all read**.
+
+Next up and your queue's tickets fill the left; queues, deadlines and changes the right. Each side fills downwards on its own, and on narrower screens they stack.
 
 **Full screen** fills the screen; **Close** or Esc goes back to the page. The dashboard stays open in that tab across reloads, so it can stay up on a second screen. It only shows what the monitoring tabs collect, so keep those open too.
 

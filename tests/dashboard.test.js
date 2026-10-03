@@ -177,15 +177,21 @@ test('boot: the dashboard button opens the full-window dashboard; Esc closes it'
 
     // The same numbers as a table
     // Every ticket in My queue, those needing action first, each with its status and priority
-    const rows = [...dash.querySelectorAll('.dash-tt tr')].map(tr => tr.textContent);
+    const rows = [...dash.querySelectorAll('.dash-mq tr')].map(tr => tr.textContent);
     assert.deepEqual(rows.filter(r => /^(Needs action|No action needed) · /.test(r)), ['Needs action · 3', 'No action needed · 1']);
     const tickets = rows.filter(r => /^T\d{8}/.test(r)).map(r => r.slice(0, 14));
     assert.deepEqual(tickets, ['T20261001.0001', 'T20261001.0002', 'T20261001.0003', 'T20261001.0004']);
-    const resting = [...dash.querySelectorAll('.dash-tt tr.resting')];
+    const resting = [...dash.querySelectorAll('.dash-mq tr.resting')];
     assert.equal(resting.length, 1);
     assert.match(resting[0].textContent, /Waiting Customer/);
     assert.match(resting[0].textContent, /Low/);
-    assert.match(dash.querySelector('.dash-tt tr.overdue').textContent, /In Progress.*High.*30m overdue/);
+    assert.match(dash.querySelector('.dash-mq tr.overdue').textContent, /In Progress.*High.*30m overdue/);
+
+    // Next up as a table, grouped, with a queue column as more than one queue is tracked
+    const nt = dash.querySelector('.dash-nt');
+    assert.deepEqual([...nt.querySelectorAll('th')].map(th => th.textContent), ['When', 'Ticket', 'Status', 'Priority', 'Queue', 'Title', 'Deadline']);
+    assert.deepEqual([...nt.querySelectorAll('tr.dash-grp')].map(tr => tr.textContent.replace(/ · \d+$/, '')),
+      ['Overdue', 'Due soon', 'New tickets', 'Changed since you last looked']); // the ticket due later has changed
 
     // The deadlines chart as a table
     [...dash.querySelectorAll('button')].find(b => b.textContent === 'Table').click();
@@ -203,6 +209,48 @@ test('boot: no dashboard button unless the setting is on', async () => {
   try {
     await sleep(200);
     assert.equal(window.document.getElementById('atqm-dashbtn').hidden, true);
+  } finally {
+    close();
+  }
+});
+
+test('priority colours are read off the grid and used wherever a priority shows', () => {
+  const { api, window, close } = load({ html: fixture('queue-grid.html'), settings: { dateOrder: 'DMY' } });
+  const [first] = window.document.querySelectorAll('tr.Display');
+  first.cells[5].innerHTML = '<span style="color: rgb(220, 0, 0)">High</span>';
+  api.readGrid();
+  assert.deepEqual(plain(api.get('atqm:priority:colors', {})), { high: 'rgb(220, 0, 0)', medium: null });
+  assert.ok(api.priorityWord('High').style.color);
+  assert.equal(api.priorityWord('Medium').style.color, '');
+  close();
+});
+
+test('before its colour is known, a high priority is picked out anyway', () => {
+  const { api, close } = load();
+  assert.match(api.priorityWord('Critical').className, /\bhi\b/);
+  assert.doesNotMatch(api.priorityWord('Low').className, /\bhi\b/);
+  close();
+});
+
+test('boot: the dashboard leaves out what has nothing to show', async () => {
+  const quiet = {
+    'atqm:enabled': true,
+    'atqm:state': { mode: 'ok', lastScan: NOW, ts: NOW, count: 2 },
+    'atqm:snap:my-open-tickets': {
+      'T20261001.0001': { status: 'In Progress', title: 'Printer' },
+      'T20261001.0002': { status: 'Waiting Customer', title: 'Laptop' },
+    },
+  };
+  const { window, close } = load({ boot: true, now: NOW, settings: { dashboard: true }, storage: quiet });
+  try {
+    const doc = window.document;
+    await sleep(200);
+    doc.getElementById('atqm-dashbtn').click();
+    const dash = doc.getElementById('atqm-dash');
+    assert.ok(!dash.textContent.includes('Deadlines in the next 8 hours'), 'no deadlines, no chart card');
+    const heads = [...dash.querySelectorAll('.dash-mq th')].map(th => th.textContent);
+    assert.deepEqual(heads, ['Ticket', 'Status', 'Priority', 'Title', 'Age'], 'no deadline column when no ticket has one');
+    assert.equal(dash.querySelectorAll('.dash-mq tr').length, 5); // header, 2 groups, 2 tickets
   } finally {
     close();
   }

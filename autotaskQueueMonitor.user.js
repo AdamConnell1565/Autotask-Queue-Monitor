@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Autotask Queue Monitor
 // @namespace    autotask
-// @version      0.12.0
+// @version      0.12.1
 // @description  Track any My Workspace & Queues queue (My queue by default) in its own tab, with a live overview on every Autotask page
 // @author       AdamConnell1565
 // @homepageURL  https://github.com/AdamConnell1565/Autotask-Queue-Monitor
@@ -186,6 +186,7 @@
     rotator: P + 'rotator',           // the one-tab monitor's heartbeat: { id, tab, ts, queues }
     popups: P + 'popups',             // what opening tabs has shown: { state: 'blocked' | 'allowed', ts, dismissed }
     statusColors: P + 'status:colors',// status (lower case) -> its colour in Autotask's grid, or null for plain
+    priorityColors: P + 'priority:colors', // the same for priorities
   };
 
   const CONFIG = { ...DEFAULTS };
@@ -772,6 +773,7 @@
       raw.push({
         r, tCell, status,
         sCell: cols?.status != null ? cells[cols.status + offset] : null,
+        pCell: cols?.priority != null ? cells[cols.priority + offset] : null,
         plainCell: cols?.title != null ? cells[cols.title + offset] : null,
         id: cellText(tCell).match(TICKET_RE)[0],
         slaEvent: noneToEmpty(col(cells, cols?.slaEvent)),
@@ -784,9 +786,10 @@
       });
     }
     learnDateOrder(raw.flatMap(x => [x.due, x.frDue, x.created]));
-    learnStatusColors(raw);
+    learnColors(raw, 'status', 'sCell', K.statusColors);
+    learnColors(raw, 'priority', 'pCell', K.priorityColors);
 
-    const tickets = raw.map(({ r, tCell, sCell, plainCell, ...x }) => {
+    const tickets = raw.map(({ r, tCell, sCell, pCell, plainCell, ...x }) => {
       const due = parseDate(x.due);
       let frDue = parseDate(x.frDue);
       if (!frDue && /first\s*response/i.test(x.slaEvent)) frDue = due;
@@ -795,23 +798,23 @@
     return { tickets, rowCount: rows.length };
   }
 
-  // Autotask shows each status in its own colour (set up in Autotask). Read it off the status cell,
-  // ignoring the grid's ordinary text colour, so the monitor can show statuses the same way.
+  // Autotask shows each status and priority in its own colour (set up in Autotask). Read it off the cell,
+  // ignoring the grid's ordinary text colour, so the monitor can show them the same way.
   function textColor(cell) {
     let n = cell;
     while (n.childElementCount === 1 && clean(n.firstElementChild.textContent) === clean(n.textContent)) n = n.firstElementChild;
     try { return n.ownerDocument.defaultView.getComputedStyle(n).color || ''; } catch { return ''; }
   }
-  function learnStatusColors(rows) {
+  function learnColors(rows, field, cellKey, storeKey) {
     const found = {};
     for (const x of rows) {
-      const key = clean(x.status).toLowerCase();
-      if (!key || !x.sCell || key in found) continue;
-      const c = textColor(x.sCell);
+      const key = clean(x[field]).toLowerCase();
+      if (!key || !x[cellKey] || key in found) continue;
+      const c = textColor(x[cellKey]);
       found[key] = c && c !== (x.plainCell ? textColor(x.plainCell) : '') ? c : null;
     }
-    const cur = get(K.statusColors, {});
-    if (Object.entries(found).some(([k, v]) => cur[k] !== v)) set(K.statusColors, { ...cur, ...found });
+    const cur = get(storeKey, {});
+    if (Object.entries(found).some(([k, v]) => cur[k] !== v)) set(storeKey, { ...cur, ...found });
   }
 
   // ---------------------------------------------------------------------------
@@ -1971,21 +1974,22 @@
 .dash-ico{display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:50%;
   font-size:10px;font-weight:700;background:#3b4a5e;color:#e6e6e6;flex:none}
 .dash-kpi.critical .dash-ico{background:#e5484d;color:#fff}.dash-kpi.warning .dash-ico{background:#d29922;color:#141518}
-.dash-main{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.9fr);gap:14px;align-items:start;margin-bottom:14px}
-.dash-main.solo{grid-template-columns:minmax(0,1fr)}
-.dash-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;align-items:start}
-@media (max-width:1200px){.dash-main{grid-template-columns:minmax(0,1fr)}.dash-grid{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}.dash-grid > :last-child{grid-column:1/-1}}
-@media (max-width:760px){.dash-grid{grid-template-columns:minmax(0,1fr)}#atqm-dash{padding:12px 16px}}
+.dash-layout{display:grid;grid-template-columns:minmax(0,1.8fr) minmax(0,1fr);gap:14px;align-items:start}
+@media (max-width:1400px){.dash-layout{grid-template-columns:minmax(0,1fr)}}
+@media (max-width:760px){#atqm-dash{padding:12px 16px}}
 .dash-tablewrap{overflow-x:auto}
 .dash-tt{font-size:13px}
-.dash-tt th{white-space:nowrap}.dash-tt th:last-child{text-align:right}
-.dash-tt td{padding:6px 8px}
-.dash-tt td.tk{white-space:nowrap}
-.dash-tt .tt{color:#e6e6e6}
+.dash-tt th{white-space:nowrap}.dash-tt.dash-mq th:last-child{text-align:right}
+.dash-tt td{padding:5px 8px;white-space:nowrap}
+.dash-tt td.fill{width:100%;max-width:0;overflow:hidden;text-overflow:ellipsis}
+.dash-tt .tt{color:#e6e6e6}.dash-tt .acct,.dash-tt .was,.dash-tt td.dl{color:#9aa4b2}
+.dash-tt td.when{font-weight:600}
 .dash-tt tr.dash-grp td{color:#9aa4b2;font-weight:600;padding-top:12px;border-bottom-color:#383835}
 .dash-tt tr:not(.dash-grp):hover td{background:#24262b}
 .dash-tt tr.overdue td:first-child{box-shadow:inset 3px 0 #e5484d}.dash-tt tr.soon td:first-child{box-shadow:inset 3px 0 #d29922}
-.dash-tt tr.overdue .when{color:#ff7b7f;font-weight:600}.dash-tt tr.soon .when{color:#e3b341;font-weight:600}
+.dash-tt tr.changed td:first-child{box-shadow:inset 3px 0 #4ea1ff}.dash-tt tr.fresh td:first-child{box-shadow:inset 3px 0 #3fb950}
+.dash-tt tr.callnow td:first-child{box-shadow:inset 3px 0 #3fb950}.dash-tt tr.call td:first-child{box-shadow:inset 3px 0 #8b7cf6}
+.dash-tt tr.overdue .when{color:#ff7b7f}.dash-tt tr.soon .when{color:#e3b341}
 .dash-tt tr.resting td{color:#9aa4b2}.dash-tt tr.resting .tt{color:#c9d1d9}
 .dash-stack{display:flex;flex-direction:column;gap:14px;min-width:0}
 .dash-card{background:#1e1f22;border:1px solid #2c2f35;border-radius:6px;padding:12px 14px;min-width:0}
@@ -2184,12 +2188,19 @@
     if (c) w.style.color = c;
     return w;
   }
-  // Status (in its Autotask colour) and priority, for any ticket row
+  // A priority in its Autotask colour. Before that's been read off the grid, high ones are picked out in red.
   const isHighPriority = p => /high|critical|urgent/i.test(p || '');
+  function priorityWord(p) {
+    const color = readableColor(get(K.priorityColors, {})[clean(p).toLowerCase()]);
+    const w = el('span', !color && isHighPriority(p) ? 'atqm-pri hi' : 'atqm-pri', p);
+    if (color) w.style.color = color;
+    return w;
+  }
+  // Status and priority, each in its Autotask colour, for any ticket row
   function ticketMeta(t, { status = true } = {}) {
     const meta = el('span', 'atqm-meta');
     if (status && t.status) meta.append(statusWord(t.status));
-    if (t.priority) meta.append(el('span', isHighPriority(t.priority) ? 'atqm-pri hi' : 'atqm-pri', t.priority));
+    if (t.priority) meta.append(priorityWord(t.priority));
     return meta;
   }
 
@@ -2733,6 +2744,14 @@
   const changeText = a => (a.to != null ? `${a.from || '?'} → ${a.to || '?'}` : a.text.split(': ').pop());
   const statusPair = a => (a.to != null ? [a.from, a.to] : a.text.split(': ').pop().split(' → '));
 
+  function seenButton(t) {
+    const seen = el('button', 'atqm-seen', 'Seen');
+    seen.title = 'Mark the changes to this ticket as read';
+    seen.setAttribute('aria-label', `Mark the changes to ${t.id} as read`);
+    seen.onclick = () => { markTicketRead(t.id); render(); };
+    return seen;
+  }
+
   function markTicketRead(id) {
     set(K.alerts, get(K.alerts, []).map(a => (a.ticket === id && !a.read ? { ...a, read: true } : a)));
   }
@@ -2848,13 +2867,7 @@
       li.append(el('span', 'atqm-when', `waiting ${dur(now - it.age)}`));
     }
     li.append(ticketLink(t.id, t));
-    if (it.changes.length) {
-      const seen = el('button', 'atqm-seen', 'Seen');
-      seen.title = 'Mark the changes to this ticket as read';
-      seen.setAttribute('aria-label', `Mark the changes to ${t.id} as read`);
-      seen.onclick = () => { markTicketRead(t.id); render(); };
-      li.append(seen);
-    }
+    if (it.changes.length) li.append(seenButton(t));
     li.append(document.createElement('br'));
     if (showQueue) li.append(el('span', 'atqm-tag', qName(it.q)));
     const status = it.changes.filter(isChange).pop();
@@ -2884,13 +2897,18 @@
       line.append(c);
     }
     panel.append(line);
+    const hint = basisHint(qs);
+    if (hint) panel.append(el('div', 'atqm-hint atqm-basis-hint', hint));
+  }
+  // The settings that decide what's due soon
+  function basisHint(qs) {
     const ticketQs = qs.filter(q => q.mode !== 'calls');
-    if (!ticketQs.length) return;
+    if (!ticketQs.length) return '';
     const soon = [`first responses within ${dur(CONFIG.frSoonMinutes * 60000)}`];
     if (ticketQs.some(q => q.mode === 'full')) soon.push(`SLAs within ${dur(CONFIG.dueSoonMinutes * 60000)}`);
     const parts = [`Due soon: ${soon.join(', ')}.`];
     if (CONFIG.responseTarget > 0) parts.push(`No SLA: respond within ${dur(CONFIG.responseTarget * 60000)}.`);
-    panel.append(el('div', 'atqm-hint atqm-basis-hint', parts.join(' ')));
+    return parts.join(' ');
   }
 
   function renderNextUp(panel, items = nextUpItems(), { history = true, cap = 0 } = {}) {
@@ -3520,7 +3538,8 @@
   // Registered before the lock's key handling, so Esc works on a locked monitoring tab too
   addEventListener('keydown', e => { if (e.key === 'Escape' && document.getElementById('atqm-dash')) closeDashboard(); }, true);
 
-  let dashTable = false; // deadlines shown as a table instead of the chart
+  let dashTable = false;      // deadlines shown as a table instead of the chart
+  let dashAllChanges = false; // the longer change history
   const dueOf = it => it.due || it.dl?.due || null;
 
   // The numbers across the top
@@ -3591,11 +3610,7 @@
     head.append(toggle);
     card.append(head);
     const buckets = deadlineBuckets(items);
-    const total = buckets.reduce((s, b) => s + b.items.length, 0);
-    if (!total) {
-      card.append(el('div', 'atqm-empty', 'No deadlines in the next 8 hours.'));
-      return card;
-    }
+    if (!buckets.some(b => b.items.length)) return null; // nothing due: no card
     const range = b => `${b.label === 'Now' ? 'Now' : b.label}–${timeOf(b.to)}`;
     const describe = it => `${it.t.id} · ${it.due ? it.what : it.dl.what} ${timeOf(dueOf(it))}`;
     if (dashTable) {
@@ -3657,6 +3672,104 @@
     return card;
   }
 
+  // ---- Dashboard tables: Next up and every ticket in My queue, one line per ticket ----
+  const cell = (cls, ...kids) => { const c = el('td', cls); c.append(...kids); return c; };
+  const relDue = (due, now = Date.now()) => (due < now ? `${dur(now - due)} overdue` : `in ${dur(due - now)}`);
+  function tableHead(names) {
+    const tr = el('tr');
+    for (const h of names) tr.append(el('th', null, h));
+    return tr;
+  }
+  function groupRow(label, n, span) {
+    const tr = el('tr', 'dash-grp');
+    const c = el('td', null, `${label} · ${n}`);
+    c.colSpan = span;
+    tr.append(c);
+    return tr;
+  }
+  function ticketCell(t, changes) {
+    const c = cell('tk', ticketLink(t.id, t));
+    if (changes.length) c.append(seenButton(t));
+    return c;
+  }
+  function statusCell(t, changes) {
+    const c = cell('', statusWord(t.status || '–'));
+    const change = changes.filter(isChange).pop();
+    if (change) c.append(el('span', 'was', ` was ${statusPair(change)[0] || '?'}`));
+    return c;
+  }
+  const priorityCell = p => cell('', p ? priorityWord(p) : '–');
+  // Title and account on one line; the cell takes the spare width and cuts off long titles (full text on hover)
+  function titleCell(title, account) {
+    const c = cell('fill', el('span', 'tt', title || '–'));
+    if (account) c.append(el('span', 'acct', ` · ${account}`));
+    c.title = [title, account].filter(Boolean).join(' · ');
+    return c;
+  }
+  function tableCard(table) {
+    const wrap = el('div', 'dash-tablewrap');
+    wrap.append(table);
+    return wrap;
+  }
+
+  // Next up as a table, grouped as in the window
+  function nextUpTable(items) {
+    const qs = activeQueues();
+    const card = el('section', 'dash-card');
+    const urgent = urgentCount(items);
+    const head = el('h2', null, 'Next up');
+    head.append(el('span', null, urgent ? `${urgent} need${urgent === 1 ? 's' : ''} you now` : 'all clear'));
+    card.append(head);
+    if (!qs.length) {
+      card.append(el('div', 'atqm-empty', 'No queues tracked. Open a queue in My Workspace & Queues and press Start tracking.'));
+      return card;
+    }
+    const hint = basisHint(qs);
+    if (hint) card.append(el('div', 'atqm-hint atqm-basis-hint', hint));
+    if (!items.length) {
+      card.append(el('div', 'atqm-empty', 'Nothing needs action right now.'));
+      return card;
+    }
+    const showQueue = qs.length > 1;
+    const names = ['When', 'Ticket', 'Status', 'Priority', ...(showQueue ? ['Queue'] : []), 'Title', 'Deadline'];
+    const table = el('table', 'dash-table dash-tt dash-nt');
+    table.append(tableHead(names));
+    for (const [g, title] of NEXT_GROUPS) {
+      const group = items.filter(it => it.g === g);
+      if (!group.length) continue;
+      table.append(groupRow(title, group.length, names.length));
+      for (const it of group.slice(0, 25)) table.append(it.kind === 'call' ? callTableRow(it, showQueue) : nextTableRow(it, showQueue));
+      if (group.length > 25) {
+        const tr = el('tr');
+        const c = el('td', 'atqm-empty', `…and ${group.length - 25} more`);
+        c.colSpan = names.length;
+        tr.append(c);
+        table.append(tr);
+      }
+    }
+    card.append(tableCard(table));
+    return card;
+  }
+  function nextTableRow(it, showQueue) {
+    const t = it.t, now = Date.now();
+    const tr = el('tr', it.due ? dueState(it.due, it.soon) : it.g === 'changed' ? 'changed' : 'fresh');
+    const when = it.due ? relDue(it.due, now) : it.g === 'changed' ? `changed ${ago(it.ts)}` : `waiting ${dur(now - it.age)}`;
+    const due = it.due || it.dl?.due, what = it.due ? it.what : it.dl?.what;
+    tr.append(cell('when', when), ticketCell(t, it.changes), statusCell(t, it.changes), priorityCell(t.priority));
+    if (showQueue) tr.append(cell('', el('span', 'atqm-tag', qName(it.q))));
+    tr.append(titleCell(t.title, t.account), cell('dl', due ? `${what} · ${dueAt(due)}` : '–'));
+    return tr;
+  }
+  function callTableRow(it, showQueue) {
+    const c = it.c, now = Date.now();
+    const tr = el('tr', c.start <= now ? 'callnow' : 'call');
+    tr.append(cell('when', c.start <= now ? `started ${dur(now - c.start)} ago` : `in ${dur(c.start - now)}`),
+      cell('tk', callLink(c, 'Service call')), cell('', c.status || '–'), priorityCell(c.priority));
+    if (showQueue) tr.append(cell('', el('span', 'atqm-tag', qName(it.q))));
+    tr.append(titleCell(c.description || '(no description)', c.account), cell('dl', c.start ? `${timeOf(c.start)}–${timeOf(c.end)}` : '–'));
+    return tr;
+  }
+
   // Every ticket in a queue tracked for all changes (My queue), so you can work from the dashboard: those
   // that need action first, most urgent at the top, then those resting in a status that needs nothing yet
   function ticketTable(q) {
@@ -3669,69 +3782,43 @@
       card.append(el('div', 'atqm-empty', `No data yet. Fills in after the first scan of ${qWhere(q)}.`));
       return card;
     }
+    if (!tickets.length) {
+      card.append(el('div', 'atqm-empty', 'No tickets in this queue.'));
+      return card;
+    }
     const unread = unreadByTicket();
     const rows = tickets.map(t => ({ t, d: ticketDeadline(t, q, { all: true }), age: t.created || t.firstSeen, changes: unread.get(t.id) || [] }));
     const byUrgency = (a, b) => (a.d ? a.d.due : Infinity) - (b.d ? b.d.due : Infinity) || a.age - b.age;
     const act = rows.filter(r => !resting(r.t)).sort(byUrgency);
     const rest = rows.filter(r => resting(r.t)).sort((a, b) => clean(a.t.status).localeCompare(clean(b.t.status)) || a.age - b.age);
-    const table = el('table', 'dash-table dash-tt');
-    const hr = el('tr');
-    for (const h of ['Ticket', 'Title', 'Status', 'Priority', 'Next deadline', 'Age']) hr.append(el('th', null, h));
-    table.append(hr);
+    // A deadline column only when some ticket has one
+    const withDeadline = rows.some(r => r.d);
+    const names = ['Ticket', 'Status', 'Priority', 'Title', ...(withDeadline ? ['Next deadline'] : []), 'Age'];
+    const table = el('table', 'dash-table dash-tt dash-mq');
+    table.append(tableHead(names));
     for (const [name, list] of [['Needs action', act], ['No action needed', rest]]) {
       if (!list.length) continue;
-      const tr = el('tr', 'dash-grp');
-      const td = el('td', null, `${name} · ${list.length}`);
-      td.colSpan = 6;
-      tr.append(td);
-      table.append(tr);
-      for (const r of list) table.append(ticketRow(r));
+      table.append(groupRow(name, list.length, names.length));
+      for (const r of list) table.append(ticketRow(r, withDeadline));
     }
-    if (!rows.length) {
-      const tr = el('tr');
-      const td = el('td', 'atqm-empty', 'No tickets in this queue.');
-      td.colSpan = 6;
-      tr.append(td);
-      table.append(tr);
-    }
-    const wrap = el('div', 'dash-tablewrap');
-    wrap.append(table);
-    card.append(wrap);
+    card.append(tableCard(table));
     return card;
   }
-  function ticketRow({ t, d, age, changes }) {
-    const now = Date.now(), rests = resting(t);
-    const tr = el('tr', rests ? 'resting' : d ? dueState(d.due, d.soon) : '');
-    const tk = el('td', 'tk');
-    tk.append(ticketLink(t.id, t));
-    if (changes.length) {
-      const seen = el('button', 'atqm-seen', 'Seen');
-      seen.title = 'Mark the changes to this ticket as read';
-      seen.setAttribute('aria-label', `Mark the changes to ${t.id} as read`);
-      seen.onclick = () => { markTicketRead(t.id); render(); };
-      tk.append(seen);
+  function ticketRow({ t, d, age, changes }, withDeadline) {
+    const now = Date.now();
+    const tr = el('tr', resting(t) ? 'resting' : d ? dueState(d.due, d.soon) : '');
+    tr.append(ticketCell(t, changes), statusCell(t, changes), priorityCell(t.priority), titleCell(t.title, t.account));
+    if (withDeadline) {
+      const due = cell('dl');
+      if (d) {
+        due.append(el('span', 'when', relDue(d.due, now)), ` · ${d.what}`);
+        due.title = dueAt(d.due);
+      } else {
+        due.append('–');
+      }
+      tr.append(due);
     }
-    const title = el('td');
-    title.append(el('div', 'tt', t.title || '–'));
-    if (t.account) title.append(el('div', 'atqm-sub', t.account));
-    const status = el('td');
-    status.append(statusWord(t.status || '–'));
-    const change = changes.filter(isChange).pop();
-    if (change) {
-      const was = el('div', 'atqm-sub');
-      was.append(change.type === 'action' ? 'needs action, was ' : 'was ', statusWord(statusPair(change)[0] || '?'));
-      status.append(was);
-    }
-    const prio = el('td');
-    prio.append(t.priority ? el('span', isHighPriority(t.priority) ? 'atqm-pri hi' : 'atqm-pri', t.priority) : '–');
-    const due = el('td');
-    if (d) {
-      const diff = d.due - now;
-      due.append(el('span', 'when', diff < 0 ? `${dur(diff)} overdue` : `in ${dur(diff)}`), el('div', 'atqm-sub', `${d.what} · ${dueAt(d.due)}`));
-    } else {
-      due.append(el('span', 'atqm-sub', '–'));
-    }
-    tr.append(tk, title, status, prio, due, el('td', 'num', age ? dur(now - age) : '–'));
+    tr.append(cell('num', age ? dur(now - age) : '–'));
     return tr;
   }
 
@@ -3795,19 +3882,13 @@
     }
     d.append(kpis);
 
-    // What to do next beside every ticket in your queue, then the wider picture
-    const main = el('div', 'dash-main');
-    const next = el('section', 'dash-card');
-    next.append(el('h2', null, 'Next up'));
-    renderNextUp(next, items, { history: false, cap: 15 });
-    const tables = el('div', 'dash-stack');
-    for (const q of activeQueues().filter(x => x.mode === 'full')) tables.append(ticketTable(q));
-    main.append(next);
-    if (tables.childElementCount) main.append(tables);
-    else main.classList.add('solo');
-    d.append(main);
-
-    const grid = el('div', 'dash-grid');
+    // Two columns that each fill downwards on their own (no row lines them up, so no gaps): what to do
+    // and every ticket on the left, the wider picture on the right
+    const columns = el('div', 'dash-layout');
+    const left = el('div', 'dash-stack');
+    left.append(nextUpTable(items));
+    for (const q of activeQueues().filter(x => x.mode === 'full')) left.append(ticketTable(q));
+    const right = el('div', 'dash-stack');
     const queues = el('section', 'dash-card');
     queues.append(el('h2', null, 'Queues'));
     for (const q of activeQueues()) queues.append(dashQueueCard(q));
@@ -3822,10 +3903,20 @@
       mark.onclick = () => { set(K.alerts, get(K.alerts, []).map(a => ({ ...a, read: true }))); render(); };
       ch.append(mark);
     }
-    changes.append(ch, all.length ? alertList(all.slice(-CONFIG.displayAlerts).reverse())
+    const shown = dashAllChanges ? CONFIG.displayAlerts : 15;
+    changes.append(ch, all.length ? alertList(all.slice(-shown).reverse())
       : el('div', 'atqm-empty', 'No changes since monitoring started.'));
-    grid.append(deadlineChart(items), queues, changes);
-    d.append(grid);
+    if (!dashAllChanges && all.length > shown) {
+      const more = el('button', 'atqm-more', `Show more (up to ${Math.min(all.length, CONFIG.displayAlerts)})`);
+      more.onclick = () => { dashAllChanges = true; render(); };
+      changes.append(more);
+    }
+    const chart = deadlineChart(items);
+    right.append(queues);
+    if (chart) right.append(chart);
+    right.append(changes);
+    columns.append(left, right);
+    d.append(columns);
     d.scrollTop = scroll;
     if (opening) d.focus();
   }
@@ -4317,7 +4408,7 @@
       rotate, rotationTab, rotationStep, switchToQueue, gridSignature, monitorElsewhere,
       openQueueTab, popupsBlocked,
       readableColor, statusColor, statusWord, alertText, targetDue, dashboardStats, deadlineBuckets,
-      needsAction, resting, ticketDeadline,
+      needsAction, resting, ticketDeadline, priorityWord,
     });
     return;
   }

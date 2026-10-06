@@ -36,7 +36,7 @@ Tampermonkey checks the same link for new versions, so updates arrive by themsel
 4. Allow notifications when the browser asks.
 5. To track another queue, open it and press **Start tracking** in the window. It opens a copy of the page in a new tab to do the monitoring, so the tab you're in isn't locked. (If your browser blocks the new tab, allow pop-ups for autotask.net.)
 
-After that, **Quick start** (in the window, or at the top of Settings) opens a monitoring tab for every tracked queue in one go, and leaves the tab you're in alone. Press it from another window later to move them all there, for example to a window you keep minimised.
+After that, **Quick start** (in the window, or at the top of Settings, behind the cog) opens a monitoring tab for every tracked queue in one go, and leaves the tab you're in alone. Press it from another window later to move them all there, for example to a window you keep minimised.
 
 Quick start opens several tabs from one click, which browsers block unless pop-ups are allowed. If that happens the window tells you, and you have two ways round it:
 
@@ -127,19 +127,18 @@ If a queue has more tickets than one page of the grid shows, the window offers *
 
 ## Settings
 
-All in the window's **Settings** tab. The ones most people change:
+Press the cog (⚙) at the top of the window, or **Settings** on the dashboard. Settings opens over the whole browser window, with its sections down the left and **Find a setting** at the top. Changes wait until you press **Save changes** (or Ctrl+S); the bar at the bottom counts what's unsaved, and **Discard** puts it back. Esc or ✕ closes it, and asks first if something is unsaved. Settings are shared by every Autotask tab in the browser.
 
-- **Refresh queues every**: how often monitoring tabs refresh.
-- **Monitor all queues from one tab**: one monitoring tab for every queue instead of a tab each (see [One tab for all queues](#one-tab-for-all-queues)).
-- **Date format in Autotask**: detected from your queues; set it if the window shows the wrong dates.
-- **Autotask time zone**: set this if the time zone in your Autotask profile differs from your PC's. The window warns you when due times look hours out.
-- **Warn when an SLA / first response is due within**: the "due soon" thresholds, for alerts and for Next up.
-- **Respond to tickets without an SLA within**: the response target for tickets in New with no first response SLA (0 turns it off).
-- **Dashboard button**: adds the ⛶ button that opens the dashboard.
-- **Statuses that need action**: see [Statuses that need action](#statuses-that-need-action).
-- **Service calls** and **Call reminders**.
-- **Desktop notifications** and **Sound on new alerts**. **Test alert** checks both.
-- **Export settings** / **Import settings**: move your settings and tracked queues to another browser or PC.
+The sections, and the settings most people change:
+
+- **Tracked queues**: each queue's light and status, how it's tracked (**All changes** or **New & first response**), and **Stop**. **Quick start** sits above it.
+- **Deadlines and statuses**: **Warn when an SLA / first response is due within** (the "due soon" thresholds, for alerts and for Next up), **Respond to tickets without an SLA within** (the response target for tickets in New with no first response SLA; 0 turns it off) and **Statuses that need action** (see [Statuses that need action](#statuses-that-need-action)). The statuses are chips in their Autotask colours: × removes one, type a name and press Enter to add one, or pick from the other statuses seen in your queues.
+- **Alerts**: **Desktop notifications** and **Sound on new alerts**. **Send a test** checks both.
+- **Service calls**: **Service calls** and **Call reminders**.
+- **Monitoring**: **Refresh queues every**, **Monitor all queues from one tab** (see [One tab for all queues](#one-tab-for-all-queues)) and **Lock monitoring tabs**.
+- **Window and display**: **Dashboard button** (adds the ⛶ button that opens the dashboard), and how the window looks.
+- **Dates and times**: **Date format in Autotask** (detected from your queues; set it if the window shows the wrong dates) and **Autotask time zone** (set it if the time zone in your Autotask profile differs from your PC's; the window warns you when due times look hours out).
+- **Backup and help**: **Export** / **Import** move your settings and tracked queues to another browser or PC. **Diagnostics** and **Reset to defaults** are here too.
 
 ## Limitations
 
@@ -151,7 +150,7 @@ All in the window's **Settings** tab. The ones most people change:
 
 ## Privacy
 
-To compare scans, the monitor keeps the ticket numbers, titles, account names, statuses and due times of the queues you track in your browser's storage for autotask.net. It sends nothing outside Autotask. **Clear** in the window removes the change history. **Diagnostics** and **Export settings** never include ticket titles or account names.
+To compare scans, the monitor keeps the ticket numbers, titles, account names, statuses and due times of the queues you track in your browser's storage for autotask.net. It sends nothing outside Autotask. **Clear** in the window removes the change history. **Diagnostics** and **Export** never include ticket titles or account names.
 
 ## Troubleshooting
 
@@ -162,8 +161,8 @@ To compare scans, the monitor keeps the ticket numbers, titles, account names, s
 | Due times are hours out | Set **Autotask time zone** in Settings. |
 | Wrong dates (day and month swapped) | Set **Date format in Autotask** in Settings. |
 | No sound | Click once in the monitoring tab, check **Sound on new alerts** is on, and press **Test alert**. |
-| No desktop notifications | Allow notifications for autotask.net in your browser's site settings, then press **Test alert**. |
-| Anything else, especially after an Autotask update | Settings → **Diagnostics** → **Copy diagnostics**, and paste the result into a [new issue](https://github.com/AdamConnell1565/Autotask-Queue-Monitor/issues). It lists what the monitor can see on the page (column names, counts, sample dates), never ticket titles or account names. |
+| No desktop notifications | Allow notifications for autotask.net in your browser's site settings, then press **Send a test** (Settings → Alerts). |
+| Anything else, especially after an Autotask update | Settings (the cog) → Backup and help → **Diagnostics** → **Collect**, then **Copy diagnostics**, and paste the result into a [new issue](https://github.com/AdamConnell1565/Autotask-Queue-Monitor/issues). It lists what the monitor can see on the page (column names, counts, sample dates), never ticket titles or account names. |
 
 ## Browsers
 

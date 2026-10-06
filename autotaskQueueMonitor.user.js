@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Autotask Queue Monitor
 // @namespace    autotask
-// @version      0.13.1
+// @version      0.14.0
 // @description  Track any My Workspace & Queues queue (My queue by default) in its own tab, with a live overview on every Autotask page
 // @author       AdamConnell1565
 // @homepageURL  https://github.com/AdamConnell1565/Autotask-Queue-Monitor
@@ -117,7 +117,7 @@
   };
 
   // ---------------------------------------------------------------------------
-  // Default settings (editable in the widget's Settings tab; saved per browser)
+  // Default settings (editable in the Settings window, behind the cog; saved per browser)
   // ---------------------------------------------------------------------------
   const DEFAULTS = {
     refreshMs: 120000,            // refresh + scan interval in each monitoring tab
@@ -1865,11 +1865,6 @@
 #atqm-btns button{flex:1;background:#2b2f36;color:#e6e6e6;border:1px solid #444;border-radius:4px;padding:4px 6px;cursor:pointer;font:inherit}
 #atqm-btns button:hover{background:#3a3e46}
 #atqm button:focus-visible,#atqm input:focus-visible,#atqm select:focus-visible,#atqm a:focus-visible{outline:2px solid #4ea1ff;outline-offset:1px}
-.atqm-set{display:grid;grid-template-columns:1fr auto;gap:7px 10px;align-items:center}
-.atqm-field{display:flex;align-items:center;gap:5px;justify-self:end}
-.atqm-set input,.atqm-set select{background:#2b2f36;color:#e6e6e6;border:1px solid #444;border-radius:4px;padding:3px 5px;font:inherit}
-.atqm-set input[type=number]{width:64px}
-.atqm-set input[type=text]{width:110px}
 #atqm-rem{display:flex;flex-direction:column;gap:4px;padding:0 10px}
 #atqm-rem:not(:empty){padding-bottom:8px}
 #atqm.min #atqm-rem{padding-left:8px;padding-right:8px}
@@ -1888,10 +1883,6 @@
 .atqm-qsbtns{display:flex;gap:6px;margin-top:6px}
 .atqm-qsbtns button{background:#2b2f36;color:#e6e6e6;border:1px solid #555;border-radius:4px;padding:3px 10px;cursor:pointer;font:inherit}
 .atqm-qsbtns .atqm-qsgo{background:#1f6feb;border-color:#1f6feb;color:#fff}
-.atqm-qstop{margin-bottom:10px}
-.atqm-qstop .atqm-qsgo{background:#1f6feb;border:1px solid #1f6feb;color:#fff;border-radius:4px;padding:5px 10px;cursor:pointer;font:inherit;width:100%}
-.atqm-qstop .atqm-qsgo:hover{filter:brightness(1.15)}
-.atqm-qstop .atqm-hint{margin-top:5px}
 .atqm-list li.call{border-color:#8b7cf6}
 .atqm-list li.callsoon{border-color:#4ea1ff;background:#22303f}
 .atqm-list li.callsoon .atqm-when{color:#9cc8ff;font-weight:600}
@@ -1906,27 +1897,8 @@
 .atqm-mnote{background:none;border:0;border-top:1px solid #33363c;color:#e3b341;cursor:pointer;font:inherit;text-align:left;
   padding:5px 0 0;margin-top:2px;white-space:normal}
 .atqm-mnote:hover{text-decoration:underline}
-.atqm-set input[type=checkbox]{-webkit-appearance:none!important;appearance:none!important;opacity:1!important;
-  visibility:visible!important;position:relative!important;display:inline-block!important;flex:none;
-  width:30px!important;height:16px!important;min-width:0!important;margin:0!important;padding:0!important;
-  border:1px solid #555!important;border-radius:9px!important;background:#2b2f36!important;cursor:pointer;
-  transition:background-color .15s}
-.atqm-set input[type=checkbox]::before{content:"";position:absolute;top:2px;left:2px;width:10px;height:10px;
-  border-radius:50%;background:#9aa4b2;transition:transform .15s}
-.atqm-set input[type=checkbox]:checked{background:#1f6feb!important;border-color:#1f6feb!important}
-.atqm-set input[type=checkbox]:checked::before{transform:translateX(14px);background:#fff}
-.atqm-onoff{color:#9aa4b2;width:22px}
-.atqm-set-group{grid-column:1/-1;font-weight:600;margin-top:6px;padding-top:6px;border-top:1px solid #33363c}
-.atqm-set-group:first-child{margin-top:0;padding-top:0;border-top:0}
 .atqm-hint{grid-column:1/-1;color:#9aa4b2;font-size:11px;margin-top:-5px}
 .atqm-warn{color:#e3b341}
-.atqm-set-actions{display:flex;gap:4px;margin-top:12px}
-.atqm-set-actions button{flex:1;background:#2b2f36;color:#e6e6e6;border:1px solid #444;border-radius:4px;padding:4px 6px;cursor:pointer;font:inherit}
-.atqm-set-actions button:first-child{background:#1f6feb;border-color:#1f6feb}
-.atqm-set-actions button:hover{filter:brightness(1.15)}
-.atqm-saved{color:#3fb950;margin-top:6px;min-height:1.2em}
-.atqm-store{margin-top:8px;padding-top:8px;border-top:1px solid #33363c}
-@media (prefers-reduced-motion:reduce){.atqm-set input[type=checkbox],.atqm-set input[type=checkbox]::before{transition:none}}
 #atqm-page{margin:0 10px 8px;padding:7px 9px;border-radius:4px;border-left:3px solid #4ea1ff;background:#22303f}
 #atqm-page.here{border-left-color:#3fb950;background:#1f2e24}
 #atqm-page.elsewhere{border-left-color:#6b7686;background:#26292f}
@@ -1935,12 +1907,6 @@
 .atqm-start button{background:#1f6feb;color:#fff;border:1px solid #1f6feb;border-radius:4px;padding:4px 8px;cursor:pointer;font:inherit;text-align:left}
 .atqm-start button + button{background:#2b2f36;border-color:#555;color:#e6e6e6}
 .atqm-start button:hover{filter:brightness(1.15)}
-.atqm-qname{font-weight:600}
-.atqm-qname .atqm-sub{font-weight:400}
-.atqm-set select{max-width:150px}
-.atqm-stop{background:#2b2f36;color:#ff9b9e;border:1px solid #5a3a3c;border-radius:4px;padding:3px 7px;cursor:pointer;font:inherit}
-.atqm-stop:hover{background:#3a2a2c}
-#atqm-panel > .atqm-set + .atqm-set{margin-top:6px}
 .atqm-basis{align-items:center;margin-bottom:4px}
 .atqm-chip.ok{border-color:#3fb950}.atqm-chip.warn{border-color:#d29922}
 .atqm-hint.atqm-basis-hint{margin:0 0 8px}
@@ -2027,11 +1993,141 @@
 .atqm-act{background:#1f6feb;color:#fff;border:0;border-radius:4px;padding:1px 8px;margin-left:4px;cursor:pointer;font:inherit;font-size:11px;vertical-align:1px}
 .atqm-act:hover{filter:brightness(1.15)}
 .atqm-sr{position:absolute!important;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
-.atqm-tools{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px}
-.atqm-tools button{flex:1;background:#2b2f36;color:#e6e6e6;border:1px solid #444;border-radius:4px;padding:4px 6px;cursor:pointer;font:inherit}
-.atqm-tools button:hover{background:#3a3e46}
-.atqm-diag{width:100%;height:160px;margin-top:6px;background:#15161a;color:#c9d1d9;border:1px solid #444;border-radius:4px;
-  font:11px/1.4 ui-monospace,Consolas,monospace;resize:vertical}
+#atqm-setbtn{background:none;border:0;color:#9aa4b2;cursor:pointer;padding:0 2px;line-height:0;display:inline-flex;align-items:center}
+#atqm-setbtn svg{transition:transform .3s}
+#atqm-setbtn:hover{color:#e6e6e6}#atqm-setbtn:hover svg{transform:rotate(60deg)}
+.atqm-ico{display:inline-flex;align-items:center;justify-content:center;flex:none;line-height:0}
+.dash-actions .dash-set{display:inline-flex;align-items:center;gap:6px}
+#atqm-settings{position:fixed;inset:0;z-index:2147483002;display:flex;flex-direction:column;background:#141518;color:#e6e6e6;
+  font:13px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif;text-align:left;animation:atqm-set-in .18s ease-out}
+@keyframes atqm-set-in{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+#atqm-settings *{box-sizing:border-box}
+#atqm-settings [hidden]{display:none!important}
+#atqm-settings:focus{outline:none}
+#atqm-settings button:focus-visible,#atqm-settings input:focus-visible,#atqm-settings select:focus-visible,
+#atqm-settings textarea:focus-visible{outline:2px solid #4ea1ff;outline-offset:1px}
+.set-head{display:flex;align-items:center;gap:16px;padding:12px 24px;background:#1a1b1f;border-bottom:1px solid #2c2f35;flex:none}
+.set-brand{display:flex;align-items:center;gap:12px;min-width:0}
+.set-brand > .atqm-ico{width:36px;height:36px;border-radius:9px;background:linear-gradient(135deg,#1f6feb,#4ea1ff);color:#fff}
+#atqm-settings h1{font-size:18px;font-weight:600;margin:0;line-height:1.2;color:#e6e6e6}
+.set-sub{color:#9aa4b2;font-size:12px}
+.set-find{position:relative;margin-left:auto;width:min(340px,40vw);display:block}
+.set-find .atqm-ico{position:absolute;left:11px;top:50%;transform:translateY(-50%);color:#9aa4b2;pointer-events:none}
+#atqm-settings .set-find input[type=search]{width:100%;height:34px;padding:0 12px 0 32px;border-radius:17px;background:#141518}
+.set-x{width:34px;height:34px;border-radius:8px;background:none;border:1px solid transparent;color:#9aa4b2;cursor:pointer;
+  display:inline-flex;align-items:center;justify-content:center;flex:none}
+.set-x:hover{background:#2b2f36;color:#e6e6e6}
+.set-body{flex:1;min-height:0;display:flex}
+.set-nav{width:240px;flex:none;overflow:auto;padding:20px 12px;border-right:1px solid #2c2f35;display:flex;flex-direction:column;gap:2px;background:#17181b}
+.set-nav button{display:flex;align-items:center;gap:10px;width:100%;padding:8px 12px;border-radius:7px;background:none;border:0;
+  color:#c9d1d9;text-align:left;cursor:pointer;font:inherit;white-space:nowrap}
+.set-nav button .atqm-ico{color:#7d8794}
+.set-nav button:hover{background:#202227}
+.set-nav button[aria-current=true]{background:#1c2b40;color:#fff;box-shadow:inset 3px 0 #4ea1ff}
+.set-nav button[aria-current=true] .atqm-ico{color:#4ea1ff}
+.set-main{flex:1;min-width:0;overflow:auto;position:relative;padding:24px 32px 48px;scroll-behavior:smooth;overscroll-behavior:contain}
+.set-inner{max-width:880px;margin:0 auto;display:flex;flex-direction:column;gap:26px}
+.set-hero{display:flex;align-items:center;gap:16px;padding:16px 18px;border-radius:12px;border:1px solid #2b4a72;
+  background:linear-gradient(120deg,#17263a,#1b2230 60%,#1e1f22)}
+.set-hero > .atqm-ico{width:40px;height:40px;border-radius:10px;background:#1f6feb33;color:#7fb8ff}
+.set-hero-t{font-size:15px;font-weight:600;color:#e6e6e6}
+.set-sec{display:flex;flex-direction:column;gap:10px}
+.set-sec-h{display:flex;align-items:flex-start;gap:10px;padding:0 2px}
+.set-sec-h > .atqm-ico{margin-top:2px;width:26px;height:26px;border-radius:7px;background:#22262d;color:#9cc8ff}
+#atqm-settings h2{font-size:15px;font-weight:600;margin:0;line-height:1.4;color:#e6e6e6}
+.set-sec-h p{margin:1px 0 0;color:#9aa4b2;font-size:12.5px}
+.set-card{background:#1e1f22;border:1px solid #2c2f35;border-radius:12px;overflow:hidden}
+.set-row{display:flex;align-items:center;gap:20px;padding:14px 18px;border-top:1px solid #272a2f;transition:background-color .2s}
+.set-card > .set-row:first-child,.set-card > [hidden] + .set-row{border-top:0}
+.set-row.wide{flex-direction:column;align-items:stretch;gap:10px}
+.set-row.changed{background:#1b2533;box-shadow:inset 3px 0 #4ea1ff}
+.set-row.flash{animation:atqm-set-flash 1.8s ease-out}
+@keyframes atqm-set-flash{0%,40%{background:#24395a}100%{background:transparent}}
+.set-text{flex:1 1 220px;min-width:0}
+.set-label{display:block;font-weight:500;color:#e6e6e6;cursor:default}
+label.set-label{cursor:pointer}
+.set-hint{color:#9aa4b2;font-size:12px;margin-top:2px}
+.set-where{margin-left:8px;color:#9aa4b2;font-weight:400;font-size:12px}
+.set-ctl{flex:none;display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+.set-row.wide .set-text{flex:none}
+.set-row.wide .set-ctl{flex-direction:column;align-items:stretch;gap:8px}
+#atqm-settings input[type=text],#atqm-settings input[type=number],#atqm-settings input[type=search],#atqm-settings select{
+  background:#15161a;color:#e6e6e6;border:1px solid #3a3d44;border-radius:7px;padding:0 10px;height:32px;font:inherit;margin:0;box-shadow:none}
+#atqm-settings input:focus,#atqm-settings select:focus{border-color:#4ea1ff;box-shadow:0 0 0 3px #4ea1ff40;outline:none}
+#atqm-settings select{width:250px;max-width:100%;-webkit-appearance:none;appearance:none;padding-right:30px;cursor:pointer;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%239aa4b2' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+  background-repeat:no-repeat;background-position:right 9px center;background-size:14px}
+#atqm-settings select option{background:#1e1f22;color:#e6e6e6}
+.set-num{display:inline-flex;align-items:stretch}
+#atqm-settings input[type=number]{width:84px;text-align:right}
+#atqm-settings .set-num input{border-radius:7px 0 0 7px;text-align:right}
+#atqm-settings .set-num input[type=text]{width:150px;text-align:left}
+.set-num > span{display:flex;align-items:center;padding:0 10px;border:1px solid #3a3d44;border-left:0;border-radius:0 7px 7px 0;
+  background:#24262b;color:#9aa4b2;font-size:12px}
+#atqm-settings input.set-switch{-webkit-appearance:none!important;appearance:none!important;opacity:1!important;visibility:visible!important;
+  position:relative!important;display:inline-block!important;flex:none;width:40px!important;height:22px!important;min-width:0!important;
+  margin:0!important;padding:0!important;border:1px solid #4a4e57!important;border-radius:11px!important;background:#2b2f36!important;
+  cursor:pointer;transition:background-color .15s,border-color .15s}
+#atqm-settings input.set-switch::before{content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;
+  background:#9aa4b2;transition:transform .15s,background-color .15s;box-shadow:0 1px 2px rgba(0,0,0,.4)}
+#atqm-settings input.set-switch:checked{background:#1f6feb!important;border-color:#1f6feb!important}
+#atqm-settings input.set-switch:checked::before{transform:translateX(18px);background:#fff}
+.set-btn{display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 14px;border-radius:7px;background:#2b2f36;color:#e6e6e6;
+  border:1px solid #3a3d44;cursor:pointer;font:inherit;font-weight:500;white-space:nowrap}
+.set-btn:hover{background:#353941}
+.set-btn.primary{background:#1f6feb;border-color:#1f6feb;color:#fff}
+.set-btn.primary:hover{background:#3a82f0}
+.set-btn.danger{background:none;color:#ff9b9e;border-color:#5a3a3c}
+.set-btn.danger:hover{background:#3a2a2c}
+.set-btn:disabled{opacity:.45;cursor:default;filter:none}
+.set-q .atqm-ml{width:10px;height:10px}
+.set-seg{display:inline-flex;background:#15161a;border:1px solid #3a3d44;border-radius:8px;padding:2px;gap:2px}
+.set-seg button{background:none;border:0;color:#9aa4b2;padding:0 11px;height:26px;border-radius:6px;cursor:pointer;font:inherit;white-space:nowrap}
+.set-seg button:hover{color:#e6e6e6}
+.set-seg button[aria-pressed=true]{background:#1c2b40;color:#fff;box-shadow:inset 0 0 0 1px #2b4a72}
+.set-pill{display:inline-block;background:#2b2440;color:#cdb8ff;border-radius:999px;padding:3px 10px;font-size:12px}
+.set-tip,.set-empty,.set-fine{color:#9aa4b2;font-size:12.5px;gap:8px;justify-content:flex-start}
+.set-tip{background:#1a1b1f}
+.set-alert{background:#2e2a1f;color:#e3b341;gap:10px;justify-content:flex-start}
+.set-chips{display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding:6px;min-height:42px;background:#15161a;border:1px solid #3a3d44;
+  border-radius:9px;cursor:text}
+.set-chips:focus-within{border-color:#4ea1ff;box-shadow:0 0 0 3px #4ea1ff40}
+.set-chip{display:inline-flex;align-items:center;gap:7px;background:#25282e;border:1px solid #363a42;border-radius:999px;
+  padding:2px 3px 2px 10px;font-size:12.5px;line-height:20px}
+.set-chip i{width:8px;height:8px;border-radius:50%;background:#6b7686;flex:none}
+.set-chip button{width:20px;height:20px;border-radius:50%;border:0;background:none;color:#9aa4b2;cursor:pointer;font:inherit;
+  font-size:14px;line-height:1;padding:0;display:inline-flex;align-items:center;justify-content:center}
+.set-chip button:hover{background:#3a2a2c;color:#ff9b9e}
+#atqm-settings input.set-chip-in{flex:1;min-width:150px;border:0;background:none;height:26px;padding:0 6px;box-shadow:none}
+.set-sugg{display:flex;flex-wrap:wrap;align-items:center;gap:6px;color:#9aa4b2;font-size:12px}
+.set-sugg button{background:none;border:1px dashed #4a4e57;border-radius:999px;color:#c9d1d9;padding:1px 10px;cursor:pointer;font:inherit}
+.set-sugg button:hover{border-color:#4ea1ff;color:#fff;background:#1c2b40}
+.set-diag{padding:0 18px 16px;display:flex;flex-direction:column;align-items:flex-start;gap:8px}
+.set-diag textarea{width:100%;height:180px;background:#15161a;color:#c9d1d9;border:1px solid #3a3d44;border-radius:8px;padding:8px 10px;
+  font:11.5px/1.45 ui-monospace,Consolas,monospace;resize:vertical}
+.set-none{text-align:center;color:#9aa4b2;padding:40px 0}
+.set-foot{display:flex;align-items:center;gap:10px;padding:12px 24px;background:#1a1b1f;border-top:1px solid #2c2f35;flex:none;
+  transition:background-color .2s,border-color .2s}
+.set-foot.dirty{background:#172233;border-top-color:#2b4a72}
+.set-msg{flex:1;min-width:0;color:#9aa4b2}
+.set-foot.dirty .set-msg{color:#9cc8ff;font-weight:500}
+.set-msg.ok,.set-foot.dirty .set-msg.ok{color:#3fb950}
+@media (max-width:820px){
+  .set-head{padding:10px 16px;gap:10px}.set-sub{display:none}
+  .set-find{width:auto;flex:1}
+  .set-body{flex-direction:column}
+  .set-nav{width:auto;flex-direction:row;overflow-x:auto;overflow-y:hidden;padding:8px 12px;border-right:0;border-bottom:1px solid #2c2f35}
+  .set-nav button{width:auto}
+  .set-nav button[aria-current=true]{box-shadow:inset 0 -2px #4ea1ff}
+  .set-main{padding:16px 16px 32px}
+  .set-row{flex-wrap:wrap;gap:10px}.set-ctl{justify-content:flex-start}
+  .set-hero{flex-wrap:wrap}
+  .set-foot{padding:10px 16px}
+}
+@media (prefers-reduced-motion:reduce){
+  #atqm-settings,.set-row.flash{animation:none}.set-main{scroll-behavior:auto}
+  #atqm-setbtn svg,#atqm-settings input.set-switch,#atqm-settings input.set-switch::before{transition:none}
+}
 `;
 
   // Position is kept as the distance from the top-right corner of the screen, so the widget's
@@ -2688,6 +2784,11 @@
     if (pg.isCalls && !CONFIG.serviceCalls) {
       box.className = 'elsewhere';
       box.append(el('b', null, 'Service calls page.'), ' Turn on Service calls in Settings to track it.');
+      const btns = el('div', 'atqm-start');
+      const open = el('button', null, 'Open Settings');
+      open.onclick = () => openSettings('serviceCalls');
+      btns.append(open);
+      box.append(btns);
       return;
     }
     box.className = 'untracked';
@@ -3009,13 +3110,68 @@
   const ZONE_HINT = 'The time zone set in your Autotask profile. Only change this if it differs from this PC, ' +
     'otherwise due times are off by the difference.';
 
+  // Settings, in the order and sections the Settings window shows them (group: a section heading)
   const FIELDS = [
-    { group: 'General' },
+    { group: 'Deadlines and statuses', id: 'deadlines', icon: 'clock',
+      desc: 'When a ticket counts as due soon, and which statuses need you.' },
+    { key: 'dueSoonMinutes', label: 'Warn when an SLA is due within', unit: 'min', type: 'number', min: 5, max: 1440, step: 5,
+      hint: 'Queues tracked for all changes.' },
+    { key: 'frSoonMinutes', label: 'Warn when a first response is due within', unit: 'min', type: 'number', min: 5, max: 240, step: 5,
+      hint: 'Queues tracked for new tickets & first response.' },
+    { key: 'responseTarget', label: 'Respond to tickets without an SLA within', unit: 'min', type: 'number', min: 0, max: 480, step: 5,
+      hint: 'Tickets in New status with no first response SLA get this as a target, so they sit next to your SLAs in Next up ' +
+        'and the dashboard, with an alert when it passes. 0 turns it off.' },
+    { key: 'actionStatuses', label: 'Statuses that need action', type: 'text', chips: true,
+      sanitize: v => String(v).split(',').map(clean).filter(Boolean).join(', '),
+      hint: "Comma-separated. Tickets in any other status stay visible but don't ask for action: no deadlines in Next up and " +
+        'no SLA warnings. You get an alert when one moves into one of these. Leave empty to treat every status as needing action.' },
+    { group: 'Alerts', id: 'alerts', icon: 'bell', desc: 'How the monitor gets your attention, and how much it remembers.' },
+    { key: 'notify', label: 'Desktop notifications', type: 'checkbox' },
+    { key: 'sound', label: 'Sound on new alerts', type: 'checkbox' },
+    { key: 'maxAlerts', label: 'Changes kept in history', type: 'number', min: 20, max: 1000, step: 10 },
+    { group: 'Service calls', id: 'calls', icon: 'phone', desc: 'Your scheduled calls in My Workspace, with reminders before each one.' },
+    { key: 'serviceCalls', label: 'Service calls', type: 'checkbox',
+      hint: 'Lets you track My Workspace > Service Calls. Your calls then appear in Overview and Next up.' },
+    { key: 'callReminders', label: 'Call reminders', type: 'checkbox',
+      hint: 'Pings before a call starts, with a Dismiss button in the Queue monitor window.' },
+    { key: 'callLeadTimes', label: 'Remind before start', unit: 'min', type: 'text',
+      sanitize: v => {
+        const n = [...new Set(String(v).split(/[^\d]+/).filter(Boolean).map(Number).filter(x => x >= 0 && x <= 240))].sort((a, b) => b - a);
+        return n.length ? n.join(', ') : DEFAULTS.callLeadTimes;
+      },
+      hint: 'Comma-separated minutes, e.g. 15, 10, 5, 0.' },
+    { key: 'callPingAfterStart', label: 'Keep pinging after the call starts', type: 'checkbox',
+      hint: 'Every minute until you press Dismiss or the call ends.' },
+    { group: 'Monitoring', id: 'monitoring', icon: 'refresh', desc: 'How the monitoring tabs keep your queues up to date.' },
     { key: 'refreshMs', label: 'Refresh queues every', unit: 'min', type: 'number', min: 0.5, max: 60, step: 0.5,
       toUi: v => v / 60000, fromUi: v => Math.round(v * 60000),
       hint: 'Browsers may slow background tabs to about one refresh a minute.' },
+    { key: 'oneTab', label: 'Monitor all queues from one tab', type: 'checkbox',
+      hint: 'Quick start and Start tracking open a single monitoring tab that switches between all your tracked queues, ' +
+        "instead of a tab per queue. Use it if your browser blocks Quick start's extra tabs. Each queue is still checked about once per refresh." },
+    { key: 'lockMonitorTabs', label: 'Lock monitoring tabs', type: 'checkbox',
+      hint: "A tab that's monitoring a queue shows the Queue monitor window large in the middle and greys out the page, so it can't be changed by accident. Automatic refreshes still work. You can unlock it for 5 minutes from that window." },
+    { key: 'autoColumns', label: 'Add missing columns automatically', type: 'checkbox',
+      hint: "Uses the grid's Column Chooser to add columns the monitor needs, like Ticket Number or Next SLA Event Due. " +
+        'This changes your saved view for that grid. When off, the monitor shows an "Add missing columns" button instead.' },
+    { key: 'autoPageSize', label: 'Show the most rows per page automatically', type: 'checkbox',
+      hint: 'Switches the grid to its largest page size so tickets past the first page are monitored too. ' +
+        'This changes your saved view for that grid. When off, the monitor offers a button when rows are missing.' },
+    { group: 'Window and display', id: 'window', icon: 'layout', desc: 'How the Queue monitor window and the dashboard look.' },
+    { key: 'dashboard', label: 'Dashboard button', type: 'checkbox',
+      hint: 'Adds a ⛶ button at the top of the Queue monitor window that opens a full-window dashboard: the numbers that matter, ' +
+        'what to do next, deadlines over the next 8 hours, every queue and recent changes. Esc closes it.' },
     { key: 'upcomingCount', label: 'Rows shown in each list', type: 'number', min: 1, max: 20, step: 1 },
-    { key: 'maxAlerts', label: 'Changes kept in history', type: 'number', min: 20, max: 1000, step: 10 },
+    { key: 'showStatusCounts', label: 'Show status counts', type: 'checkbox',
+      hint: 'Ticket counts per status at the top of queues tracked for all changes.' },
+    { key: 'linkStyle', label: 'Open tickets using', type: 'select',
+      options: [['detail', 'Ticket page'], ['command', 'Autotask command link'], ['grid', 'Grid link']],
+      hint: 'Ticket page opens the normal ticket tab. The other two tend to pop out into a separate window.' },
+    { key: 'opacity', label: 'Opacity when expanded', unit: '%', type: 'number', min: 20, max: 100, step: 5 },
+    { key: 'opacityMin', label: 'Opacity when minimised', unit: '%', type: 'number', min: 20, max: 100, step: 5,
+      hint: 'The window turns fully opaque while the mouse is over it.' },
+    { key: 'hideInPopups', label: 'Hide in ticket pop-up windows', type: 'checkbox', hint: 'Takes effect on the next page load.' },
+    { group: 'Dates and times', id: 'dates', icon: 'calendar', desc: 'How to read the dates and times Autotask shows.' },
     { key: 'dateOrder', label: 'Date format in Autotask', type: 'select',
       options: [['auto', 'Detect automatically'], ['DMY', 'Day/month (UK)'], ['MDY', 'Month/day (US)'], ['YMD', 'Year first (2026-10-02)']],
       hint: () => {
@@ -3030,94 +3186,7 @@
         options: [['', `Same as this PC${PC_ZONE ? ` (${PC_ZONE})` : ''}`], ...ZONES.map(z => [z, z])] }
       : { key: 'timeZone', label: 'Autotask time zone', type: 'text', hint: ZONE_HINT + ' Leave empty for the same as this PC.',
         sanitize: v => (clean(v) && validZone(clean(v)) ? clean(v) : '') },
-    { key: 'linkStyle', label: 'Open tickets using', type: 'select',
-      options: [['detail', 'Ticket page'], ['command', 'Autotask command link'], ['grid', 'Grid link']],
-      hint: 'Ticket page opens the normal ticket tab. The other two tend to pop out into a separate window.' },
-    { group: 'Window' },
-    { key: 'dashboard', label: 'Dashboard button', type: 'checkbox',
-      hint: 'Adds a ⛶ button at the top of this window that opens a full-window dashboard: the numbers that matter, ' +
-        'what to do next, deadlines over the next 8 hours, every queue and recent changes. Esc closes it.' },
-    { key: 'oneTab', label: 'Monitor all queues from one tab', type: 'checkbox',
-      hint: 'Quick start and Start tracking open a single monitoring tab that switches between all your tracked queues, ' +
-        "instead of a tab per queue. Use it if your browser blocks Quick start's extra tabs. Each queue is still checked about once per refresh." },
-    { key: 'lockMonitorTabs', label: 'Lock monitoring tabs', type: 'checkbox',
-      hint: "A tab that's monitoring a queue shows this window large in the middle and greys out the page, so it can't be changed by accident. Automatic refreshes still work. You can unlock it for 5 minutes from the window." },
-    { key: 'opacity', label: 'Opacity when expanded', unit: '%', type: 'number', min: 20, max: 100, step: 5 },
-    { key: 'opacityMin', label: 'Opacity when minimised', unit: '%', type: 'number', min: 20, max: 100, step: 5,
-      hint: 'The window turns fully opaque while the mouse is over it.' },
-    { key: 'autoColumns', label: 'Add missing columns automatically', type: 'checkbox',
-      hint: "Uses the grid's Column Chooser to add columns the monitor needs, like Ticket Number or Next SLA Event Due. " +
-        'This changes your saved view for that grid. When off, the monitor shows an "Add missing columns" button instead.' },
-    { key: 'autoPageSize', label: 'Show the most rows per page automatically', type: 'checkbox',
-      hint: 'Switches the grid to its largest page size so tickets past the first page are monitored too. ' +
-        'This changes your saved view for that grid. When off, the monitor offers a button when rows are missing.' },
-    { key: 'showStatusCounts', label: 'Show status counts', type: 'checkbox',
-      hint: 'Ticket counts per status at the top of queues tracked for all changes.' },
-    { group: 'Service calls' },
-    { key: 'serviceCalls', label: 'Service calls', type: 'checkbox',
-      hint: 'Lets you track My Workspace > Service Calls. Your calls then appear in Overview and Next up.' },
-    { key: 'callReminders', label: 'Call reminders', type: 'checkbox',
-      hint: 'Pings before a call starts, with a Dismiss button in this window.' },
-    { key: 'callLeadTimes', label: 'Remind before start', unit: 'min', type: 'text',
-      sanitize: v => {
-        const n = [...new Set(String(v).split(/[^\d]+/).filter(Boolean).map(Number).filter(x => x >= 0 && x <= 240))].sort((a, b) => b - a);
-        return n.length ? n.join(', ') : DEFAULTS.callLeadTimes;
-      },
-      hint: 'Comma-separated minutes, e.g. 15, 10, 5, 0.' },
-    { key: 'callPingAfterStart', label: 'Keep pinging after the call starts', type: 'checkbox',
-      hint: 'Every minute until you press Dismiss or the call ends.' },
-    { group: 'Deadlines and statuses' },
-    { key: 'dueSoonMinutes', label: 'Warn when an SLA is due within', unit: 'min', type: 'number', min: 5, max: 1440, step: 5,
-      hint: 'Queues tracked for all changes.' },
-    { key: 'frSoonMinutes', label: 'Warn when a first response is due within', unit: 'min', type: 'number', min: 5, max: 240, step: 5,
-      hint: 'Queues tracked for new tickets & first response.' },
-    { key: 'responseTarget', label: 'Respond to tickets without an SLA within', unit: 'min', type: 'number', min: 0, max: 480, step: 5,
-      hint: 'Tickets in New status with no first response SLA get this as a target, so they sit next to your SLAs in Next up ' +
-        'and the dashboard, with an alert when it passes. 0 turns it off.' },
-    { key: 'actionStatuses', label: 'Statuses that need action', type: 'text', wide: true,
-      sanitize: v => String(v).split(',').map(clean).filter(Boolean).join(', '),
-      hint: "Comma-separated. Tickets in any other status stay visible but don't ask for action: no deadlines in Next up and " +
-        'no SLA warnings. You get an alert when one moves into one of these. Leave empty to treat every status as needing action.' },
-    { group: 'Alerts' },
-    { key: 'notify', label: 'Desktop notifications', type: 'checkbox' },
-    { key: 'sound', label: 'Sound on new alerts', type: 'checkbox' },
-    { key: 'hideInPopups', label: 'Hide in ticket pop-up windows', type: 'checkbox', hint: 'Takes effect on the next page load.' },
   ];
-
-  function renderTrackedQueues(panel, rerender) {
-    const box = el('div', 'atqm-set');
-    box.append(el('div', 'atqm-set-group', 'Tracked queues'));
-    const qs = trackedQueues();
-    if (!qs.length) box.append(el('div', 'atqm-hint', 'None yet.'));
-    for (const q of qs) {
-      const name = el('div', 'atqm-qname', qName(q));
-      if (q.key !== 'my' || q.section) name.append(el('span', 'atqm-sub', ' ' + qWhere(q)));
-      const ctl = el('span', 'atqm-field');
-      if (q.mode === 'calls' && !CONFIG.serviceCalls) name.append(el('span', 'atqm-warn', ' (Service calls setting is off)'));
-      const sel = el('select');
-      sel.setAttribute('aria-label', `Tracking for ${qName(q)}`);
-      const choices = q.mode === 'calls' ? ['calls'] : ['full', 'intake'];
-      for (const v of choices) { const o = el('option', null, MODES[v].label); o.value = v; sel.append(o); }
-      sel.value = q.mode;
-      sel.disabled = q.mode === 'calls';
-      sel.onchange = () => {
-        saveQueues(trackedQueues().map(x => (x.key === q.key ? { ...x, mode: sel.value } : x)));
-        [q.snap, q.seen].forEach(del); // fresh baseline for the new style
-        rerender('Tracking style updated. It takes a fresh baseline on the next scan.');
-      };
-      const stop = el('button', 'atqm-stop', 'Stop');
-      stop.title = 'Stop tracking this queue';
-      stop.onclick = () => {
-        if (!confirm(`Stop tracking ${qWhere(q)}? Its tickets are cleared from the overview; past changes stay in history.`)) return;
-        stopTracking(q);
-        rerender(`Stopped tracking ${qName(q)}.`);
-      };
-      ctl.append(sel, stop);
-      box.append(name, ctl);
-    }
-    box.append(el('div', 'atqm-hint', 'To track another queue, open it in My Workspace & Queues and press Start tracking.'));
-    panel.append(box);
-  }
 
   // A setting value made safe to use: the right type, within range, and one of the options
   function cleanSetting(f, v) {
@@ -3134,120 +3203,421 @@
     return f.sanitize ? f.sanitize(v) : clean(v) || d;
   }
 
-  function renderSettings(panel, message = '') {
-    panel.replaceChildren();
-    const msg = el('div', 'atqm-saved', message);
-    const flash = t => { msg.textContent = t; setTimeout(() => { if (msg.textContent === t) msg.textContent = ''; }, 5000); };
-    const rerender = t => { renderSettings(panel, t); render(); };
+  // Line icons (24 × 24, drawn with the text colour)
+  const ICONS = {
+    cog: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>',
+    list: '<line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/>',
+    clock: '<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>',
+    bell: '<path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/>',
+    phone: '<path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92z"/>',
+    refresh: '<polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>',
+    layout: '<rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/>',
+    calendar: '<rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>',
+    archive: '<polyline points="21 8 21 21 3 21 3 8"/><rect x="1" y="3" width="22" height="5"/><line x1="10" y1="12" x2="14" y2="12"/>',
+    zap: '<polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>',
+    search: '<circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>',
+    x: '<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>',
+    plus: '<line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>',
+    alert: '<circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>',
+  };
+  const svgIcon = (name, size = 16) => `<svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="none" stroke="currentColor" ` +
+    `stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">${ICONS[name]}</svg>`;
+  function icon(name, size) {
+    const s = el('span', 'atqm-ico');
+    s.innerHTML = svgIcon(name, size);
+    return s;
+  }
 
-    // Quick start / move queue tabs to this window – first thing in Settings
-    const qsBox = el('div', 'atqm-qsbox atqm-qstop');
-    const moving = busyElsewhere().length > 0;
-    const qsBtn = el('button', 'atqm-qsgo', moving ? 'Move queue tabs to this window' : 'Quick start: open all tracked queues');
-    qsBtn.onclick = () => { set(K.qsSnooze, 0); quickStart(); setTimeout(() => rerender(''), 1500); };
-    qsBox.append(qsBtn, el('div', 'atqm-hint', moving
-      ? 'Closes the tabs monitoring your queues and reopens them in this window, so you can minimise it out of the way.'
-      : 'Opens a tab for each tracked queue in this window. Press it again later from another window to move them there.'));
-    panel.append(qsBox);
+  // ---------------------------------------------------------------------------
+  // Settings: a window over the whole page, opened from the cog in the Queue monitor window (or the
+  // dashboard). Changes wait for Save, so a half-typed number never reaches the monitoring tabs.
+  // ---------------------------------------------------------------------------
+  const SET_ID = 'atqm-settings';
+  let setForm = null;        // the open form: { dirty, save, refresh, refreshQueues }
+  let setReturnFocus = null; // where focus goes back to when it closes
+  const settingsOpen = () => !!document.getElementById(SET_ID);
 
-    renderTrackedQueues(panel, rerender);
+  // Opens the window, or brings it forward; with a setting's key, scrolls to it and points it out
+  function openSettings(focusKey) {
+    let d = document.getElementById(SET_ID);
+    if (!d) {
+      setReturnFocus = document.activeElement;
+      d = el('div');
+      d.id = SET_ID;
+      d.tabIndex = -1;
+      d.setAttribute('role', 'dialog');
+      d.setAttribute('aria-modal', 'true');
+      d.setAttribute('aria-labelledby', 'atqm-set-title');
+      d.addEventListener('keydown', e => {
+        e.stopPropagation(); // typing here isn't for Autotask's own shortcuts
+        if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') { e.preventDefault(); setForm?.save(); return; }
+        if (e.key !== 'Tab') return;
+        // Keep Tab inside the window
+        const list = [...d.querySelectorAll('button, input, select, textarea, [href]')]
+          .filter(x => !x.disabled && x.tabIndex >= 0 && x.getClientRects().length);
+        if (!list.length) return;
+        const first = list[0], last = list[list.length - 1];
+        if (e.shiftKey && (document.activeElement === first || document.activeElement === d)) { e.preventDefault(); last.focus(); }
+        else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+      });
+      document.body.append(d);
+      renderSettings(d);
+    }
+    const row = focusKey && d.querySelector(`.set-row[data-key="${focusKey}"]`);
+    if (!row) { d.focus(); return; }
+    d.querySelector('.set-main').scrollTop = Math.max(0, row.offsetTop - 80);
+    row.classList.remove('flash');
+    void row.offsetWidth; // restart the highlight
+    row.classList.add('flash');
+    row.querySelector('input, select')?.focus({ preventScroll: true });
+  }
+  // false if you chose to keep your unsaved changes
+  function closeSettings() {
+    const d = document.getElementById(SET_ID);
+    if (!d) return true;
+    if (setForm?.dirty() && !confirm('Close settings without saving your changes?')) return false;
+    d.remove();
+    setForm = null;
+    try { if (setReturnFocus?.isConnected) setReturnFocus.focus(); } catch { /* ignore */ }
+    setReturnFocus = null;
+    return true;
+  }
 
-    const grid = el('div', 'atqm-set');
-    const inputs = {};
-    for (const f of FIELDS) {
-      if (f.group) { grid.append(el('div', 'atqm-set-group', f.group)); continue; }
+  // Statuses seen in the ticket queues, offered as suggestions for "Statuses that need action"
+  function knownStatuses() {
+    const seen = new Map();
+    for (const q of trackedQueues().filter(x => x.mode !== 'calls')) {
+      for (const t of snapTickets(q) || []) {
+        const s = clean(t.status);
+        if (s && !seen.has(s.toLowerCase())) seen.set(s.toLowerCase(), s);
+      }
+    }
+    return [...seen.values()].sort((a, b) => a.localeCompare(b));
+  }
+
+  // A comma-separated list as removable chips, each in its Autotask colour, with suggestions to add
+  function chipEditor(id, onChange, suggest) {
+    let list = [];
+    const box = el('div', 'set-chips');
+    const input = el('input', 'set-chip-in');
+    Object.assign(input, { type: 'text', id, placeholder: 'Add a status…', autocomplete: 'off' });
+    box.append(input);
+    box.onclick = e => { if (e.target === box) input.focus(); };
+    const sugg = el('div', 'set-sugg');
+    const has = s => list.some(x => same(x, s));
+    const add = text => { for (const s of String(text).split(',').map(clean)) if (s && !has(s)) list.push(s); };
+    const draw = () => {
+      box.querySelectorAll('.set-chip').forEach(c => c.remove());
+      for (const s of list) {
+        const chip = el('span', 'set-chip');
+        const dot = el('i');
+        const c = statusColor(s);
+        if (c) dot.style.background = c;
+        const rm = el('button', null, '×');
+        rm.type = 'button';
+        rm.title = 'Remove';
+        rm.setAttribute('aria-label', `Remove ${s}`);
+        rm.onclick = () => { list = list.filter(x => x !== s); draw(); onChange(); input.focus(); };
+        chip.append(dot, el('span', null, s), rm);
+        box.insertBefore(chip, input);
+      }
+      const extra = suggest().filter(s => !has(s));
+      sugg.replaceChildren();
+      sugg.hidden = !extra.length;
+      if (extra.length) sugg.append(el('span', null, 'Also in your queues:'));
+      for (const s of extra) {
+        const b = el('button', null, '+ ' + s);
+        b.type = 'button';
+        b.title = `Add ${s}`;
+        b.onclick = () => { add(s); draw(); onChange(); input.focus(); };
+        sugg.append(b);
+      }
+    };
+    const commit = () => {
+      if (!clean(input.value)) return;
+      add(input.value);
+      input.value = '';
+      draw();
+      onChange();
+    };
+    input.addEventListener('keydown', e => {
+      if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); commit(); }
+      else if (e.key === 'Backspace' && !input.value && list.length) { list.pop(); draw(); onChange(); }
+    });
+    input.addEventListener('blur', commit);
+    return {
+      box, sugg, input,
+      read: () => [...list, input.value].join(', '),
+      write: v => { list = []; add(v || ''); input.value = ''; draw(); },
+    };
+  }
+
+  function renderSettings(root, message = '') {
+    const keepScroll = root.querySelector('.set-main')?.scrollTop || 0;
+    root.replaceChildren();
+    const controls = {}; // setting key -> { f, row, read, write, refreshHint }
+    let note = '', noteTimer = null;
+
+    const btn = (label, cls, onclick, title) => {
+      const b = el('button', 'set-btn' + (cls ? ' ' + cls : ''), label);
+      b.type = 'button';
+      if (title) b.title = title;
+      b.onclick = onclick;
+      return b;
+    };
+
+    // Header: title, search and close
+    const head = el('header', 'set-head');
+    const brand = el('div', 'set-brand');
+    const titles = el('div');
+    const h1 = el('h1', null, 'Settings');
+    h1.id = 'atqm-set-title';
+    titles.append(h1, el('div', 'set-sub', `Queue monitor ${VERSION} (beta)`));
+    brand.append(icon('cog', 18), titles);
+    const find = el('label', 'set-find');
+    const search = el('input');
+    Object.assign(search, { type: 'search', placeholder: 'Find a setting', autocomplete: 'off' });
+    search.setAttribute('aria-label', 'Find a setting');
+    find.append(icon('search', 14), search);
+    const x = el('button', 'set-x');
+    x.type = 'button';
+    x.title = 'Close (Esc)';
+    x.setAttribute('aria-label', 'Close settings');
+    x.append(icon('x', 18));
+    x.onclick = () => closeSettings();
+    head.append(brand, find, x);
+
+    // Sections down the left, settings on the right
+    const body = el('div', 'set-body');
+    const nav = el('nav', 'set-nav');
+    nav.setAttribute('aria-label', 'Settings sections');
+    const main = el('div', 'set-main');
+    const inner = el('div', 'set-inner');
+    main.append(inner);
+    body.append(nav, main);
+
+    // Footer: what's unsaved, Discard and Save
+    const foot = el('footer', 'set-foot');
+    const msg = el('div', 'set-msg');
+    msg.setAttribute('role', 'status');
+    const discard = btn('Discard', '', () => {
+      for (const c of Object.values(controls)) c.write(CONFIG[c.f.key]);
+      note = '';
+      update();
+    }, 'Put back the saved settings');
+    const save = btn('Save changes', 'primary', () => doSave(), 'Save (Ctrl+S)');
+    foot.append(msg, discard, save);
+    root.append(head, body, foot);
+
+    const flash = t => {
+      note = t;
+      clearTimeout(noteTimer);
+      noteTimer = setTimeout(() => { note = ''; update(); }, 5000);
+      update();
+    };
+
+    const sections = [];
+    const cards = {};
+    let pinned = 0; // when a section link was pressed (its scroll shouldn't move the highlight)
+    const markNav = cur => { for (const s of sections) s.link.setAttribute('aria-current', String(s === cur)); };
+    function section(id, title, ico, desc) {
+      const sec = el('section', 'set-sec');
+      sec.id = 'atqm-set-' + id;
+      sec.dataset.find = title.toLowerCase();
+      const h = el('div', 'set-sec-h');
+      const ht = el('div');
+      const h2 = el('h2', null, title);
+      h2.id = sec.id + '-h';
+      sec.setAttribute('aria-labelledby', h2.id);
+      ht.append(h2);
+      if (desc) ht.append(el('p', null, desc));
+      h.append(icon(ico, 16), ht);
+      const card = el('div', 'set-card');
+      sec.append(h, card);
+      inner.append(sec);
+      const link = el('button');
+      link.type = 'button';
+      link.append(icon(ico, 15), el('span', null, title));
+      const s = { id, sec, link };
+      link.onclick = () => { pinned = Date.now(); markNav(s); main.scrollTop = Math.max(0, sec.offsetTop - 12); };
+      nav.append(link);
+      sections.push(s);
+      return (cards[id] = card);
+    }
+    main.addEventListener('scroll', () => {
+      if (Date.now() - pinned < 800) return;
+      const shown = sections.filter(s => !s.sec.hidden);
+      let cur = shown[0];
+      for (const s of shown) if (s.sec.offsetTop - main.scrollTop <= 60) cur = s;
+      if (main.scrollTop + main.clientHeight >= main.scrollHeight - 4) cur = shown[shown.length - 1];
+      markNav(cur);
+    }, { passive: true });
+
+    // A row with a label, a hint and buttons
+    const actionRow = (label, hint, ...buttons) => {
+      const row = el('div', 'set-row');
+      row.dataset.find = `${label} ${hint}`.toLowerCase();
+      const text = el('div', 'set-text');
+      text.append(el('div', 'set-label', label), el('div', 'set-hint', hint));
+      const ctl = el('div', 'set-ctl');
+      ctl.append(...buttons);
+      row.append(text, ctl);
+      return row;
+    };
+
+    // Quick start, first thing
+    const hero = el('div', 'set-hero');
+    const drawHero = () => {
+      hero.replaceChildren();
+      const moving = busyElsewhere().length > 0;
+      const text = el('div', 'set-text');
+      text.append(el('div', 'set-hero-t', moving ? 'Move queue tabs to this window' : 'Quick start'), el('div', 'set-hint', moving
+        ? 'Closes the tabs monitoring your queues and reopens them in this window, so you can minimise it out of the way.'
+        : CONFIG.oneTab
+          ? 'Opens one tab in this window that monitors all your tracked queues in turn. Press it again later from another window to move it there.'
+          : 'Opens a tab for each tracked queue in this window. Press it again later from another window to move them there.'));
+      const go = btn(moving ? 'Move tabs here' : 'Open tracked queues', 'primary', () => {
+        set(K.qsSnooze, 0);
+        quickStart();
+        setTimeout(() => { if (go.isConnected) { drawHero(); drawQueues(); } }, 1500);
+      });
+      go.prepend(icon('zap', 14));
+      hero.append(icon('zap', 20), text, go);
+    };
+    drawHero();
+    inner.append(hero);
+
+    // Tracked queues
+    const qCard = section('queues', 'Tracked queues', 'list', 'The queues this browser watches, and what it watches them for.');
+    function drawQueues() {
+      qCard.replaceChildren();
+      const qs = trackedQueues();
+      for (const q of qs) {
+        const h = health(q);
+        const row = el('div', 'set-row set-q');
+        row.dataset.find = `${qName(q)} ${qWhere(q)} ${MODES[q.mode].label} queue`.toLowerCase();
+        const light = el('span', 'atqm-ml ' + h.cls);
+        light.title = h.text;
+        const text = el('div', 'set-text');
+        const name = el('div', 'set-label');
+        name.append(el('span', 'atqm-sr', (STATUS_WORDS[h.cls] || '') + ': '), qName(q));
+        if (q.key !== 'my' || q.section) name.append(el('span', 'set-where', qWhere(q)));
+        text.append(name, el('div', 'set-hint', h.text));
+        if (q.mode === 'calls' && !CONFIG.serviceCalls) text.append(el('div', 'set-hint atqm-warn', 'Paused while the Service calls setting is off.'));
+        const ctl = el('div', 'set-ctl');
+        if (q.mode === 'calls') ctl.append(el('span', 'set-pill', MODES.calls.label));
+        else {
+          const seg = el('div', 'set-seg');
+          seg.setAttribute('role', 'group');
+          seg.setAttribute('aria-label', `Tracking for ${qName(q)}`);
+          for (const v of ['full', 'intake']) {
+            const b = btn(MODES[v].label, '', () => {
+              if (q.mode === v) return;
+              saveQueues(trackedQueues().map(t => (t.key === q.key ? { ...t, mode: v } : t)));
+              [q.snap, q.seen].forEach(del); // fresh baseline for the new style
+              drawQueues();
+              flash(`${qName(q)}: tracking ${MODES[v].label.toLowerCase()}. It takes a fresh baseline on the next scan.`);
+              render();
+            }, MODES[v].hint);
+            b.className = '';
+            b.setAttribute('aria-pressed', String(q.mode === v));
+            seg.append(b);
+          }
+          ctl.append(seg);
+        }
+        ctl.append(btn('Stop', 'danger', () => {
+          if (!confirm(`Stop tracking ${qWhere(q)}? Its tickets are cleared from the overview; past changes stay in history.`)) return;
+          stopTracking(q);
+          drawQueues();
+          flash(`Stopped tracking ${qName(q)}.`);
+          render();
+        }, 'Stop tracking this queue'));
+        row.append(light, text, ctl);
+        qCard.append(row);
+      }
+      if (!qs.length) qCard.append(el('div', 'set-row set-empty', 'No queues tracked yet.'));
+      const tip = el('div', 'set-row set-tip');
+      tip.dataset.find = 'track another queue start tracking add';
+      tip.append(icon('plus', 14), el('span', null, 'To track another queue, open it in My Workspace & Queues and press Start tracking.'));
+      qCard.append(tip);
+      applyFind();
+    }
+
+    // One row per setting
+    function fieldRow(f) {
       const id = 'atqm-f-' + f.key;
-      const lab = el('label', null, f.label);
+      const row = el('div', 'set-row' + (f.chips ? ' wide' : ''));
+      row.dataset.key = f.key;
+      const hintText = () => (typeof f.hint === 'function' ? f.hint() : f.hint) || '';
+      row.dataset.find = `${f.label} ${hintText()}`.toLowerCase();
+      const text = el('div', 'set-text');
+      const lab = el('label', 'set-label', f.label);
       lab.htmlFor = id;
-      let input;
-      if (f.type === 'select') {
+      const hint = el('div', 'set-hint', hintText());
+      hint.id = id + '-hint';
+      hint.hidden = !hint.textContent;
+      text.append(lab, hint);
+      const ctl = el('div', 'set-ctl');
+      let input, read, write;
+      if (f.chips) {
+        const c = chipEditor(id, update, knownStatuses);
+        ({ input, read, write } = c);
+        ctl.append(c.box, c.sugg);
+      } else if (f.type === 'select') {
         input = el('select');
         for (const [v, t] of f.options) { const o = el('option', null, t); o.value = v; input.append(o); }
-        input.value = CONFIG[f.key];
+        read = () => input.value;
+        write = v => { input.value = v; };
+        ctl.append(input);
+      } else if (f.type === 'checkbox') {
+        input = el('input', 'set-switch');
+        input.type = 'checkbox';
+        input.setAttribute('role', 'switch');
+        read = () => input.checked;
+        write = v => { input.checked = !!v; };
+        ctl.append(input);
       } else {
         input = el('input');
         input.type = f.type;
-        if (f.type === 'checkbox') input.checked = !!CONFIG[f.key];
-        else {
-          input.value = f.toUi ? f.toUi(CONFIG[f.key]) : CONFIG[f.key];
-          if (f.type === 'number') Object.assign(input, { min: f.min, max: f.max, step: f.step });
-        }
+        if (f.type === 'number') Object.assign(input, { min: f.min, max: f.max, step: f.step });
+        read = () => {
+          if (f.type !== 'number') return input.value;
+          const u = parseFloat(input.value);
+          return f.fromUi ? f.fromUi(u) : u;
+        };
+        write = v => { input.value = f.toUi ? f.toUi(v) : v; };
+        if (f.unit) { const g = el('span', 'set-num'); g.append(input, el('span', null, f.unit)); ctl.append(g); }
+        else ctl.append(input);
       }
       input.id = id;
-      inputs[f.key] = input;
-      const wrap = el('span', 'atqm-field');
-      wrap.append(input);
-      if (f.type === 'checkbox') {
-        const state = el('span', 'atqm-onoff', input.checked ? 'On' : 'Off');
-        input.addEventListener('change', () => { state.textContent = input.checked ? 'On' : 'Off'; });
-        wrap.append(state);
-      }
-      if (f.unit) wrap.append(el('span', 'atqm-sub', f.unit));
-      if (f.wide) {
-        lab.style.gridColumn = wrap.style.gridColumn = '1/-1';
-        wrap.style.justifySelf = 'stretch';
-        input.style.width = '100%';
-      }
-      grid.append(lab, wrap);
-      const hint = typeof f.hint === 'function' ? f.hint() : f.hint;
-      if (hint) grid.append(el('div', 'atqm-hint', hint));
+      if (hint.textContent) input.setAttribute('aria-describedby', hint.id);
+      write(CONFIG[f.key]);
+      row.append(text, ctl);
+      controls[f.key] = { f, row, read, write, refreshHint: () => { hint.textContent = hintText(); hint.hidden = !hint.textContent; } };
+      return row;
+    }
+
+    let card = null;
+    for (const f of FIELDS) {
+      if (f.group) card = section(f.id, f.group, f.icon, f.desc);
+      else card.append(fieldRow(f));
     }
 
     if ('Notification' in window && Notification.permission === 'denied') {
-      grid.append(el('div', 'atqm-hint atqm-warn', 'Notifications are blocked for this site in your browser settings.'));
+      const r = el('div', 'set-row set-alert');
+      r.dataset.find = 'desktop notifications blocked';
+      r.append(icon('alert', 15), el('span', null, 'Notifications are blocked for this site in your browser settings. ' +
+        'Allow them from the icon at the left of the address bar.'));
+      cards.alerts.prepend(r);
     }
+    cards.alerts.append(actionRow('Test alert', 'Plays the sound and shows a notification, as your saved settings would.',
+      btn('Send a test', '', () => {
+        notify('Queue monitor', [{ type: 'new', text: 'Test alert from Queue monitor' }]);
+        flash(CONFIG.notify || CONFIG.sound ? 'Test alert sent.' : 'Sound and notifications are both off.');
+      })));
 
-    const save = el('button', null, 'Save');
-    save.onclick = () => {
-      const out = {};
-      for (const f of FIELDS) {
-        if (f.group) continue;
-        const input = inputs[f.key];
-        let v;
-        if (f.type === 'checkbox') v = input.checked;
-        else if (f.type === 'number') { const u = parseFloat(input.value); v = f.fromUi ? f.fromUi(u) : u; }
-        else v = input.value;
-        out[f.key] = cleanSetting(f, v);
-        if (f.type === 'number') input.value = f.toUi ? f.toUi(out[f.key]) : out[f.key];
-        else if (f.type !== 'checkbox') input.value = out[f.key];
-      }
-      const zoneChanged = out.timeZone !== CONFIG.timeZone;
-      set(K.settings, out);
-      loadSettings();
-      if (zoneChanged) del(K.tzHint);
-      if (CONFIG.notify && 'Notification' in window && Notification.permission === 'default') Notification.requestPermission();
-      reschedule();
-      flash('Settings saved. All Autotask tabs now use them.');
-      render();
-    };
-
-    const test = el('button', null, 'Test alert');
-    test.onclick = () => {
-      notify('Queue monitor', [{ type: 'new', text: 'Test alert from Queue monitor' }]);
-      flash(CONFIG.notify || CONFIG.sound ? 'Test alert sent.' : 'Sound and notifications are both off.');
-    };
-
-    const reset = el('button', null, 'Reset to defaults');
-    reset.title = 'Resets the settings below; tracked queues are kept';
-    reset.onclick = () => {
-      if (!confirm('Reset monitor settings to their defaults? Your tracked queues are kept.')) return;
-      del(K.settings);
-      loadSettings();
-      reschedule();
-      rerender('Settings reset to defaults.');
-    };
-
-    const actions = el('div', 'atqm-set-actions');
-    actions.append(save, test, reset);
-
-    // Backup and diagnostics
-    const tools = el('div', 'atqm-set atqm-store');
-    tools.append(el('div', 'atqm-set-group', 'Backup and help'));
-    const row = el('div', 'atqm-tools');
-    row.style.gridColumn = '1/-1';
-    const exp = el('button', null, 'Export settings');
-    exp.title = 'Save your settings and tracked queues to a file (no tickets or history)';
-    exp.onclick = () => { exportSettings(); flash('Settings exported.'); };
+    // Backup and help
+    const bCard = section('backup', 'Backup and help', 'archive', 'Take your setup to another browser, or gather details for a bug report.');
     const file = el('input');
     file.type = 'file';
     file.accept = '.json,application/json';
@@ -3258,36 +3628,115 @@
       const text = await f.text();
       file.value = '';
       const result = importSettings(text);
-      if (result) rerender(result);
+      if (result) { renderSettings(root, result); render(); }
     };
-    const imp = el('button', null, 'Import settings');
-    imp.title = 'Load settings and tracked queues from an exported file';
-    imp.onclick = () => file.click();
-    const diagOut = el('div');
-    diagOut.style.gridColumn = '1/-1';
-    const diag = el('button', null, 'Diagnostics');
-    diag.title = 'What the monitor can see on this page, to paste into a bug report. No ticket titles or account names.';
-    diag.onclick = async () => {
+    bCard.append(actionRow('Export and import', 'Your saved settings and tracked queues as a file (no tickets or history), to move them to another browser or PC.',
+      btn('Export', '', () => { exportSettings(); flash('Settings exported.'); }, 'Save your settings and tracked queues to a file'),
+      btn('Import…', '', () => file.click(), 'Load settings and tracked queues from an exported file')), file);
+    const diagOut = el('div', 'set-diag');
+    diagOut.hidden = true;
+    const diag = btn('Collect', '', async () => {
       diag.disabled = true;
-      diagOut.replaceChildren(el('div', 'atqm-hint', 'Collecting…'));
+      diagOut.hidden = false;
+      diagOut.replaceChildren(el('div', 'set-hint', 'Collecting…'));
       const text = await collectDiagnostics();
-      const ta = el('textarea', 'atqm-diag');
+      const ta = el('textarea');
       ta.value = text;
       ta.readOnly = true;
       ta.setAttribute('aria-label', 'Diagnostics');
-      const copy = el('button', null, 'Copy diagnostics');
-      copy.onclick = () => copyText(text).then(ok => flash(ok ? 'Diagnostics copied.' : 'Couldn\'t copy. Select the text and copy it instead.'));
-      const copyRow = el('div', 'atqm-tools');
-      copyRow.append(copy);
-      diagOut.replaceChildren(ta, copyRow);
+      const copy = btn('Copy diagnostics', 'primary', () => copyText(text).then(ok => flash(ok ? 'Diagnostics copied.' : "Couldn't copy. Select the text and copy it instead.")));
+      diagOut.replaceChildren(ta, copy);
       diag.disabled = false;
-    };
-    row.append(exp, imp, diag, file);
-    tools.append(row, el('div', 'atqm-hint', 'Export saves your settings and tracked queues (no tickets or history) to move them to another browser or PC.'), diagOut);
+    }, 'What the monitor can see on this page. No ticket titles or account names.');
+    bCard.append(actionRow('Diagnostics', 'What the monitor can see on this page, to paste into a bug report. Never ticket titles or account names.', diag), diagOut);
+    bCard.append(actionRow('Reset to defaults', 'Puts every setting back as it was when you installed. Tracked queues and history are kept.',
+      btn('Reset', 'danger', () => {
+        if (!confirm('Reset monitor settings to their defaults? Your tracked queues are kept.')) return;
+        del(K.settings);
+        loadSettings();
+        reschedule();
+        renderSettings(root, 'Settings reset to defaults.');
+        render();
+      })));
+    const fine = el('div', 'set-row set-fine', 'Settings and history are stored in this browser only. Clearing site data for autotask.net, ' +
+      'resetting the browser profile, or using another browser or PC starts fresh (use Export to take your settings along).');
+    fine.dataset.find = 'storage browser stored';
+    bCard.append(fine);
 
-    const note = el('div', 'atqm-hint atqm-store',
-      `Settings and history are stored in this browser only. Clearing site data for autotask.net, resetting the browser profile, or using another browser or PC starts fresh (use Export to take your settings along). Queue monitor ${VERSION} (beta).`);
-    panel.append(grid, actions, msg, tools, note);
+    const none = el('div', 'set-none');
+    none.hidden = true;
+    inner.append(none);
+
+    // Search: rows whose label or hint match, or every row of a section whose name matches
+    function applyFind() {
+      const term = clean(search.value).toLowerCase();
+      hero.hidden = !!term;
+      let any = false;
+      for (const s of sections) {
+        const whole = !term || s.sec.dataset.find.includes(term);
+        let hits = 0;
+        for (const r of s.sec.querySelectorAll('[data-find]')) {
+          r.hidden = !(whole || r.dataset.find.includes(term));
+          if (!r.hidden) hits++;
+        }
+        s.sec.hidden = s.link.hidden = !(whole || hits);
+        any = any || !s.sec.hidden;
+      }
+      none.hidden = any;
+      none.textContent = any ? '' : `No settings match “${search.value.trim()}”.`;
+    }
+    search.addEventListener('input', applyFind);
+    search.addEventListener('keydown', e => { if (e.key === 'Escape' && search.value) { search.value = ''; applyFind(); } });
+
+    // What's changed since the last save
+    const baseline = k => cleanSetting(controls[k].f, CONFIG[k]);
+    const pending = () => Object.fromEntries(Object.entries(controls).map(([k, c]) => [k, cleanSetting(c.f, c.read())]));
+    const changed = () => { const p = pending(); return Object.keys(p).filter(k => p[k] !== baseline(k)); };
+    function update() {
+      const keys = new Set(changed());
+      for (const [k, c] of Object.entries(controls)) c.row.classList.toggle('changed', keys.has(k));
+      const n = keys.size;
+      foot.classList.toggle('dirty', n > 0);
+      save.disabled = !n;
+      discard.hidden = !n;
+      msg.classList.toggle('ok', !!note);
+      msg.textContent = note || (n ? `${n} unsaved change${n === 1 ? '' : 's'}` : 'No unsaved changes');
+    }
+    for (const type of ['input', 'change']) main.addEventListener(type, update);
+
+    function doSave() {
+      const out = pending();
+      const zoneChanged = out.timeZone !== CONFIG.timeZone;
+      if (!set(K.settings, out)) { flash("Couldn't save: the browser's storage for autotask.net is full or blocked."); return; }
+      loadSettings();
+      if (zoneChanged) del(K.tzHint);
+      if (CONFIG.notify && 'Notification' in window && Notification.permission === 'default') Notification.requestPermission();
+      reschedule();
+      for (const c of Object.values(controls)) { c.write(CONFIG[c.f.key]); c.refreshHint(); }
+      drawQueues();
+      flash('Saved. Every Autotask tab now uses these settings.');
+      render();
+    }
+
+    setForm = {
+      dirty: () => changed().length > 0,
+      save: () => { if (changed().length) doSave(); },
+      // Settings saved in another tab: show them, unless you're part-way through changing something here
+      refresh: () => {
+        if (changed().length) return;
+        for (const c of Object.values(controls)) { c.write(CONFIG[c.f.key]); c.refreshHint(); }
+        drawHero();
+        drawQueues();
+        update();
+      },
+      refreshQueues: () => { drawHero(); drawQueues(); },
+    };
+
+    drawQueues();
+    markNav(sections[0]);
+    main.scrollTop = keepScroll;
+    if (message) flash(message);
+    else update();
   }
 
   // ---------------------------------------------------------------------------
@@ -3311,7 +3760,7 @@
     setTimeout(() => URL.revokeObjectURL(a.href), 10000);
   }
 
-  // Returns a message for the Settings tab ('' if cancelled). Everything in the file is checked first:
+  // Returns a message for the Settings window ('' if cancelled). Everything in the file is checked first:
   // settings must be valid values, and addresses must be Autotask pages.
   function importSettings(text) {
     let d;
@@ -3433,6 +3882,7 @@
       <div id="atqm-head"><span id="atqm-dot"></span><b>Queue monitor <span class="atqm-beta" title="Queue monitor ${VERSION} (beta)">Beta</span></b>
         <span id="atqm-badge" class="atqm-count"></span>
         <button id="atqm-dashbtn" title="Dashboard (full window)" aria-label="Open the dashboard" hidden>⛶</button>
+        <button id="atqm-setbtn" title="Settings" aria-label="Open settings" aria-haspopup="dialog">${svgIcon('cog', 15)}</button>
         <button id="atqm-min" title="Minimise" aria-label="Minimise Queue monitor" aria-expanded="true">–</button></div>
       <div id="atqm-rem"></div>
       <div id="atqm-qs"></div>
@@ -3444,7 +3894,6 @@
         <div id="atqm-tabs" role="tablist" aria-label="Queue monitor views">
           <button role="tab" id="atqm-tab-next" data-tab="next" aria-controls="atqm-panel">Next up</button>
           <button role="tab" id="atqm-tab-overview" data-tab="overview" aria-controls="atqm-panel">Overview</button>
-          <button role="tab" id="atqm-tab-settings" data-tab="settings" aria-controls="atqm-panel">Settings</button>
         </div>
         <div id="atqm-panel" role="tabpanel"></div>
         <div id="atqm-btns">
@@ -3503,6 +3952,7 @@
     };
     w.querySelector('#atqm-min').onclick = () => { w.classList.toggle('min'); render(); };
     w.querySelector('#atqm-dashbtn').onclick = openDashboard;
+    w.querySelector('#atqm-setbtn').onclick = () => openSettings();
 
     const head = w.querySelector('#atqm-head');
     head.addEventListener('pointerdown', e => {
@@ -3539,8 +3989,16 @@
     try { if (document.fullscreenElement) document.exitFullscreen(); } catch { /* ignore */ }
     render();
   }
-  // Registered before the lock's key handling, so Esc works on a locked monitoring tab too
-  addEventListener('keydown', e => { if (e.key === 'Escape' && document.getElementById('atqm-dash')) closeDashboard(); }, true);
+  // Registered before the lock's key handling, so Esc works on a locked monitoring tab too. Esc closes
+  // Settings first (it sits over the dashboard), unless it's clearing the settings search.
+  addEventListener('keydown', e => {
+    if (e.key !== 'Escape') return;
+    if (settingsOpen()) {
+      if (e.target?.closest?.('.set-find') && e.target.value) return;
+      e.preventDefault();
+      closeSettings();
+    } else if (document.getElementById('atqm-dash')) closeDashboard();
+  }, true);
 
   let dashTable = false;      // deadlines shown as a table instead of the chart
   let dashAllChanges = false; // the longer change history
@@ -3868,10 +4326,14 @@
       try { if (document.fullscreenElement) document.exitFullscreen(); else d.requestFullscreen(); } catch { /* not allowed */ }
       setTimeout(render, 300);
     };
+    const settings = el('button', 'dash-set');
+    settings.innerHTML = svgIcon('cog', 14);
+    settings.append('Settings');
+    settings.onclick = () => openSettings();
     const close = el('button', 'dash-close', 'Close');
     close.title = 'Back to the page (Esc)';
     close.onclick = closeDashboard;
-    actions.append(scan, full, close);
+    actions.append(scan, full, settings, close);
     top.append(title, actions);
     d.append(top);
     for (const text of [...globalWarnings(), ...(localNote ? [localNote] : [])]) d.append(el('div', 'dash-note', text));
@@ -3940,7 +4402,7 @@
   for (const type of ['keydown', 'keypress', 'keyup']) {
     addEventListener(type, e => {
       if (!lockActive()) return;
-      if (e.target && e.target.closest && e.target.closest('#atqm, #atqm-dash')) return; // the monitor's own windows still work
+      if (e.target && e.target.closest && e.target.closest('#atqm, #atqm-dash, #atqm-settings')) return; // the monitor's own windows still work
       e.preventDefault();
       e.stopImmediatePropagation();
     }, true);
@@ -4084,10 +4546,11 @@
     badge.textContent = unread;
     badge.style.display = unread ? '' : 'none';
 
-    // Next up is the first tab; a saved 'changes' tab (before 0.9) now lives in Next up
+    // Next up is the first tab; a saved 'changes' tab (before 0.9) now lives in Next up, and a saved
+    // 'settings' tab (before 0.14) is its own window behind the cog
     let tab = get(K.tab, 'next');
-    if (!['next', 'overview', 'settings'].includes(tab)) tab = 'next';
-    const TAB_LABELS = { next: urgent ? `Next up (${urgent})` : 'Next up', overview: 'Overview', settings: 'Settings' };
+    if (!['next', 'overview'].includes(tab)) tab = 'next';
+    const TAB_LABELS = { next: urgent ? `Next up (${urgent})` : 'Next up', overview: 'Overview' };
     w.querySelectorAll('#atqm-tabs button').forEach(b => {
       const selected = b.dataset.tab === tab;
       b.setAttribute('aria-selected', String(selected));
@@ -4097,11 +4560,6 @@
 
     const panel = w.querySelector('#atqm-panel');
     panel.setAttribute('aria-labelledby', 'atqm-tab-' + tab);
-    if (tab === 'settings') {
-      if (panel.dataset.tab !== 'settings') renderSettings(panel);
-      panel.dataset.tab = 'settings';
-      return;
-    }
     panel.dataset.tab = tab;
     const scroll = panel.scrollTop;
     panel.replaceChildren();
@@ -4448,12 +4906,8 @@
     if (e.key === K.moveReq) handleMoveRequest();
     if (e.key === K.gridFixReq) handleGridFixRequest();
     if (e.key === K.beepReq) playRelayedBeep();
-    if (e.key === K.settings) { loadSettings(); reschedule(); }
-    if (e.key === K.queues) {
-      pageCache.t = 0;
-      const p = document.querySelector('#atqm-panel');
-      if (p?.dataset.tab === 'settings') renderSettings(p);
-    }
+    if (e.key === K.settings) { loadSettings(); reschedule(); setForm?.refresh(); }
+    if (e.key === K.queues) { pageCache.t = 0; setForm?.refreshQueues(); }
     renderSoon();
   });
   setInterval(render, isTop ? 30000 : 10000); // countdowns up to date; frames keep reporting their page

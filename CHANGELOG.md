@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.14.0 (2026-10-06)
+
+### Changed
+
+- **Settings has its own window.** The Settings tab is replaced by a cog (⚙) at the top of the Queue monitor window, always there even when minimised, and a **Settings** button on the dashboard. It opens over the whole browser window, with sections down the left (Tracked queues, Deadlines and statuses, Alerts, Service calls, Monitoring, Window and display, Dates and times, Backup and help), **Quick start** at the top, and each setting on its own row with its explanation beside it.
+- Settings are grouped by what they're for rather than General and Window: thresholds and statuses together, refresh and monitoring tabs together, dates and time zone together.
+- Changes wait for **Save changes** (or Ctrl+S). The bar at the bottom counts what's unsaved and changed rows are marked; **Discard** puts them back, and closing with something unsaved asks first. Numbers outside a setting's range are saved within it, and the field shows what was saved.
+- Each tracked queue shows its light and status, with **All changes** / **New & first response** as a switch and **Stop** beside it.
+- The service calls page, when Service calls is off, has an **Open Settings** button that goes straight to that setting.
+
+### Added
+
+- **Find a setting** filters the window as you type, by name or explanation (a section's name shows all of it). Esc clears the search, then closes.
+- **Statuses that need action** are chips in their Autotask colours: × removes one, typing a name and Enter adds one, and the other statuses seen in your queues are offered to add with a click.
+
 ## 0.13.1 (2026-10-03)
 
 ### Changed

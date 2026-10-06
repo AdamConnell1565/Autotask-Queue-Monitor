@@ -253,8 +253,8 @@ test('boot: tabs and the minimise button are labelled for assistive tech', async
     assert.equal(min.getAttribute('aria-label'), 'Expand Queue monitor');
     assert.equal(min.getAttribute('aria-expanded'), 'false');
 
-    // Next up is the first tab and selected to start with; there's no Changes tab
-    assert.deepEqual(tabs.map(t => t.dataset.tab), ['next', 'overview', 'settings']);
+    // Next up is the first tab and selected to start with; there's no Changes tab, and Settings is behind the cog
+    assert.deepEqual(tabs.map(t => t.dataset.tab), ['next', 'overview']);
     assert.equal(selected[0].dataset.tab, 'next');
 
     // Arrow keys move to the next tab

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.15.2 (2026-10-08)
+
+### Fixed
+
+- In Autotask's new layout, the Macros tab couldn't see tickets ticked in a list, so **Ticked in this queue** stayed greyed out. The page in Autotask's frame now tells the Queue monitor window which tickets are ticked, and which ticket it shows (for **This ticket**). This works in any list of tickets, including a dashboard widget's drill-down, not only My Workspace queues.
+
 ## 0.15.1 (2026-10-08)
 
 ### Fixed

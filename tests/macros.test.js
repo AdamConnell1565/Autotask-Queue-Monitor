@@ -414,6 +414,57 @@ test('the tickets ticked in a queue grid, with their internal IDs', () => {
   close();
 });
 
+test("a list of tickets that isn't a queue (a dashboard widget's drill-down) has tickets to tick for a macro", () => {
+  const { api, window, close } = load({ html: fixture('queue-grid.html') });
+  const doc = window.document;
+  doc.getElementById('menu').remove(); // no queue menu: not one of My Workspace's queues
+  doc.querySelector('input[value="1002"]').checked = true;
+  // Autotask's own kind of checkbox counts too
+  doc.querySelector('input[value="1001"]').insertAdjacentHTML('afterend', '<div class="Checkbox2"><div class="TabIndexHack Checked"></div></div>');
+  const pg = api.pageInfo(true);
+  assert.equal(pg.cur, null);
+  assert.equal(pg.grid, true);
+  assert.deepEqual(plain(pg.ticked), [{ id: 'T20260925.0001', tid: '1001' }, { id: 'T20261001.0002', tid: '1002' }]);
+  close();
+});
+
+test("boot: with Autotask's page in a frame (its new layout), the frame says what it shows and the macros run on it", async () => {
+  const { window, close } = load({ boot: true, storage: { 'atqm:macro:accounts': ['Northwind Ltd'] } });
+  try {
+    const doc = window.document;
+    const opened = [];
+    window.open = (url, name) => { opened.push({ url, name }); return { closed: false, location: {}, close() {} }; };
+    // What the copy of the script in the frame tells this page (see reportPage)
+    const report = data => window.dispatchEvent(new window.MessageEvent('message', { origin: 'https://ww5.autotask.net', source: window,
+      data: { atqm: 'page', ts: Date.now(), cur: null, grid: false, ticket: null, ticked: [], url: 'https://ww5.autotask.net/Mvc/ServiceDesk/x.mvc', ...data } }));
+    await sleep(400);
+    doc.getElementById('atqm-min').click();
+    doc.getElementById('atqm-tab-macros').click();
+
+    // A ticket open in the frame: This ticket
+    report({ ticket: A });
+    await sleep(300);
+    button(doc.getElementById('atqm-panel'), /^Change account$/).click();
+    const win = doc.getElementById('atqm-mcwin');
+    const way = re => [...win.querySelectorAll('.mcw-way')].find(o => re.test(o.textContent));
+    assert.match(way(/This ticket/).textContent, /T20261007\.0081, in this page/);
+    assert.ok(way(/This ticket/).querySelector('input').checked);
+
+    // A dashboard widget's list of tickets in the frame, one ticked: no queue, but tickets to change
+    report({ grid: true, ticked: [{ id: 'T20261001.0002', tid: '1002' }] });
+    await sleep(300);
+    assert.match(way(/Ticked in this queue/).textContent, /1 ticked in this list/);
+    assert.ok(way(/Ticked in this queue/).querySelector('input').checked);
+    assert.ok(way(/This ticket/).querySelector('input').disabled);
+    button(win, /^Run$/).click();
+    await sleep(50);
+    assert.equal(opened.length, 1);
+    assert.match(opened[0].url, /TicketDetail\.mvc\?workspace=False&ticketId=1002$/);
+  } finally {
+    close();
+  }
+});
+
 test('boot: in a queue, the Macros tab (on the right) is a grid; Change account opens its window and runs on the ticked tickets', async () => {
   const { window, close } = load({
     boot: true,

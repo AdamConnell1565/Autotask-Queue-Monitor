@@ -4,6 +4,38 @@ A reference for the parts of Autotask's pages that the script reads and clicks. 
 
 > **No personal information, ever.** This file and the test fixtures describe structure only. People's names, email addresses, phone numbers, account and company names, ticket numbers, titles, descriptions, notes and alert text are all replaced with made-up placeholders, such as Contoso Ltd, Jane Doe and T20260101.0001. Keep it that way when you add to them. [Capturing a page safely](#capturing-a-page-safely) explains how.
 
+## The outer page and its frame
+
+In Autotask's new layout, an outer page holds the top bar and side panels. Autotask's own pages (queues, tickets, dashboard drill-downs) are shown inside a frame within it. Captured October 2026.
+
+```html
+<body>
+  <div class="h-screen flex flex-col …">
+    <div … data-slot="header">… the top bar (below) …</div>
+    <div class="relative min-h-0 flex-1 flex">
+      <div class="relative z-1"><div … data-slot="side-panel">… the left navigation, icons only …</div></div>
+      <main class="min-w-0 flex-1">
+        <div class="relative w-full h-full" data-slot="iframe">
+          <iframe class="w-full h-full border-none" src="https://…autotask.net/Mvc/…"></iframe>
+        </div>
+      </main>
+      <div class="relative z-1"><div … data-slot="side-panel">… the right-hand panel, with counts …</div></div>
+    </div>
+  </div>
+  <div class="relative z-iframeOverlay"><iframe … data-slot="iframe-overlay" src="…/DialogIFrameOverlay"></iframe></div>
+  <div class="fixed z-dialog"></div> … and layers for drawers, tooltips and other overlays …
+</body>
+```
+
+- **Two copies of the script.** It runs in both pages. The Queue monitor window, with its Macros tab, is in the outer page. The copy in the frame reads and clicks the page there: the queue grid, the ticket, the edit page.
+- **The frame reports what it shows.** `reportPage()` sends the outer page a `page` message. It says which queue the frame shows (if it's one of My Workspace's), whether it shows a list of tickets, which tickets are ticked, and which ticket it shows. That's how the Macros tab in the outer page can see your ticks and the open ticket. `pageInfo()` in the outer page uses the report while it's less than 25 seconds old.
+- **Lists that aren't queues.** A dashboard widget's drill-down (`/Mvc/ServiceDesk/TicketGridWidgetDrilldown.mvc/PrimaryStandardDrilldown?…`) is a ticket grid without the queue menu. A macro can change the tickets you tick there, but the list isn't monitored.
+- **How a ticked row is marked** in these grids hasn't been captured yet. The script accepts any of these in the row:
+  - a checked `<input type="checkbox">`
+  - Autotask's own `.Checkbox2 .Checked` (the kind on the ticket page)
+  - `[role="checkbox"][aria-checked="true"]`
+- **Third-party scripts.** The outer page loads feedback and guidance tools. One of them puts the signed-in user's details in `window.dataLayer`. Never copy those script blocks into a fixture or into this file.
+
 ## Top bar
 
 The bar across the top of Autotask, on every page. It holds the logo, the Dashboards, My and Calendar menus, search, and buttons for New (+), favourites, recent items, links, help and your profile. Captured October 2026.

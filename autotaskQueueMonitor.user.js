@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Autotask Queue Monitor
 // @namespace    autotask
-// @version      0.15.1
+// @version      0.15.2
 // @description  Track any My Workspace & Queues queue (My queue by default) in its own tab, with a live overview on every Autotask page
 // @author       AdamConnell1565
 // @homepageURL  https://github.com/AdamConnell1565/Autotask-Queue-Monitor
@@ -67,7 +67,9 @@
       dialog: '[role="dialog"], [role="alertdialog"], .Dialog, .DialogBox, .MessageBox, .Modal',
       dialogButton: '.Button2, button',
       formError: '[role="alert"], .ErrorMessage, .ValidationMessage, .Error, .Invalid',
-      rowTicked: 'input[type="checkbox"]:checked:not(:disabled)', // a grid row you've ticked (not a yes/no column)
+      // A grid row you've ticked: a checkbox, or Autotask's own kind (<div class="Checkbox2"><div class="TabIndexHack Checked">);
+      // not a disabled one, which is a yes/no column
+      rowTicked: 'input[type="checkbox"]:checked:not(:disabled), .Checkbox2 .Checked:not(.Disabled), [role="checkbox"][aria-checked="true"]:not([aria-disabled="true"])',
     },
     text: {
       myQueueNav: 'Open Tickets',
@@ -682,12 +684,14 @@
   // so frames report what they're showing (see "Frame messaging" below).
   let remotePage = null; // latest report from a frame in this tab: { cur, qKey, owns, foreign, choose, url, ts, source }
   let pageCache = { t: 0, v: {} };
-  // { cur, q, owns, foreign, choose, isCalls, url, remote }. choose: nobody monitors this tracked
-  // queue, and this tab should ask before it starts to.
+  // { cur, q, owns, foreign, choose, isCalls, url, remote, grid, ticked }. choose: nobody monitors this
+  // tracked queue, and this tab should ask before it starts to. grid: a ticket grid is showing, a queue or
+  // any other list of tickets (a dashboard widget's drill-down has no queue menu, so no cur).
   function pageInfo(fresh = false) {
     if (!fresh && Date.now() - pageCache.t < 1500) return pageCache.v;
     const v = {};
     if (gridPresent()) {
+      v.grid = true;
       v.cur = currentQueue();
       v.isCalls = isCallGrid();
       v.url = location.href;
@@ -703,9 +707,12 @@
           v.choose = !v.owns && !v.foreign && !mayMonitorHere(v.q);
         }
       }
-    } else if (remotePage && remotePage.cur && Date.now() - remotePage.ts < 25000) {
-      v.cur = remotePage.cur;
-      v.q = findTracked(v.cur);
+    } else if (remotePage && (remotePage.cur || remotePage.grid || remotePage.ticket) && Date.now() - remotePage.ts < 25000) {
+      // The page shows Autotask's content in a frame (its own layout does): the frame says what it shows
+      v.grid = !!(remotePage.cur || remotePage.grid);
+      v.remoteTicket = remotePage.ticket || null;
+      v.cur = remotePage.cur || null;
+      v.q = v.cur ? findTracked(v.cur) : null;
       v.owns = !!remotePage.owns;
       v.foreign = !!remotePage.foreign;
       v.ownsAny = !!remotePage.ownsAny;
@@ -715,7 +722,7 @@
       v.remote = remotePage.source;
       v.ticked = Array.isArray(remotePage.ticked) ? remotePage.ticked : [];
     }
-    v.ticket = openTicketId();
+    v.ticket = openTicketId() || v.remoteTicket || null;
     pageCache = { t: Date.now(), v };
     return v;
   }
@@ -4533,7 +4540,8 @@ label.set-label{cursor:pointer}
   const macroRunning = () => { const job = macroJob(); return !!job && !job.finished; };
 
   // The tickets a macro can run on from this page: the one it shows (done right there), or the ones ticked
-  // in the queue it shows (one at a time, in a tab of their own). A ticket pop-up only has its ticket.
+  // in the queue or other list of tickets it shows (one at a time, in a tab of their own; a dashboard
+  // widget's drill-down is a list too). A ticket pop-up only has its ticket.
   function macroWays(ctx) {
     const ways = [{
       key: 'ticket', title: 'This ticket', here: true, tickets: ctx.ticket ? [{ id: ctx.ticket }] : [],
@@ -4541,11 +4549,12 @@ label.set-label{cursor:pointer}
       how: "It happens in this page: leave it until it says it's done.",
     }];
     if (ctx.popup) return ways;
-    const inQueue = !!ctx.cur && !ctx.isCalls, ticked = inQueue ? ctx.ticked || [] : [];
+    const inList = (!!ctx.cur || !!ctx.grid) && !ctx.isCalls, ticked = inList ? ctx.ticked || [] : [];
+    const where = ctx.cur ? ctx.cur.nav : 'this list';
     ways.push({
       key: 'ticked', title: 'Ticked in this queue', here: false, tickets: ticked,
-      sub: !inQueue ? 'Open a queue and tick the tickets to run it on them together.'
-        : ticked.length ? `${ticked.length} ticked in ${ctx.cur.nav}` : `Tick tickets in ${ctx.cur.nav} to run it on them together.`,
+      sub: !inList ? 'Open a queue and tick the tickets to run it on them together.'
+        : ticked.length ? `${ticked.length} ticked in ${where}` : `Tick tickets in ${where} to run it on them together.`,
       how: 'Each ticket opens in a separate tab, one at a time. Keep this tab open until it finishes.',
     });
     return ways;
@@ -4767,7 +4776,7 @@ label.set-label{cursor:pointer}
   // Run the tickets that didn't get done again: in this page if it's the one ticket this page shows
   function retryMacro(job) {
     const rest = job.items.filter(i => ['failed', 'check', 'waiting'].includes(i.state));
-    startMacro(rest, job.account, { here: job.here && rest.length === 1 && openTicketId() === rest[0].id, fill: job.fill });
+    startMacro(rest, job.account, { here: job.here && rest.length === 1 && pageInfo(true).ticket === rest[0].id, fill: job.fill });
   }
   // What it did with the types on a ticket: "Filled in Sub-Issue Type; kept its Work Type"
   const filledText = it => [it.filled?.length ? `Filled in ${it.filled.join(' and ')}` : '',
@@ -5907,7 +5916,7 @@ label.set-label{cursor:pointer}
   // ---------------------------------------------------------------------------
   let isTop = true;
   try { isTop = W.top === W; } catch { isTop = false; }
-  let lastReportHadQueue = false;
+  let lastReportHad = false;
 
   // Messages always name the origin they're for. A frame learns the top window's origin directly
   // (same origin), from a message the top window sent, or from ancestorOrigins; until then it sends
@@ -5933,13 +5942,17 @@ label.set-label{cursor:pointer}
     try { win.postMessage(msg, origin); } catch { /* frame gone */ }
   }
 
+  // A frame showing a queue, any other list of tickets, or a ticket tells the outer page (whose Queue monitor
+  // window has the Macros tab), and once more when it stops showing one
   function reportPage(pg) {
     if (isTop || pg.remote) return;
-    if (!pg.cur && !lastReportHadQueue) return;
-    lastReportHadQueue = !!pg.cur;
+    const has = !!(pg.cur || pg.grid || pg.ticket);
+    if (!has && !lastReportHad) return;
+    lastReportHad = has;
     postToTop({
       atqm: 'page', ts: Date.now(), cur: pg.cur || null, qKey: pg.q?.key || null, owns: !!pg.owns, foreign: !!pg.foreign, ownsAny: !!pg.ownsAny,
       choose: !!pg.choose, isCalls: !!pg.isCalls, url: location.href, storageFail: storageFail?.ts || 0, ticked: pg.ticked || [],
+      grid: !!pg.grid, ticket: pg.ticket || null,
     });
   }
 
@@ -6009,7 +6022,7 @@ label.set-label{cursor:pointer}
       openQueueTab, popupsBlocked,
       readableColor, statusColor, statusWord, alertText, targetDue, dashboardStats, deadlineBuckets,
       needsAction, resting, ticketDeadline, priorityWord,
-      MACRO, MACROS, macroJob, startMacro, stopMacro, macroStep, macroWork, patchMacroItem, accountField, fieldInput, ticketField, tickedTickets, renderTicketPill,
+      pageInfo, MACRO, MACROS, macroJob, startMacro, stopMacro, macroStep, macroWork, patchMacroItem, accountField, fieldInput, ticketField, tickedTickets, renderTicketPill,
     });
     return;
   }

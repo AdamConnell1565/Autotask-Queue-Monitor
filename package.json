@@ -1,6 +1,6 @@
 {
   "name": "autotask-queue-monitor",
-  "version": "0.15.2",
+  "version": "0.15.3",
   "private": true,
   "description": "Tampermonkey userscript: track Autotask queues with a live overview and alerts",
   "license": "MIT",

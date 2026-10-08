@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Autotask Queue Monitor
 // @namespace    autotask
-// @version      0.15.2
+// @version      0.15.3
 // @description  Track any My Workspace & Queues queue (My queue by default) in its own tab, with a live overview on every Autotask page
 // @author       AdamConnell1565
 // @homepageURL  https://github.com/AdamConnell1565/Autotask-Queue-Monitor
@@ -4029,9 +4029,10 @@ label.set-label{cursor:pointer}
   // ---------------------------------------------------------------------------
   const MACRO_WIN = 'atqm_macro'; // the macro tab's window name (names starting 'atqm-' are Quick start's)
   const MACRO_SS = P + 'macro';   // the job id, in the macro tab's sessionStorage and so in any window Autotask opens from it
-  // ms: let a page settle; wait for the account list; wait for Save to finish; give up on a stuck step;
+  // ms: let a page settle; wait for a drop-down list to offer what was typed (each try; tries in all, the box
+  // cleared and retype later typed again between them); wait for Save to finish; give up on a stuck step;
   // reload the ticket if it doesn't show the new account by then
-  const MACRO = { settle: 1500, pick: 10000, saved: 12000, stage: 120000, verify: 30000 };
+  const MACRO = { settle: 1500, pick: 3000, tries: 3, retype: 500, saved: 12000, stage: 120000, verify: 30000 };
   const MACRO_ACTIVE = new Set(['open', 'edit', 'verify']);
   const MACRO_WORDS = {
     waiting: 'Waiting', open: 'Opening', edit: 'Editing', verify: 'Saving', done: 'Done',
@@ -4404,26 +4405,38 @@ label.set-label{cursor:pointer}
     const partial = opts.filter(o => text(o).includes(want));
     return partial.length === 1 && !part.length ? { pick: partial[0] } : { many: Math.max(part.length, partial.length) };
   }
-  // Type the name into a field's box and pick it from the list Autotask offers. A choice that only contains
-  // the name has to still be the only one a moment later, so a list still filling in (or one left over from
-  // before the typing) doesn't get it picked. f: ACCOUNT_FIELD or a FILL_FIELDS entry
+  // Type the name into a field's box and pick it from the list Autotask offers. Autotask sometimes doesn't load
+  // the list for what's typed, so when it hasn't offered the name after MACRO.pick, the box is cleared and the
+  // name typed again MACRO.retype later, MACRO.tries times in all. (Not when the list came with several that
+  // match: typing again wouldn't change that.) A choice that only contains the name has to still be the only
+  // one a moment later, so a list still filling in, or one left over from before, doesn't get it picked.
+  // f: ACCOUNT_FIELD or a FILL_FIELDS entry
   async function chooseOption(input, name, f) {
-    press(input, true);
-    input.focus();
-    typeInto(input, name);
-    let found = { many: 0 }, last = null;
-    const pick = await waitSteps(() => {
-      found = pickOptions(name);
-      const sure = found.exact || (found.pick && found.pick === last);
-      last = found.pick || null;
-      return sure ? found.pick : null;
-    }, MACRO.pick);
-    if (!pick) {
-      return { note: found.many > 1 ? `${found.many} ${f.many} match "${name}": use the full name` : `Autotask didn't offer ${f.a} called "${name}"` };
+    let found = { many: 0 };
+    for (let n = 1; n <= MACRO.tries; n++) {
+      if (n > 1) {
+        typeInto(input, ''); // take out what it typed
+        await sleep(MACRO.retype);
+      }
+      press(input, true);
+      input.focus();
+      typeInto(input, name);
+      let last = null;
+      const pick = await waitSteps(() => {
+        found = pickOptions(name);
+        const sure = found.exact || (found.pick && found.pick === last);
+        last = found.pick || null;
+        return sure ? found.pick : null;
+      }, MACRO.pick);
+      if (pick) {
+        const text = clean(pick.textContent);
+        press(pick, true);
+        return { text };
+      }
+      if (found.many > 1) break;
     }
-    const text = clean(pick.textContent);
-    press(pick, true);
-    return { text };
+    return { note: found.many > 1 ? `${found.many} ${f.many} match "${name}": use the full name`
+      : `Autotask didn't offer ${f.a} called "${name}" (tried ${MACRO.tries} times)` };
   }
 
   const dialogs = () => [...document.querySelectorAll(AT.sel.dialog)].filter(d => notOurs(d) && visible(d) && clean(d.textContent));
@@ -4519,8 +4532,8 @@ label.set-label{cursor:pointer}
   // The macros: a square each in the Macros grid (the Macros tab, and the Macros button on a ticket
   // pop-up). A click opens its window, which asks for what it needs and has Run. One that asks for
   // nothing also runs straight from its square on a double-click; a single click never runs anything.
-  //   params: what its window asks for: { id, label, type: 'account' | 'text', required, hint, recent }
-  //     (required: what to say while it's empty; without it, it can be left blank)
+  //   params: what its window asks for: { id, label, type: 'account' | 'text', required, hint, recent, value }
+  //     (required: what to say while it's empty; without it, it can be left blank. value: what it starts with)
   //   start(values, way): run it on way.tickets (way.here: the one ticket this page shows, in this page)
   // ---------------------------------------------------------------------------
   const MACROS = [
@@ -4530,9 +4543,9 @@ label.set-label{cursor:pointer}
         "the ticket doesn't have one, saves, and checks the ticket shows the new account.",
       params: [
         { id: 'account', label: 'Change to', type: 'account', required: 'Pick the account to change to.' },
-        { id: 'subIssue', label: 'Sub-Issue Type, if empty', type: 'text', recent: () => get(K.macroFills, {}).subIssue || [] },
-        { id: 'workType', label: 'Work Type, if empty', type: 'text', recent: () => get(K.macroFills, {}).workType || [],
-          hint: "Each is only filled in where the ticket doesn't have one. Leave it blank to leave it alone." },
+        { id: 'subIssue', label: 'Sub-Issue Type, if empty', type: 'text', value: 'Other', recent: () => get(K.macroFills, {}).subIssue || [] },
+        { id: 'workType', label: 'Work Type, if empty', type: 'text', value: 'Remote Support', recent: () => get(K.macroFills, {}).workType || [],
+          hint: "Each is only filled in where the ticket doesn't have one. Clear one to leave that field alone." },
       ],
       start: (v, way) => startMacro(way.tickets, v.account, { here: way.here, fill: { subIssue: v.subIssue, workType: v.workType } }),
     },
@@ -4575,6 +4588,7 @@ label.set-label{cursor:pointer}
       const input = el('input', 'mc-text');
       input.id = label.htmlFor;
       input.autocomplete = 'off';
+      if (p.value) input.value = p.value;
       root.append(input);
       const recent = p.recent ? p.recent() : [];
       if (recent.length) { // what you've used before, offered as you type

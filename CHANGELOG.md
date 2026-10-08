@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.15.3 (2026-10-08)
+
+### Changed
+
+- **Change account**'s **Sub-Issue Type, if empty** and **Work Type, if empty** start on **Other** and **Remote Support**. They're still only filled in where the ticket has nothing in that field. Clear one to leave that field alone.
+
+### Fixed
+
+- When Autotask didn't load its list for the account (or type) the macro typed, the macro waited 10 seconds and failed the ticket. Now, if the name hasn't come up after 3 seconds, it clears the box, waits half a second and types it again, 3 times in all, before failing the ticket.
+
 ## 0.15.2 (2026-10-08)
 
 ### Fixed

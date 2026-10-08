@@ -199,7 +199,7 @@ Without the guards, the walk up from a label container can reach a level that al
 **Not captured yet.** The script's assumptions come from two sources: an older script that worked (it set a speed code and saved), and the label markup on the ticket page.
 
 - **Speed code box**: `.FormTemplateSelector input`. Typing in it filters a list. The macro never types here (`AT.sel.formTemplate` excludes it), because a speed code sets fields over whatever is already in them.
-- **Drop-down choices**: `.Item`, or `[role="option"]`. The macro clicks one to pick it.
+- **Drop-down choices**: `.Item`, or `[role="option"]`. The macro clicks one to pick it. Autotask sometimes doesn't load the list after typing. So when the name hasn't come up within `MACRO.pick` (3 s), `chooseOption()` clears the box, waits `MACRO.retype` (0.5 s) and types it again, `MACRO.tries` (3) times in all.
 - **Save**: a `.Button2` with the `.Text2` "Save", or "Save & Close".
 - **Fields**: a label names each field ("Account", "Sub-Issue Type", "Work Type"), probably with the same `.LabelContainer1 > .Text > .PrimaryText` markup as the ticket page, followed by a text box the script types into. `findField()` first uses a `<label>`'s `for` attribute when it has one. Otherwise it takes the nearest text box after the label, at most 4 levels up, subject to the guards above.
 - **Where Edit opens**: in the same tab, or in a window of its own, isn't known. The macro handles both, because a window opened from the macro tab inherits the job through sessionStorage.

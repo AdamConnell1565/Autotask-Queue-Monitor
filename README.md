@@ -88,7 +88,9 @@ Where a macro can run depends on the page:
 
 Moves tickets to another account. **Change to** is the account to move them to. It starts on the one you used last; the list has the others you've used recently and the accounts in your tracked queues, and **Another account…** lets you type any name as Autotask shows it.
 
-**Sub-Issue Type, if empty** and **Work Type, if empty** are optional. Each is filled in only on tickets where that field is empty. The macro checks the field on the ticket's own page before editing, and again on the edit page once the account is picked. A ticket that already has one keeps it. Leave them blank to leave both fields alone. Values you've used before are offered as you type.
+**Sub-Issue Type, if empty** and **Work Type, if empty** start on **Other** and **Remote Support**. Each is filled in only on tickets where that field is empty. The macro checks the field on the ticket's own page before editing, and again on the edit page once the account is picked. A ticket that already has one keeps it. Type another value to use that instead, or clear the box to leave that field alone. Values you've used before are offered as you type.
+
+Autotask sometimes doesn't load its list for what was typed. If the name hasn't come up after 3 seconds, the macro clears the box, waits half a second and types it again, 3 times in all, before it gives up on that ticket.
 
 On each ticket it reads the Account field. A ticket already on that account is skipped without being edited. Otherwise it presses **Edit**, types the account into the Account field and picks it from Autotask's list, does the same for the types where they're empty, and presses **Save**. Then it checks the ticket shows the new account and the types it filled in.
 

@@ -10,7 +10,7 @@ const plain = v => JSON.parse(JSON.stringify(v));
 const states = api => plain(api.macroJob().items.map(i => i.state));
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const button = (root, re) => [...root.querySelectorAll('button')].find(b => re.test(b.textContent));
-const fast = api => Object.assign(api.MACRO, { settle: 0, pick: 500, saved: 500 });
+const fast = api => Object.assign(api.MACRO, { settle: 0, pick: 300, retype: 0, saved: 500 });
 
 // The ticket page, built as Autotask builds it (see docs/autotask-pages.md): the title bar, the Edit button,
 // and read-only fields, label then value. A note's Save is on the page too, and isn't the edit page's.
@@ -149,7 +149,7 @@ test("change account: an account Autotask doesn't offer, or a save that doesn't 
   fast(none.api);
   await none.api.macroWork();
   assert.deepEqual(states(none.api), ['failed', 'waiting']);
-  assert.equal(none.api.macroJob().items[0].note, 'Autotask didn\'t offer an account called "Northwind Ltd"');
+  assert.equal(none.api.macroJob().items[0].note, 'Autotask didn\'t offer an account called "Northwind Ltd" (tried 3 times)');
   none.close();
 
   const stuck = load({ now: NOW, name: 'atqm_macro', html: editPage, storage: job('edit') });
@@ -237,7 +237,7 @@ test('change account: Sub-Issue Type and Work Type are only filled in where the 
   d2.getElementById('save').addEventListener('click', () => saves++);
   await none.api.macroWork();
   assert.deepEqual(states(none.api), ['failed', 'waiting']);
-  assert.equal(none.api.macroJob().items[0].note, 'Autotask didn\'t offer a Work Type called "Onsite"');
+  assert.equal(none.api.macroJob().items[0].note, 'Autotask didn\'t offer a Work Type called "Onsite" (tried 3 times)');
   assert.equal(d2.getElementById('sub').value, '', 'one not asked for is left alone');
   assert.equal(saves, 0);
   none.close();
@@ -315,6 +315,26 @@ test('change account: a type the ticket page shows is kept, even where the edit 
   assert.deepEqual(states(off.api), ['check', 'waiting']);
   assert.equal(off.api.macroJob().items[0].note, 'Saved, but Sub-Issue Type shows nothing instead of Laptop');
   off.close();
+});
+
+test("change account: when Autotask's list doesn't load, it clears the box and types again, 3 times in all", async () => {
+  const { api, window, close } = load({ now: NOW, name: 'atqm_macro', html: editPage, storage: job('edit') });
+  fast(api);
+  const doc = window.document, acc = doc.getElementById('acc'), drop = doc.getElementById('drop');
+  const typed = [];
+  acc.addEventListener('input', () => {
+    typed.push(acc.value);
+    // This time Autotask only lists accounts on the third typing
+    if (typed.filter(Boolean).length < 3) return;
+    drop.innerHTML = '<div class="Item">Northwind Ltd</div>';
+    drop.firstChild.addEventListener('click', () => { acc.value = 'Northwind Ltd'; drop.innerHTML = ''; });
+  });
+  doc.getElementById('save').addEventListener('click', () => doc.getElementById('save').remove());
+  await api.macroWork();
+  assert.deepEqual(typed, ['Northwind Ltd', '', 'Northwind Ltd', '', 'Northwind Ltd']);
+  assert.equal(acc.value, 'Northwind Ltd');
+  assert.deepEqual(states(api), ['verify', 'waiting']);
+  close();
 });
 
 test('change account: a choice that only contains the name waits a moment, in case the exact one is still coming', async () => {
@@ -507,9 +527,9 @@ test('boot: in a queue, the Macros tab (on the right) is a grid; Change account 
     assert.equal(sel.value, 'Northwind Ltd');
     assert.deepEqual([...sel.querySelectorAll('optgroup')].map(g => [g.label, [...g.children].map(o => o.value)]),
       [['Used recently', ['Northwind Ltd', 'Contoso']], ['In your queues', ['Example Dental']]]);
-    // The types are blank to start with: left alone unless you fill them in
-    assert.equal(doc.getElementById('atqm-mc-subIssue').value, '');
-    assert.equal(doc.getElementById('atqm-mc-workType').value, '');
+    // The types start on Other and Remote Support (used only where the ticket has none)
+    assert.equal(doc.getElementById('atqm-mc-subIssue').value, 'Other');
+    assert.equal(doc.getElementById('atqm-mc-workType').value, 'Remote Support');
 
     // Not on a ticket; nothing ticked yet
     assert.match(way(/This ticket/).textContent, /Open a ticket to run it on just that one/);
@@ -527,16 +547,20 @@ test('boot: in a queue, the Macros tab (on the right) is a grid; Change account 
     assert.match(win.textContent, /Each ticket opens in a separate tab/);
     sel.value = 'Contoso';
     sel.dispatchEvent(new window.Event('change', { bubbles: true }));
-    const work = doc.getElementById('atqm-mc-workType');
-    work.value = 'Remote Support';
+    // Another Work Type, and the Sub-Issue Type cleared to leave it alone
+    const work = doc.getElementById('atqm-mc-workType'), sub = doc.getElementById('atqm-mc-subIssue');
+    work.value = 'Onsite';
     work.dispatchEvent(new window.Event('input', { bubbles: true }));
+    sub.value = '';
+    sub.dispatchEvent(new window.Event('input', { bubbles: true }));
     assert.equal(opened.length, 0, 'nothing happens until you press Run');
 
     // The window redraws meanwhile: what's picked is kept
     window.dispatchEvent(new window.StorageEvent('storage', { key: 'atqm:alerts' }));
     await sleep(200);
     assert.equal(doc.getElementById('atqm-mc-account').value, 'Contoso');
-    assert.equal(doc.getElementById('atqm-mc-workType').value, 'Remote Support');
+    assert.equal(doc.getElementById('atqm-mc-workType').value, 'Onsite');
+    assert.equal(doc.getElementById('atqm-mc-subIssue').value, '');
 
     // Unticked a moment before Run: it shows that instead of running
     doc.querySelector('input[value="1002"]').click();
@@ -558,12 +582,12 @@ test('boot: in a queue, the Macros tab (on the right) is a grid; Change account 
     const job = JSON.parse(window.localStorage.getItem('atqm:macro'));
     assert.deepEqual(job.items.map(i => [i.id, i.state]), [['T20261001.0002', 'open']]);
     assert.equal(job.here, false);
-    assert.deepEqual(job.fill, { workType: 'Remote Support' });
+    assert.deepEqual(job.fill, { workType: 'Onsite' });
     // Contoso is now the one used last, and the Work Type is offered next time
     assert.deepEqual(JSON.parse(window.localStorage.getItem('atqm:macro:accounts')), ['Contoso', 'Northwind Ltd']);
-    assert.deepEqual(JSON.parse(window.localStorage.getItem('atqm:macro:fills')), { workType: ['Remote Support'] });
+    assert.deepEqual(JSON.parse(window.localStorage.getItem('atqm:macro:fills')), { workType: ['Onsite'] });
     assert.match(panel.textContent, /Changing account to Contoso/);
-    assert.match(panel.textContent, /Where the ticket has none: Work Type Remote Support/);
+    assert.match(panel.textContent, /Where the ticket has none: Work Type Onsite/);
     assert.ok(panel.querySelector('.mc-pick').hidden, 'the squares wait until it has finished');
     assert.match(doc.getElementById('atqm-tab-macros').textContent, /Macros \(1 to go\)/);
 
@@ -609,7 +633,7 @@ test('boot: on a ticket, Change account in the Macros tab changes just that tick
     assert.equal(edits, 1);
     const job = JSON.parse(window.localStorage.getItem('atqm:macro'));
     assert.equal(job.here, true);
-    assert.deepEqual(job.fill, {});
+    assert.deepEqual(job.fill, { subIssue: 'Other', workType: 'Remote Support' }); // the types as they start
     assert.deepEqual(job.items.map(i => [i.id, i.state]), [[A, 'edit']]);
     assert.equal(window.sessionStorage.getItem('atqm:macro'), job.id); // the edit page carries on with it
     assert.match(doc.getElementById('atqm-macrobar').textContent, /Leave this page until it's done/);

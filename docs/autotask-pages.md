@@ -307,7 +307,25 @@ Every field is a label followed by its editor, side by side in the section's `.C
 ```
 
 - **What's chosen** is the `.Chip` in `.ChipList`. There's none when the field is empty, and the "Type to search..." placeholder isn't a value.
-- **Typing in the search box** fills `.ItemSetContainer` with what Autotask finds, after a moment. The markup of those lines hasn't been captured. The macro assumes `.Item`s and matches their text, or the text of one of their parts.
+- **Typing in the search box** opens the autocomplete overlay after a moment. It gets the class `Active` and an inline `left`/`top`. `.ItemSetContainer` stays empty; the results are a new `.ItemSet` after it:
+
+  ```html
+  <div class="ContextOverlay SingleDataSelectorAutoCompleteOverlay Active" style="left: …px; top: …px;">
+    <div class="Content">
+      <div class="LoadingIndicator"></div>
+      <div class="ItemSetContainer"></div>
+      <div class="ItemSet"><div class="ItemList">
+        <div class="Item" data-item-type="SingleText" data-index="0" data-is-targeted="false"><div class="Text"><span><mark>Contoso</mark> IT</span></div></div>
+        <div class="Item" data-item-type="SingleText" data-index="1" data-is-targeted="true"><div class="Text"><span><mark>Contoso</mark> IT Solutions</span></div></div>
+      </div></div>
+    </div>
+  </div>
+  ```
+
+  - Every account whose name contains what was typed is listed, by name only, with the typed part in `<mark>`. The line's text is still the whole name.
+  - One line has `data-is-targeted="true"`, the keyboard's highlight.
+  - The macro matches the whole name. With several lines containing what it typed, it doesn't guess: it fails the ticket with "N accounts match …: use the full name".
+  - The overlay sits inside the field's own markup, so `pickOptions(name, scope)` finds it there.
 - **Contact's chip** has an icon before its text: `<div class="ItemGroupingIcon ChildAccount"></div><div class="Text">Jane Doe</div>`.
 - **Contact's list**:
   - It's split by `.GroupHeader`s (`data-item-type="GroupHeader"`, text in `.HeaderText`): "Account Contacts", then "Parent Account Contacts" when the account has a parent. The same person can be in both groups.

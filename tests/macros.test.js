@@ -98,14 +98,23 @@ function autotaskPickers(doc, { found: lists = { acc: ['Northwind Ltd'], work: W
     input.addEventListener('input', () => { overlay.style.display = input.value ? '' : 'none'; });
     overlay.querySelectorAll('.Item').forEach(choose(p, overlay, input, t => `<div class="Item" data-item-type="SingleText"><div class="Text"><span>${t}</span></div></div>`));
   }
+  // A data picker's search, as Autotask shows it: the overlay goes Active, .ItemSetContainer stays empty and the
+  // results are a new .ItemSet after it, the typed part of each name in <mark>
   for (const p of doc.querySelectorAll('.SingleDataSelector2')) {
-    const input = p.querySelector('.SearchBox input'), list = p.querySelector('.ItemSetContainer');
-    const overlay = list.closest('.ContextOverlayContainer');
+    const input = p.querySelector('.SearchBox input'), empty = p.querySelector('.ItemSetContainer');
+    const overlay = empty.closest('.ContextOverlayContainer'), panel = overlay.querySelector('.ContextOverlay');
     input.addEventListener('input', () => {
-      const found = (lists[p.id] || []).filter(a => input.value && a.toLowerCase().includes(input.value.toLowerCase()));
-      list.innerHTML = found.map(a => `<div class="Item" data-item-type="SingleText"><div class="Text"><span>${a}</span></div></div>`).join('');
+      const typed = input.value.toLowerCase();
+      const found = (lists[p.id] || []).filter(a => typed && a.toLowerCase().includes(typed));
+      overlay.querySelector('.ItemSet')?.remove();
+      const marked = a => { const i = a.toLowerCase().indexOf(typed); return `${a.slice(0, i)}<mark>${a.slice(i, i + typed.length)}</mark>${a.slice(i + typed.length)}`; };
+      if (found.length) {
+        empty.insertAdjacentHTML('afterend', '<div class="ItemSet"><div class="ItemList">' + found.map((a, i) =>
+          `<div class="Item" data-item-type="SingleText" data-index="${i}" data-is-targeted="${i === 0}"><div class="Text"><span>${marked(a)}</span></div></div>`).join('') + '</div></div>');
+      }
       overlay.style.display = found.length ? '' : 'none';
-      list.querySelectorAll('.Item').forEach(choose(p, overlay, input, t => `<div class="Chip"><div class="Text">${t}</div></div>`));
+      panel.classList.toggle('Active', found.length > 0);
+      overlay.querySelectorAll('.ItemSet .Item').forEach(choose(p, overlay, input, t => `<div class="Chip"><div class="Text">${t}</div></div>`));
     });
   }
   for (const head of doc.querySelectorAll('.HeadingContainer')) {
@@ -436,6 +445,31 @@ test("change account: when Autotask won't save, the note says what it said and w
   assert.deepEqual(states(api), ['failed', 'waiting']);
   assert.equal(api.macroJob().items[0].note, 'Not saved: 1 field needs attention Check Account');
   close();
+});
+
+test("change account: Autotask lists every account containing what's typed; the macro takes the whole name, never a guess", async () => {
+  const found = { acc: ['Contoso IT', "Contoso IT Doc's", 'Contoso IT Solutions'], work: WORK_TYPES };
+  const run = async account => {
+    const env = load({ now: NOW, name: 'atqm_macro', html: realEditPage({ subIssue: 'Other' }), storage: job('edit') });
+    fast(env.api);
+    env.api.set('atqm:macro', { ...env.api.macroJob(), account });
+    autotaskPickers(env.window.document, { found });
+    env.window.document.getElementById('save').addEventListener('click', () => env.window.document.getElementById('save').remove());
+    await env.api.macroWork();
+    const out = [env.window.document.querySelector('#acc .Chip')?.textContent, plain(env.api.macroJob().items[0])];
+    env.close();
+    return out;
+  };
+  // The whole name, even with longer names containing it in the list
+  let [chip, item] = await run('Contoso IT');
+  assert.equal(chip, 'Contoso IT');
+  assert.equal(item.state, 'verify');
+  [chip, item] = await run('Contoso IT Solutions');
+  assert.equal(chip, 'Contoso IT Solutions');
+  // Only part of a name three accounts share: no guess
+  [chip, item] = await run('Contoso');
+  assert.equal(chip, 'Fabrikam Ltd', 'left as it was');
+  assert.deepEqual([item.state, item.note], ['failed', '3 accounts match "Contoso": use the full name']);
 });
 
 test("change account: a pick the field doesn't take fails the ticket, unsaved", async () => {

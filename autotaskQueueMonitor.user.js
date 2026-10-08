@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Autotask Queue Monitor
 // @namespace    autotask
-// @version      0.16.2
+// @version      0.16.3
 // @description  Track any My Workspace & Queues queue (My queue by default) in its own tab, with a live overview on every Autotask page
 // @author       AdamConnell1565
 // @homepageURL  https://github.com/AdamConnell1565/Autotask-Queue-Monitor
@@ -18,6 +18,8 @@
   'use strict';
   // The version lives in the header above only; Tampermonkey hands it over in GM_info
   const VERSION = typeof GM_info !== 'undefined' && GM_info.script ? GM_info.script.version : 'dev';
+  // The latest release, as @downloadURL above (keep the two the same): opening it, Tampermonkey offers the install
+  const UPDATE_URL = 'https://raw.githubusercontent.com/AdamConnell1565/Autotask-Queue-Monitor/main/autotaskQueueMonitor.user.js';
   const W = typeof unsafeWindow !== 'undefined' ? unsafeWindow : window;
 
   // ---------------------------------------------------------------------------
@@ -2127,6 +2129,8 @@ html.atqm-set-open #atqm,html.atqm-dash-open #atqm{visibility:hidden}
 #atqm-navmenu *{box-sizing:border-box}
 .atqm-navitem{display:flex;align-items:center;gap:8px;width:100%;min-height:32px;padding:6px 12px;border:0;font:inherit;text-align:left;cursor:pointer}
 .atqm-navitem .atqm-ico{opacity:.8}
+a.atqm-navitem{text-decoration:none}
+.atqm-navsep{height:1px;margin:4px 0;background:currentColor;opacity:.15}
 :where(#atqm-navmenu){background:#1e1f22;color:#e6e6e6;border:1px solid #3b4a5e;border-radius:6px}
 :where(.atqm-navitem){background:transparent;color:inherit}
 :where(.atqm-navitem:hover,.atqm-navitem:focus-visible){background:rgba(127,127,127,.2)}
@@ -5662,9 +5666,16 @@ label.set-label{cursor:pointer}
     }
     item(CONFIG.ticketMacroButton ? 'Hide Macros button on ticket pop-ups' : 'Show Macros button on ticket pop-ups', 'zap',
       () => toggleSetting('ticketMacroButton'));
+    // Update: a link to the latest release, which Tampermonkey offers to install (a new tab, this one left alone)
+    const update = el('a', NAV_ITEM);
+    Object.assign(update, { href: UPDATE_URL, target: '_blank', rel: 'noopener', title: 'Install the latest release (Tampermonkey asks first)' });
+    update.setAttribute('role', 'menuitem');
+    update.append(icon('refresh', 15), el('span', null, 'Update'));
+    update.onclick = () => closeNavMenu();
+    menu.append(el('div', 'atqm-navsep'), update);
     // Up and down move between the items
     menu.addEventListener('keydown', e => {
-      const items = [...menu.querySelectorAll('button')], i = items.indexOf(document.activeElement);
+      const items = [...menu.querySelectorAll('[role=menuitem]')], i = items.indexOf(document.activeElement);
       const j = { ArrowDown: i + 1, ArrowUp: i - 1, Home: 0, End: items.length - 1 }[e.key];
       if (e.key === 'Tab') closeNavMenu();
       if (j == null) return;
@@ -5676,7 +5687,7 @@ label.set-label{cursor:pointer}
     Object.assign(menu.style, { left: Math.max(4, Math.min(r.left, innerWidth - menu.offsetWidth - 4)) + 'px', top: r.bottom + 'px' });
     btn.setAttribute('aria-expanded', 'true');
     navMenu = { menu, btn };
-    if (focusFirst) menu.querySelector('button')?.focus();
+    if (focusFirst) menu.querySelector('[role=menuitem]')?.focus();
   }
   function closeNavMenu(restore = false) {
     if (!navMenu) return;

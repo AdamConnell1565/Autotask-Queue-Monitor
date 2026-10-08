@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.16.3 (2026-10-08)
+
+### Added
+
+- **Update** in the Queue monitor menu: a link to the latest release. Tampermonkey opens its install page in a new tab and asks before installing.
+
 ## 0.16.2 (2026-10-08)
 
 ### Changed

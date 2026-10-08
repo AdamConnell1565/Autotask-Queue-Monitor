@@ -103,6 +103,7 @@ Autotask's top bar gets an **Autotask Queue Monitor** menu after its own (Dashbo
 - **Dashboard** and **Settings**, which open them.
 - **Hide** or **Show Queue monitor window**. Hidden, the window stays out of the way on pages with Autotask's top bar, and this menu brings it back. Locked monitoring tabs always show it.
 - **Hide** or **Show Macros button on ticket pop-ups**, the small button in the corner of ticket pop-up windows.
+- **Update**, a link to the latest release. Tampermonkey opens its install page in a new tab and asks before installing.
 
 Both choices are saved, so every Autotask tab follows them. They're also in Settings, under Window and display. Pages without Autotask's new top bar don't get the menu, and there the window always shows.
 

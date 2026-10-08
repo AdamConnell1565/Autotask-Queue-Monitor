@@ -307,7 +307,13 @@ test("boot: a Queue monitor menu in Autotask's top bar, built like Autotask's ow
     const items = () => [...menu().querySelectorAll('[role=menuitem]')].map(b => b.textContent);
     btn.click();
     assert.equal(btn.getAttribute('aria-expanded'), 'true');
-    assert.deepEqual(items(), ['Dashboard', 'Settings', 'Hide Queue monitor window', 'Hide Macros button on ticket pop-ups']);
+    assert.deepEqual(items(), ['Dashboard', 'Settings', 'Hide Queue monitor window', 'Hide Macros button on ticket pop-ups', 'Update']);
+    // Update: a link to the latest release, the same address Tampermonkey updates from (the header's @downloadURL)
+    const update = [...menu().querySelectorAll('[role=menuitem]')].pop();
+    const header = require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'autotaskQueueMonitor.user.js'), 'utf8');
+    assert.equal(update.tagName, 'A');
+    assert.equal(update.href, header.match(/^\/\/ @downloadURL\s+(\S+)$/m)[1]);
+    assert.equal(update.target, '_blank');
     // Esc closes it, back to its button; so does a click anywhere else
     menu().dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
     assert.equal(menu(), null);
@@ -339,7 +345,7 @@ test("boot: a Queue monitor menu in Autotask's top bar, built like Autotask's ow
     button(menu(), /^Hide Macros button on ticket pop-ups$/).click();
     assert.equal(JSON.parse(window.localStorage.getItem('atqm:settings')).ticketMacroButton, false);
     btn.click();
-    assert.deepEqual(items().slice(-1), ['Show Macros button on ticket pop-ups']);
+    assert.ok(items().includes('Show Macros button on ticket pop-ups'));
 
     // Autotask redraws its bar: the menu goes back in
     btn.remove();

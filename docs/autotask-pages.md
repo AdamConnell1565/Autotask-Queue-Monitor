@@ -242,11 +242,13 @@ Captured October 2026. The title bar reads `Edit Ticket -` followed by the ticke
 
 All `.Button2 > .Text2`, as on the ticket page:
 
-- **Save**, **Save & Close** and **Cancel**.
+- **Save**: saves and reloads the same tab back to the ticket page.
+- **Save & Close**: saves and goes on to close the ticket, with a drop-down for the closing note. It's for finishing a ticket, not leaving the page.
+- **Cancel**.
 - **Save & ...**, a drop-down whose hidden menu holds Save & Enter Time, Save & Add Note, Save & Create New and Save & Assign to Taskfire.
 - **Notify Taskfire**, usually disabled.
 
-The macro presses **Save & Close**, which closes an edit window of its own (plain Save would leave one open for every ticket). In the macro tab itself it presses plain **Save**, because Save & Close might shut the macro tab. Both texts are matched exactly, so the Save & ... menu's buttons are never pressed.
+The macro only ever presses plain **Save** (`AT.text.saveButton`), then checks the ticket page it lands back on. The text is matched exactly, so neither Save & Close nor the Save & ... menu's buttons are pressed. `AT.text.saveButtons` (both) is only for recognising the edit page.
 
 ### Speed code box
 

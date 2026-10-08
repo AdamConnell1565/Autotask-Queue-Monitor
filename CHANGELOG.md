@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.17.3 (2026-10-08)
+
+### Fixed
+
+- **Change account** pressed **Save & Close** outside the macro tab (for example, run from a ticket's Macros button). Save & Close goes on to Autotask's closing note to complete the ticket. The macro now only ever presses plain **Save**, which saves and returns to the ticket.
+
 ## 0.17.2 (2026-10-08)
 
 ### Fixed

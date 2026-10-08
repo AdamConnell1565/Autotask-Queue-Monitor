@@ -394,7 +394,7 @@ test('change account: a type the ticket page shows is kept, even where the edit 
   off.close();
 });
 
-test("change account on Autotask's edit page as it's built: the account's chip, a type from its own list, Work Type in a closed section, Save & Close", async () => {
+test("change account on Autotask's edit page as it's built: the account's chip, a type from its own list, Work Type in a closed section, plain Save", async () => {
   const { api, window, close } = load({ now: NOW, html: realEditPage(), storage: job('edit', {}, { subIssue: 'Other', workType: 'Onsite' }) });
   window.sessionStorage.setItem('atqm:macro', 'job1'); // an Edit window opened from the macro tab carries the job
   fast(api);
@@ -411,11 +411,11 @@ test("change account on Autotask's edit page as it's built: the account's chip, 
   assert.equal(doc.querySelector('.FormTemplateSelector input').value, '', 'the speed code box is never used');
   const item = plain(api.macroJob().items[0]);
   assert.deepEqual([item.state, item.filled, item.kept, item.chosen], ['verify', ['Sub-Issue Type'], ['Work Type'], 'Northwind Ltd']);
-  assert.equal(saved, 'saveclose', 'Save & Close, so an Edit window of its own closes');
+  assert.equal(saved, 'save', 'plain Save: Save & Close would go on to close the ticket');
   close();
 
   // An empty Work Type (no chip) in the closed section is filled in, "Onsite" finding Onsite Support; in the
-  // macro tab itself, plain Save
+  // macro tab, plain Save too
   const tab = load({ now: NOW, name: 'atqm_macro', html: realEditPage({ subIssue: 'Hardware', workType: '' }), storage: job('edit', {}, { subIssue: 'Other', workType: 'Onsite' }) });
   fast(tab.api);
   const d2 = tab.window.document;

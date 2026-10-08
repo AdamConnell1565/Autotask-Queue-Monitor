@@ -94,7 +94,7 @@ Autotask sometimes doesn't load its list for what was typed. If the name hasn't 
 
 On each ticket it reads the Account field. A ticket already on that account is only edited if it has one of the given types empty; then only that type is filled in. With nothing to fill, it's skipped.
 
-Otherwise it presses **Edit**, types the account into the Account field and picks it from Autotask's list, and does the same for the types where they're empty. It checks each field shows what it picked, opening a closed section (like Billing) to reach a field if need be. Then it presses **Save & Close** (plain **Save** in the macro tab) and checks the ticket shows the new account and the types it filled in.
+Otherwise it presses **Edit**, types the account into the Account field and picks it from Autotask's list, and does the same for the types where they're empty. It checks each field shows what it picked, opening a closed section (like Billing) to reach a field if need be. Then it presses **Save** (never Save & Close, which goes on to close the ticket) and checks the ticket shows the new account and the types it filled in.
 
 If Autotask opens Edit in a window of its own and your browser blocks it, the ticket fails straight away and says to allow pop-ups for autotask.net.
 

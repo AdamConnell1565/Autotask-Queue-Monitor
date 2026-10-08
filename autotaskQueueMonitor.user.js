@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Autotask Queue Monitor
 // @namespace    autotask
-// @version      0.17.2
+// @version      0.17.3
 // @description  Track any My Workspace & Queues queue (My queue by default) in its own tab, with a live overview on every Autotask page
 // @author       AdamConnell1565
 // @homepageURL  https://github.com/AdamConnell1565/Autotask-Queue-Monitor
@@ -100,7 +100,8 @@
       columnChooserDialog: /column\s*chooser/i,
       ticketTitle: /^ticket\b/i,
       editButton: 'Edit',
-      saveButtons: ['Save', 'Save & Close'],
+      saveButtons: ['Save', 'Save & Close'],   // the edit page has these (how it's recognised)
+      saveButton: 'Save',                      // saves and goes back to the ticket, in the same tab (Save & Close goes on to close the ticket)
       accountLabel: /^account\s*\*?:?$/i,
       subIssueLabel: /^sub[\s-]*issue\s*type\s*\*?:?$/i,
       workTypeLabel: /^work\s*type\s*\*?:?$/i,
@@ -4368,9 +4369,9 @@ label.set-label{cursor:pointer}
       const q = answerDialog(before);
       if (q) return fail(q);
     }
-    // Save & Close: it closes an edit window of its own (plain Save would leave one open for every ticket).
-    // But plain Save in the macro tab itself, which Save & Close might shut.
-    const save = (macroTabName() === MACRO_WIN ? ['Save', 'Save & Close'] : ['Save & Close', 'Save']).map(findButton).find(Boolean);
+    // Save: it saves and takes the tab back to the ticket, where the result is checked. Never Save & Close,
+    // which goes on to Autotask's closing note, to complete the ticket.
+    const save = findButton(AT.text.saveButton);
     if (!save) return fail("Couldn't find Save on the edit page");
     if (macroItemState(item.id, job.id) !== 'edit') return; // stopped, or given up on, meanwhile
     patchMacroItem(item.id, { state: 'verify', at: Date.now(), chosen: pick.text, filled, kept, picks }, 'edit', job.id);

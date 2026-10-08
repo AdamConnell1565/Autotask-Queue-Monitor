@@ -28,7 +28,7 @@ test('boot: the cog opens Settings over the whole window; Esc closes it', async 
     assert.deepEqual([...d.querySelectorAll('.set-nav button')].map(b => b.textContent), ['Tracked queues', 'Deadlines and statuses',
       'Alerts', 'Service calls', 'Monitoring', 'Window and display', 'Dates and times', 'Backup and help']);
     assert.equal(d.querySelector('.set-nav [aria-current=true]').textContent, 'Tracked queues');
-    for (const key of ['refreshMs', 'actionStatuses', 'timeZone', 'sound', 'dashboard']) assert.ok(d.querySelector('#atqm-f-' + key), key);
+    for (const key of ['refreshMs', 'callRefreshMs', 'actionStatuses', 'timeZone', 'sound', 'dashboard']) assert.ok(d.querySelector('#atqm-f-' + key), key);
 
     // Each queue's tracking style switches in place
     const seg = d.querySelector('.set-q .set-seg');
@@ -112,8 +112,8 @@ test('boot: finding a setting shows only the rows that match', async () => {
     assert.deepEqual(shown().map(r => r.dataset.key), ['timeZone']);
     assert.deepEqual([...d.querySelectorAll('.set-nav button')].filter(b => !b.hidden).map(b => b.textContent), ['Dates and times']);
 
-    type(window, find, 'service calls'); // a section's name shows all of it
-    assert.deepEqual(shown().map(r => r.dataset.key), ['serviceCalls', 'callReminders', 'callLeadTimes', 'callPingAfterStart']);
+    type(window, find, 'service calls'); // a section's name shows all of it, and the queue refresh that points to it
+    assert.deepEqual(shown().map(r => r.dataset.key), ['serviceCalls', 'callRefreshMs', 'callReminders', 'callLeadTimes', 'callPingAfterStart', 'refreshMs']);
 
     type(window, find, 'zzz');
     assert.equal(shown().length, 0);

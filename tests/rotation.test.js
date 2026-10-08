@@ -78,6 +78,28 @@ test('the one-tab monitor monitors whatever it shows; other tabs need asking', (
   close();
 });
 
+test('rounds: service calls come round on their own, longer refresh', async () => {
+  const NOW = Date.UTC(2026, 9, 2, 12, 0), MIN = 60000;
+  const calls = { key: 'calls', nav: 'Service Calls', section: 'My Workspace', mode: 'calls' };
+  const env = load({
+    html: fixture('queue-grid.html'),
+    now: NOW,
+    settings: { dateOrder: 'DMY', postRefreshTimeoutMs: 300, serviceCalls: true },
+    storage: {
+      'atqm:enabled': true, 'atqm:queues': [QUEUES[0], calls],
+      'atqm:state': { mode: 'ok', lastScan: NOW - MIN, ts: NOW - MIN },
+      'atqm:state:q:calls': { mode: 'ok', lastScan: NOW - 5 * MIN, ts: NOW - 5 * MIN },
+    },
+  });
+  env.window.sessionStorage.setItem('atqm:rotate', '1');
+  wireMenu(env.window);
+  await env.api.rotate();
+  // The calls were scanned longer ago, but My queue is due first: 2 minutes after its last scan, against 10
+  assert.equal(env.api.get('atqm:state', {}).lastScan, NOW);
+  assert.equal(env.api.get('atqm:state:q:calls', {}).lastScan, NOW - 5 * MIN);
+  env.close();
+});
+
 test('rounds: each queue comes round about once per refresh, never faster than every 20 s', () => {
   const { api, close } = load({ settings: { refreshMs: 120000 } });
   assert.equal(api.rotationStep(1), 120000);

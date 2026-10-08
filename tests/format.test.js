@@ -60,6 +60,8 @@ test('cleanSetting keeps imported or typed values safe', () => {
   assert.equal(api.cleanSetting(f('refreshMs'), 1), 30000);              // below the 0.5 min minimum
   assert.equal(api.cleanSetting(f('refreshMs'), 'abc'), api.DEFAULTS.refreshMs);
   assert.equal(api.cleanSetting(f('refreshMs'), 300000), 300000);
+  assert.equal(api.DEFAULTS.callRefreshMs, 600000);                       // service calls: 10 min, apart from queues
+  assert.equal(api.cleanSetting(f('callRefreshMs'), 1000), 60000);         // at least a minute
   assert.equal(api.cleanSetting(f('dateOrder'), 'XYZ'), 'auto');
   assert.equal(api.cleanSetting(f('dateOrder'), 'YMD'), 'YMD');
   assert.equal(api.cleanSetting(f('sound'), 'yes'), api.DEFAULTS.sound);

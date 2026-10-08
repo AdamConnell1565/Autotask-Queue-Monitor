@@ -27,6 +27,27 @@ test('scanFull: baseline, then new, status changes and tickets leaving', () => {
   close();
 });
 
+test('a status change made while the ticket is open in front of you arrives already seen', () => {
+  const { api, window, close } = load({ now: NOW });
+  const q = api.trackedQueues()[0];
+  const scan = status => api.scanFull(q, grid([t('T20261001.0001', { status }), t('T20261001.0002', { status })]));
+  scan('New'); // baseline
+  // You have T20261001.0001 open and pick it up; someone else picks up the other one
+  api.set(api.K.viewed, { 'T20261001.0001': NOW });
+  setNow(window, NOW + 15000);
+  scan('In Progress');
+  // Closed a while ago: a change after that is news again
+  setNow(window, NOW + 10 * MIN);
+  scan('Action Required');
+  assert.deepEqual(plain(api.get(api.K.alerts, []).map(a => [a.ticket, a.to, !!a.read, !!a.quiet])), [
+    ['T20261001.0001', 'In Progress', true, true],
+    ['T20261001.0002', 'In Progress', false, false],
+    ['T20261001.0001', 'Action Required', false, false],
+    ['T20261001.0002', 'Action Required', false, false],
+  ]);
+  close();
+});
+
 test('scanFull: with only part of the queue visible, "left queue" is not reported', () => {
   const html = '<!doctype html><body><div class="Pager"><span class="VisibleRows">1 - 2 of 10</span></div></body>';
   const { api, close } = load({ now: NOW, html });
@@ -134,6 +155,56 @@ test('health offers buttons instead of changing the grid by itself', () => {
   const stale = load({ now: NOW + 10 * MIN, storage: { 'atqm:enabled': true, 'atqm:state': state } });
   assert.match(stale.api.health(stale.api.trackedQueues()[0]).text, /put it to sleep/);
   stale.close();
+});
+
+test('service calls refresh on their own, longer interval (10 min unless set)', () => {
+  const queues = [
+    { key: 'my', nav: 'Open Tickets', section: 'My Workspace', mode: 'full' },
+    { key: 'calls', nav: 'Service Calls', section: 'My Workspace', mode: 'calls' },
+  ];
+  const scanned = { mode: 'ok', lastScan: NOW, ts: NOW, count: 2 };
+  const { api, window, close } = load({ now: NOW, storage: {
+    'atqm:enabled': true, 'atqm:queues': queues, 'atqm:state': scanned, 'atqm:state:q:calls': scanned,
+  } });
+  const [my, calls] = api.trackedQueues();
+  setNow(window, NOW + 4 * MIN);
+  assert.match(api.health(my).text, /next scan due now/);   // queues: every 2 min
+  assert.match(api.health(calls).text, /next in 6m/);       // calls: every 10
+  // 12 minutes on: the queue's tab looks stopped, the calls tab is only just due
+  setNow(window, NOW + 12 * MIN);
+  assert.match(api.health(my).text, /put it to sleep/);
+  assert.equal(api.health(calls).cls, 'ok');
+  // 2.5 of its own refreshes without a scan: the calls tab has stopped too
+  setNow(window, NOW + 26 * MIN);
+  assert.match(api.health(calls).text, /put it to sleep/);
+  close();
+
+  const quick = load({ now: NOW + 4 * MIN, settings: { callRefreshMs: 3 * MIN }, storage: {
+    'atqm:enabled': true, 'atqm:queues': queues, 'atqm:state:q:calls': scanned,
+  } });
+  assert.match(quick.api.health(quick.api.trackedQueues()[1]).text, /next scan due now/);
+  quick.close();
+});
+
+test('health allows for a background tab scanning slower than the refresh setting', () => {
+  const queues = [{ key: 'calls', nav: 'Service Calls', section: '', mode: 'calls' }];
+  const { api, window, close } = load({ now: NOW, settings: { callRefreshMs: 2 * MIN }, storage: { 'atqm:enabled': true, 'atqm:queues': queues } });
+  const q = api.trackedQueues()[0];
+  // Refresh is every 2 min, but the browser holds the tab's timers back: scans land about 3.5 min apart
+  for (let i = 0; i < 6; i++) {
+    setNow(window, NOW + i * 3.5 * MIN);
+    api.scanCalls(q, { calls: [], rowCount: 0 });
+  }
+  // One slow cycle (5.5 min) is not "stopped"
+  setNow(window, NOW + 5 * 3.5 * MIN + 5.5 * MIN);
+  assert.equal(api.health(q).cls, 'ok');
+  // A tab that really stopped still shows up
+  setNow(window, NOW + 5 * 3.5 * MIN + 20 * MIN);
+  assert.match(api.health(q).text, /put it to sleep/);
+  // An outage doesn't count as the queue's usual pace
+  api.scanCalls(q, { calls: [], rowCount: 0 });
+  assert.ok(api.get(q.state, {}).every < 4 * MIN);
+  close();
 });
 
 test('statuses that need action: waking up alerts, settling into a resting status is logged quietly', () => {

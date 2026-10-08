@@ -57,7 +57,7 @@ The first tab in the window lists what to do next, most urgent first, across eve
 
 Tickets without an SLA aren't forgotten: a ticket still in New status with no first response SLA gets a **response target** (1 hour by default, in Settings), so it lines up against your SLAs by time, and you get an alert when the target passes.
 
-Each ticket appears once, in its most urgent group. A ticket that has changed since you last looked shows what it was, with a **Seen** button to mark the change as read. The tab's count is the number of things in groups 1 to 5, and the minimised window shows the top one.
+Each ticket appears once, in its most urgent group. A ticket that has changed since you last looked shows what it was, with a **Seen** button to mark the change as read. Opening the ticket in Autotask does the same: its changes count as seen while its page is open in front of you, and a status change made while it's open (usually by you) arrives already seen, without a ping. The tab's count is the number of things in groups 1 to 5, and the minimised window shows the top one. The red count at the top of the window is the tickets that need you within the hour: overdue, or with a deadline in the next 60 minutes (hover it for the split).
 
 What goes in the list follows your setup: which queues you track and how (a queue tracked for new tickets & first response only contributes new tickets and first responses), the "due soon" thresholds, the statuses that need action, the response target, and whether service calls are on. The top of the tab shows the queues and settings it's working from.
 
@@ -73,9 +73,30 @@ New, First Response, In Progress, Action Required, Waiting Internal, Escalated, 
 
 A ticket in any other status rests: it stays visible (in the dashboard's ticket table and the Overview), but it isn't in Next up, gets no SLA or response target warnings, and doesn't ping you when you set it to that status. When a resting ticket moves back into a status that needs action (Waiting Customer → Action Required, say), you get a **Needs action** alert and it's back in Next up. Leave the setting empty to treat every status as needing action.
 
+## Macros
+
+The **Macros** tab, on the right of the window, does repetitive jobs on tickets for you. Each macro is a square. Click one to open its window: fill in what it asks for, choose which tickets to run it on, and press **Run**. Nothing runs until you press **Run**, and Esc or **Cancel** closes the window. A macro that asks for nothing can also run straight from its square with a double-click (a single click only opens its window).
+
+Ticket pop-up windows don't show the Queue monitor window (unless you turn off **Hide in ticket pop-up windows**), so they get a small **Macros** button in the bottom right corner instead, with the same squares, for that ticket.
+
+Where a macro can run depends on the page:
+
+- **This ticket**, when the page shows a ticket: it runs right there, in that page.
+- **Ticked in this queue**, when the page shows a queue: tick the tickets in Autotask's grid (you can do this with the window open), and they're done one at a time in a tab of its own. Keep the tab you started it from open; the macro tab works fastest left in front, and closes itself at the end.
+
+### Change account
+
+Moves tickets to another account. **Change to** is the account to move them to. It starts on the one you used last; the list has the others you've used recently and the accounts in your tracked queues, and **Another account…** lets you type any name as Autotask shows it.
+
+**Sub-Issue Type, if empty** and **Work Type, if empty** are optional. Each is filled in only on tickets where that field is empty. The macro checks the field on the ticket's own page before editing, and again on the edit page once the account is picked. A ticket that already has one keeps it. Leave them blank to leave both fields alone. Values you've used before are offered as you type.
+
+On each ticket it reads the Account field. A ticket already on that account is skipped without being edited. Otherwise it presses **Edit**, types the account into the Account field and picks it from Autotask's list, does the same for the types where they're empty, and presses **Save**. Then it checks the ticket shows the new account and the types it filled in.
+
+Each ticket ends up **Done** (with which types were filled in, and which it kept because the ticket had one), **Already on it** (skipped), **Failed** (with why: the account or type wasn't offered, several matched, a field wasn't on the edit page or was greyed out, Autotask wanted another field before saving, or it asked a question) or **Check it** (saved, but the change couldn't be confirmed). **Stop** halts it straight away and closes the macro tab (the ticket it was on is marked **Check it**). At the end, **Try the _n_ again** reruns the tickets that didn't get done, and **Done** clears the list. A message box with only OK is acknowledged; any other question is left unanswered and that ticket isn't saved.
+
 ## Dashboard
 
-Turn on **Dashboard button** in Settings and a ⛶ button appears at the top of the window. It opens a dashboard over the whole browser window, for keeping SLAs and the tickets without one in view at the same time:
+The ⛶ button at the top of the window opens a dashboard over the page, below Autotask's own top bar so **New**, search and the menus still work (turn off **Dashboard button** in Settings to remove it), for keeping SLAs and the tickets without one in view at the same time:
 
 - **The numbers:** overdue, due in the next hour, waiting for a first response (and how many are past your response target), changed since you looked, tickets in your queues, and your next service call.
 - **Next up** as a table: one line per ticket with when, status, priority, queue, title and deadline.
@@ -86,11 +107,11 @@ Turn on **Dashboard button** in Settings and a ⛶ button appears at the top of 
 
 Next up and your queue's tickets fill the left; queues, deadlines and changes the right. Each side fills downwards on its own, and on narrower screens they stack.
 
-**Full screen** fills the screen; **Close** or Esc goes back to the page. The dashboard stays open in that tab across reloads, so it can stay up on a second screen. It only shows what the monitoring tabs collect, so keep those open too.
+**Full screen** fills the screen; ✕ or Esc goes back to the page. The dashboard stays open when that page reloads, so it can stay up on a second screen; going to another page from Autotask's top bar leaves it closed. It only shows what the monitoring tabs collect, so keep those open too.
 
 ## How monitoring works
 
-Each tracked queue is monitored by one tab. That tab refreshes the queue (every 2 minutes by default), compares it with the last scan and sends alerts for what changed. Every other Autotask tab shows the overview.
+Each tracked queue is monitored by one tab. That tab refreshes the queue (every 2 minutes by default; the Service calls page every 10, as calls change less often), compares it with the last scan and sends alerts for what changed. Every other Autotask tab shows the overview.
 
 If the monitoring tab closes, or moves off the queue, that queue stops updating. The light in the window turns amber, and one tab sends a single "stopped updating" notification.
 
@@ -134,7 +155,7 @@ The sections, and the settings most people change:
 - **Tracked queues**: each queue's light and status, how it's tracked (**All changes** or **New & first response**), and **Stop**. **Quick start** sits above it.
 - **Deadlines and statuses**: **Warn when an SLA / first response is due within** (the "due soon" thresholds, for alerts and for Next up), **Respond to tickets without an SLA within** (the response target for tickets in New with no first response SLA; 0 turns it off) and **Statuses that need action** (see [Statuses that need action](#statuses-that-need-action)). The statuses are chips in their Autotask colours: × removes one, type a name and press Enter to add one, or pick from the other statuses seen in your queues.
 - **Alerts**: **Desktop notifications** and **Sound on new alerts**. **Send a test** checks both.
-- **Service calls**: **Service calls** and **Call reminders**.
+- **Service calls**: **Service calls**, **Refresh service calls every** (10 minutes by default, separate from the queues) and **Call reminders**.
 - **Monitoring**: **Refresh queues every**, **Monitor all queues from one tab** (see [One tab for all queues](#one-tab-for-all-queues)) and **Lock monitoring tabs**.
 - **Window and display**: **Dashboard button** (adds the ⛶ button that opens the dashboard), and how the window looks.
 - **Dates and times**: **Date format in Autotask** (detected from your queues; set it if the window shows the wrong dates) and **Autotask time zone** (set it if the time zone in your Autotask profile differs from your PC's; the window warns you when due times look hours out).
@@ -171,9 +192,9 @@ Written for Tampermonkey on current Chrome, Edge and Firefox. The script needs n
 ## Development
 
 - `npm install`, then `npm test` (Node 20 or later) and `npm run check` (syntax check).
-- Everything specific to Autotask's pages (CSS selectors, button names, column names, page addresses) is in the `AT` section at the top of the script.
+- Everything specific to Autotask's pages (CSS selectors, button names, column names, page addresses) is in the `AT` section at the top of the script. [docs/autotask-pages.md](docs/autotask-pages.md) describes the pages those selectors match, such as the ticket page's fields and buttons.
 - Tests load the script into [jsdom](https://github.com/jsdom/jsdom) through a test hook that stops before the script starts its widget and timers (`tests/harness.js`). `tests/boot.test.js` runs the whole script.
-- The sample pages in `tests/fixtures` are written by hand to match the `AT` selectors. To add a real Autotask page, save it from the browser and replace every ticket title, account name, person's name and ticket number before committing it.
+- The sample pages in `tests/fixtures` are written by hand to match the `AT` selectors. To add a real Autotask page, save it from the browser and replace every ticket title, account name, person's name and ticket number before committing it (see [Capturing a page safely](docs/autotask-pages.md#capturing-a-page-safely)). Never commit personal information.
 - For a release, raise `@version` in the script header (Tampermonkey only updates when it goes up) and `version` in `package.json`, and add a [CHANGELOG](CHANGELOG.md) entry.
 
 ## License

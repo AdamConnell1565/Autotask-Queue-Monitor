@@ -82,6 +82,29 @@ test('Seen clears a ticket\'s changes; it keeps its place in the list', () => {
   close();
 });
 
+test('opening a ticket counts as seeing its changes', () => {
+  const page = id => '<!doctype html><body><div class="TitleBarItem Title"><span class="Text">Ticket </span>' +
+    `<span class="SecondaryText">- ${id} - RE: Jane Doe - SharePoint access (Contoso Ltd)</span></div></body>`;
+  const unread = api => plain(api.get('atqm:alerts', []).filter(a => !a.read).map(a => a.ticket));
+
+  const { api, window, close } = load({ now: NOW, storage, html: page(REPLIED) });
+  assert.equal(api.openTicketId(), REPLIED);
+  // Open but not in view (another tab is in front): not seen yet
+  Object.defineProperty(window.document, 'visibilityState', { value: 'hidden', configurable: true });
+  api.noteOpenTicket();
+  assert.deepEqual(unread(api), [REPLIED, ARRIVED, 'T20261001.0099']);
+  Object.defineProperty(window.document, 'visibilityState', { value: 'visible', configurable: true });
+  api.noteOpenTicket();
+  assert.deepEqual(unread(api), [ARRIVED, 'T20261001.0099']);
+  assert.equal(api.nextUpItems().find(it => it.t?.id === REPLIED).changes.length, 0);
+  close();
+
+  // Other pages with a title bar aren't tickets
+  const other = load({ now: NOW, html: '<div class="TitleBarItem Title"><span class="Text">Account </span><span>- T20261001.0001</span></div>' });
+  assert.equal(other.api.openTicketId(), null);
+  other.close();
+});
+
 test('Next up follows the settings: thresholds and statuses that need action', () => {
   const { api, close } = load({ now: NOW, storage, settings: { dueSoonMinutes: 15, actionStatuses: '' } });
   const items = api.nextUpItems();

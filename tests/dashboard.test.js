@@ -204,8 +204,63 @@ test('boot: the dashboard button opens the full-window dashboard; Esc closes it'
   }
 });
 
-test('boot: no dashboard button unless the setting is on', async () => {
-  const { window, close } = load({ boot: true, storage: DASH_STORAGE });
+test('boot: the red count is the tickets that need you within the hour, not unread changes', async () => {
+  const { window, close } = load({ boot: true, now: NOW, storage: DASH_STORAGE });
+  try {
+    await sleep(200);
+    const badge = window.document.getElementById('atqm-badge');
+    // Two overdue (an SLA and a passed response target) and one due in 25 minutes; the unread change doesn't count
+    assert.equal(badge.textContent, '3');
+    assert.equal(badge.title, '3 tickets need you within the hour: 2 overdue, 1 due soon');
+  } finally {
+    close();
+  }
+  const calm = load({ boot: true, now: NOW, storage: { ...DASH_STORAGE, 'atqm:snap:my-open-tickets': {}, 'atqm:snap:q:first-line': {} } });
+  try {
+    await sleep(200);
+    assert.equal(calm.window.document.getElementById('atqm-badge').style.display, 'none');
+  } finally {
+    calm.close();
+  }
+});
+
+test("boot: the dashboard opens below Autotask's top bar and under its menus, and only reopens on the same page", async () => {
+  const html = '<!doctype html><body><div id="nav" style="position:fixed;z-index:50"><a id="new">New</a></div>' +
+    '<div id="content" style="position:relative;z-index:2"><p id="grid">Tickets</p></div></body>';
+  const { window, close } = load({ boot: true, now: NOW, html, storage: DASH_STORAGE });
+  try {
+    const doc = window.document;
+    // jsdom has no layout: say where things are, as a browser would (an 800 px window, a 48 px bar)
+    const nav = doc.getElementById('nav'), content = doc.getElementById('content');
+    nav.getBoundingClientRect = () => ({ top: 0, bottom: 48, height: 48, width: window.innerWidth, left: 0, right: window.innerWidth });
+    content.getBoundingClientRect = () => ({ top: 48, bottom: 800, height: 752, width: window.innerWidth, left: 0, right: window.innerWidth });
+    doc.elementsFromPoint = (x, y) => (y < 48 ? [doc.getElementById('new'), nav] : [doc.getElementById('grid'), content]);
+    await sleep(200);
+    doc.getElementById('atqm-dashbtn').click();
+    const dash = doc.getElementById('atqm-dash');
+    assert.equal(dash.style.top, '48px');
+    assert.equal(dash.style.zIndex, '3'); // just over the page it covers, under the bar (50) and its menus
+    assert.equal(window.sessionStorage.getItem('atqm:dash'), window.location.pathname + window.location.search);
+
+    // Opened on another page: not reopened here
+    window.sessionStorage.setItem('atqm:dash', '/Mvc/Somewhere/Else.mvc');
+    window.dispatchEvent(new window.StorageEvent('storage', { key: 'atqm:alerts' }));
+    await sleep(200);
+    assert.equal(doc.getElementById('atqm-dash'), null);
+  } finally {
+    close();
+  }
+});
+
+test('boot: the dashboard button is there by default, and gone with the setting off', async () => {
+  const on = load({ boot: true, storage: DASH_STORAGE });
+  try {
+    await sleep(200);
+    assert.equal(on.window.document.getElementById('atqm-dashbtn').hidden, false);
+  } finally {
+    on.close();
+  }
+  const { window, close } = load({ boot: true, settings: { dashboard: false }, storage: DASH_STORAGE });
   try {
     await sleep(200);
     assert.equal(window.document.getElementById('atqm-dashbtn').hidden, true);

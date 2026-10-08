@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.15.0 (2026-10-08)
+
+### Added
+
+- **Macros tab**, on the right of the window. Each macro is a square: click one to open a small window that asks for what it needs and has **Run**. Nothing runs until you press Run. A macro that asks for nothing can also run from its square with a double-click; a single click only opens its window.
+- Macros run on **this ticket** (right there, in that page) or on the tickets **ticked in this queue** (one at a time, in a tab of their own, with progress, **Stop**, **Try again** and **Done** in the Macros tab).
+- The first macro, **Change account**: presses Edit, picks the account from Autotask's list, saves, and checks the ticket shows the new account. A ticket already on that account is skipped. Its window has optional **Sub-Issue Type, if empty** and **Work Type, if empty** settings. Each is filled in only where the ticket has nothing in that field, checked on the ticket's page before editing and again on the edit page, so a value already there is never overwritten.
+- Ticket pop-up windows get a small **Macros** button in the corner, with the same squares, for that ticket.
+- **Refresh service calls every** (Settings > Service calls): the Service calls page refreshes on its own interval, 10 minutes by default, separate from the queues.
+- `docs/autotask-pages.md`: how Autotask's ticket page is built, for fixing the script after an Autotask update.
+
+### Changed
+
+- Opening a ticket counts as seeing its changes, while its page is in front of you. A status change made while it's open (usually yours) arrives already seen, without a ping.
+- The red count at the top of the window is the tickets that need you within the hour (overdue, or due in the next 60 minutes), not unread changes.
+- The dashboard opens below Autotask's top bar, so New, search and the menus still work. It stays open when its page reloads, but not after going to another page. The **Dashboard button** is on by default.
+
+### Fixed
+
+- A queue, especially Service calls, could briefly show "Last scan … ago" and send a "stopped updating" alert when the browser held back a background tab's timers. The monitor now learns how far apart each queue's scans really are before calling it stopped.
+
 ## 0.14.0 (2026-10-06)
 
 ### Changed

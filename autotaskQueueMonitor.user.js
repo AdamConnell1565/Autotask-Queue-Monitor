@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Autotask Queue Monitor
 // @namespace    autotask
-// @version      0.14.0
+// @version      0.15.0
 // @description  Track any My Workspace & Queues queue (My queue by default) in its own tab, with a live overview on every Autotask page
 // @author       AdamConnell1565
 // @homepageURL  https://github.com/AdamConnell1565/Autotask-Queue-Monitor
@@ -50,6 +50,23 @@
       chooserMoveRight: '.StandardButtonIcon.MoveRight',
       chooserSave: '.StandardButtonIcon.Save',
       dialogClose: '.DialogTitleBarIcon.Close',
+      ticketTitle: '.TitleBarItem.Title',      // a ticket's page: "Ticket - T20261007.0081 - Title"
+      ticketTitleKind: '.Text',
+      // Ticket pages and the ticket edit page (the Macros tab works them)
+      button: '.Button2',                      // Edit, Save: <div class="Button2"><span class="Text2">Edit</span></div>
+      buttonText: '.Text2',
+      detailField: '.ReadOnlyData',            // a field on the ticket's page, label and value (read only):
+      detailLabel: '.ReadOnlyLabelContainer',  //   <div class="ReadOnlyData"><div class="ReadOnlyLabelContainer">…Account…</div>
+      detailValue: '.ReadOnlyValueContainer',  //   <div class="ReadOnlyValueContainer">…The account…</div></div>
+      accountLink: '.LinkButton2 .Text2',      // a page without those: its account is one of these links
+      fieldLabel: 'label, span, div',          // the edit page's field names ("Account", "Work Type")
+      textInput: 'input:not([type]), input[type="text"], input[type="search"]',
+      formTemplate: '.FormTemplateSelector',   // the speed code box: never one of the fields a macro fills in
+      pickItem: '.Item, [role="option"]',      // choices in a drop-down list
+      dialog: '[role="dialog"], [role="alertdialog"], .Dialog, .DialogBox, .MessageBox, .Modal',
+      dialogButton: '.Button2, button',
+      formError: '[role="alert"], .ErrorMessage, .ValidationMessage, .Error, .Invalid',
+      rowTicked: 'input[type="checkbox"]:checked:not(:disabled)', // a grid row you've ticked (not a yes/no column)
     },
     text: {
       myQueueNav: 'Open Tickets',
@@ -60,6 +77,13 @@
       refreshTitles: ['Refresh grid only', 'Refresh'],
       columnChooserTitle: 'Column Chooser',
       columnChooserDialog: /column\s*chooser/i,
+      ticketTitle: /^ticket\b/i,
+      editButton: 'Edit',
+      saveButtons: ['Save', 'Save & Close'],
+      accountLabel: /^account\s*\*?:?$/i,
+      subIssueLabel: /^sub[\s-]*issue\s*type\s*\*?:?$/i,
+      workTypeLabel: /^work\s*type\s*\*?:?$/i,
+      dialogOk: /^(ok|close)$/i,               // a message box with only this button is just acknowledged
       statuses: [                              // fallback only, if no Status column header is found
         'New', 'In Progress', 'Waiting Customer', 'Waiting Materials', 'Waiting Vendor',
         'Scheduled', 'Escalate', 'Dispatched', 'Customer Note Added', 'Complete',
@@ -121,6 +145,7 @@
   // ---------------------------------------------------------------------------
   const DEFAULTS = {
     refreshMs: 120000,            // refresh + scan interval in each monitoring tab
+    callRefreshMs: 600000,        // the same for the Service calls page (calls change less often)
     postRefreshTimeoutMs: 15000,  // max wait for the grid to re-render after refresh
     maxAlerts: 300,               // change history kept
     displayAlerts: 40,            // changes shown in the widget
@@ -145,7 +170,7 @@
     opacityMin: 85,               // window opacity (%) when minimised
     lockMonitorTabs: true,        // monitoring tabs: big centred window, page greyed out and not clickable
     oneTab: false,                // Quick start opens one tab that monitors every queue in turn
-    dashboard: false,             // a button that opens the full-window dashboard
+    dashboard: true,              // a button that opens the full-window dashboard
     notify: true,
     sound: true,
     hideInPopups: true,
@@ -172,6 +197,10 @@
     queues: P + 'queues',
     dismissed: P + 'calls:dismissed', // call id -> time you pressed Dismiss
     pings: P + 'calls:pings',         // call id -> last reminder sent
+    viewed: P + 'viewed',             // ticket number -> last time its page was open in front of you
+    macro: P + 'macro',               // the macro running (or last run): { id, kind, account, by, ts, here, items, finished, note }
+    macroAccounts: P + 'macro:accounts', // accounts changed to, most recent first
+    macroFills: P + 'macro:fills',    // Sub-Issue Types and Work Types filled in, most recent first: { subIssue: [], workType: [] }
     colTried: P + 'columns:tried',    // queue + missing columns -> last time we tried to add them
     gridFixReq: P + 'gridfix',        // "add the missing columns / show more rows" pressed in some tab
     qsSnooze: P + 'quickstart:snooze',// Quick start prompt hidden until this time
@@ -195,6 +224,10 @@
   const STATUS_SET = new Set(AT.text.statuses.map(s => s.toLowerCase()));
   const RANK = { ok: 0, soon: 1, overdue: 2 };
   const staleMs = () => CONFIG.refreshMs * 2.5;
+  // A queue's own refresh: Service calls have their own, longer one. A monitoring record (lock, state)
+  // older than 2.5 of these means the tab stopped.
+  const refreshOf = q => (q?.mode === 'calls' ? CONFIG.callRefreshMs : CONFIG.refreshMs);
+  const staleFor = q => refreshOf(q) * 2.5;
 
   // Parsed values are cached against the stored text, so reading the same key again doesn't re-parse it.
   // What get() returns may be shared: copy it before changing it.
@@ -424,12 +457,14 @@
   }
 
   // A status change. Into a status that needs action from one that didn't: the alert to notice ('action').
-  // Into a resting status (usually your own doing): logged in the history without a ping.
+  // Into a resting status (usually your own doing): logged in the history without a ping. With the
+  // ticket open in front of you it's no news either (often you just made it).
   function statusAlert(push, id, t, p) {
     const from = p.status || '', to = t.status || '';
     const text = `${label(id, t)}: ${from || '?'} → ${to || '?'}`;
-    if (resting(p) && !resting(t)) push('action', text, id, { from, to });
-    else push('status', text, id, { from, to, ...(resting(t) ? { read: true, quiet: true } : {}) });
+    const open = viewingNow(id);
+    if (resting(p) && !resting(t)) push('action', text, id, { from, to, ...(open ? { read: true, quiet: true } : {}) });
+    else push('status', text, id, { from, to, ...(open || resting(t) ? { read: true, quiet: true } : {}) });
   }
 
   // New arrivals were created moments ago. When their Created times sit a whole number of hours away
@@ -493,19 +528,19 @@
     const now = Date.now(), l = get(q.lock, null);
     if (webLocks) {
       // A holder that stopped scanning (a frozen tab) loses the queue to a tab that can monitor it
-      const stuck = !!l && now - l.ts >= staleMs();
+      const stuck = !!l && now - l.ts >= staleFor(q);
       if (!held.has(q.key) && !(await holdWebLock(q, false)) && !(stuck && await holdWebLock(q, true))) return false;
       set(q.lock, { id: ID, ts: now });
       return true;
     }
-    if (l && l.id !== ID && now - l.ts < staleMs()) return false;
+    if (l && l.id !== ID && now - l.ts < staleFor(q)) return false;
     set(q.lock, { id: ID, ts: now });
     return get(q.lock, null)?.id === ID;
   }
   const ownsLock = q => (webLocks ? held.has(q.key) : get(q.lock, null)?.id === ID);
   function foreignActive(q) {
     const l = get(q.lock, null);
-    return !!l && l.id !== ID && Date.now() - l.ts < staleMs();
+    return !!l && l.id !== ID && Date.now() - l.ts < staleFor(q);
   }
   function releaseLock(q) {
     const h = held.get(q.key);
@@ -518,7 +553,13 @@
   });
 
   function setState(q, patch) {
-    set(q.state, { ...get(q.state, {}), ...patch, id: ID, ts: Date.now() });
+    const prev = get(q.state, {});
+    const next = { ...prev, ...patch, id: ID, ts: Date.now() };
+    // Learn how far apart this queue's scans really are (see scanStaleMs). A gap long enough to be an
+    // outage (the tab was closed or asleep) isn't its rhythm.
+    const gap = patch.lastScan && prev.lastScan ? patch.lastScan - prev.lastScan : 0;
+    if (gap > 0 && gap < 3 * staleFor(q)) next.every = Math.round(prev.every ? prev.every * 0.75 + gap * 0.25 : gap);
+    set(q.state, next);
     renderSoon();
   }
 
@@ -650,6 +691,7 @@
       v.isCalls = isCallGrid();
       v.url = location.href;
       v.ownsAny = trackedQueues().some(ownsLock);
+      v.ticked = v.isCalls ? [] : tickedTickets();
       if (v.cur) {
         // Quick start opens queues it hasn't seen yet from here
         if (!get(K.wsUrl, null)) set(K.wsUrl, location.href);
@@ -670,7 +712,9 @@
       v.isCalls = !!remotePage.isCalls;
       v.url = remotePage.url;
       v.remote = remotePage.source;
+      v.ticked = Array.isArray(remotePage.ticked) ? remotePage.ticked : [];
     }
+    v.ticket = openTicketId();
     pageCache = { t: Date.now(), v };
     return v;
   }
@@ -1158,10 +1202,11 @@
     return (REQUIRED[q.mode] || []).filter(k => !texts.some(t => RE[k].test(t)));
   }
 
-  // Autotask buttons don't always react to a bare click(), so send the full pointer sequence
-  function press(el) {
+  // Autotask buttons don't always react to a bare click(), so send the full pointer sequence. `exact`:
+  // to this element itself, not the nearest clickable around it (a choice inside a drop-down list).
+  function press(el, exact = false) {
     if (!el) return false;
-    const target = el.closest(AT.sel.clickable) || el;
+    const target = exact ? el : el.closest(AT.sel.clickable) || el;
     const make = type => {
       const E = type.startsWith('pointer') && typeof PointerEvent === 'function' ? PointerEvent : MouseEvent;
       // Inside Tampermonkey's Firefox sandbox, passing the page's window as `view` can throw
@@ -1605,10 +1650,12 @@
   const rotatorAlive = () => { const r = get(K.rotator, null); return !!r && Date.now() - r.ts < staleMs(); };
   // How old a queue's last scan may get before it counts as stopped. The one-tab monitor reaches each
   // queue once per round, and with many queues a round takes longer than one refresh (about 30 s a queue).
+  // Scans also come further apart than the refresh setting says: the browser holds back a background
+  // tab's timers (often by up to a minute each), so allow for the gaps this queue has actually had too.
   function scanStaleMs(q) {
     const r = get(K.rotator, null);
     const queues = r && Date.now() - r.ts < staleMs() && (r.queues || []).includes(q.key) ? r.queues.length : 0;
-    return Math.max(staleMs(), queues * 30000 * 2.5);
+    return Math.max(staleFor(q), queues * 30000 * 2.5, (get(q.state, {}).every || 0) * 2.5);
   }
 
   // What the grid shows, to tell whether it has really switched to another queue
@@ -1649,8 +1696,9 @@
     set(K.rotator, { id: ID, tab: tabId(), ts: Date.now(), queues: mine.map(q => q.key) });
     if (!mine.length) return;
 
-    const turn = q => Math.max(get(q.state, {}).lastScan || 0, lastTry.get(q.key) || 0);
-    const q = mine.slice().sort((a, b) => turn(a) - turn(b))[0];
+    // The one due soonest: each queue comes round about once per its own refresh (Service calls less often)
+    const due = q => Math.max(get(q.state, {}).lastScan || 0, lastTry.get(q.key) || 0) + refreshOf(q);
+    const q = mine.slice().sort((a, b) => due(a) - due(b))[0];
     lastTry.set(q.key, Date.now());
     const switching = pageInfo(true).q?.key !== q.key;
     const before = switching ? gridSignature() : '';
@@ -1757,7 +1805,7 @@
   box-shadow:0 8px 24px rgba(0,0,0,.5)}
 #atqm *{box-sizing:border-box}
 #atqm-head{display:flex;align-items:center;gap:8px;padding:7px 10px;cursor:move;user-select:none;touch-action:none}
-#atqm-head b{flex:1;font-size:13px}
+#atqm-head b{flex:1;font-size:13px;white-space:nowrap}
 #atqm-dot{width:9px;height:9px;border-radius:50%;background:#6b6f76;flex:none}
 #atqm[data-health=ok] #atqm-dot{background:#3fb950}
 #atqm[data-health=warn] #atqm-dot{background:#d29922}
@@ -1767,7 +1815,8 @@
 #atqm-health div.warn{color:#e3b341}
 #atqm-health b{color:#c9d1d9;font-weight:600}
 #atqm.min #atqm-body,#atqm.min #atqm-health{display:none}
-#atqm.min{width:auto;min-width:150px;max-width:260px}
+#atqm.min{width:auto;min-width:150px;max-width:290px}
+#atqm.min #atqm-head{gap:6px}
 #atqm.min #atqm-head b{font-size:12px}
 #atqm:hover{opacity:1!important}
 #atqm-mini{display:none;flex-direction:column;gap:3px;padding:0 8px 7px}
@@ -1920,49 +1969,52 @@
 .atqm-more:hover{text-decoration:underline}
 .atqm-qsbox.atqm-popwarn{border-left-color:#d29922;background:#2e2a1f}
 #atqm-qs .atqm-qsbox + .atqm-qsbox{margin-top:6px}
-#atqm-dash{position:fixed;inset:0;z-index:2147483001;overflow:auto;background:#141518;color:#e6e6e6;
-  font:13px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif;padding:16px 20px 28px}
+#atqm-dash{position:fixed;inset:0;z-index:2147483001;display:flex;flex-direction:column;background:#141518;color:#e6e6e6;
+  font:13px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif;text-align:left;animation:atqm-set-in .18s ease-out}
 #atqm-dash *{box-sizing:border-box}
+#atqm-dash [hidden]{display:none!important}
 #atqm-dash:focus{outline:none}
 #atqm-dash button:focus-visible,#atqm-dash a:focus-visible,#atqm-dash [tabindex]:focus-visible{outline:2px solid #4ea1ff;outline-offset:1px}
-.dash-top{display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin-bottom:12px}
-.dash-title b{font-size:18px}.dash-title span{color:#9aa4b2;margin-left:10px}
-.dash-actions{display:flex;gap:8px;margin-left:auto}
-.dash-actions button{background:#2b2f36;color:#e6e6e6;border:1px solid #444;border-radius:4px;padding:5px 12px;cursor:pointer;font:inherit}
-.dash-actions button:hover{background:#3a3e46}
-.dash-actions .dash-close{background:#1f6feb;border-color:#1f6feb;color:#fff}
-.dash-note{background:#2e2a1f;border-left:3px solid #d29922;border-radius:4px;padding:6px 10px;margin-bottom:8px;color:#e3b341}
-.dash-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;margin-bottom:14px}
-.dash-kpi{background:#1e1f22;border:1px solid #2c2f35;border-top:3px solid #3b4a5e;border-radius:6px;padding:10px 12px;min-width:0}
-.dash-kpi .l{display:flex;align-items:center;gap:6px;color:#c9d1d9}
-.dash-kpi .v{font-size:30px;font-weight:600;line-height:1.2;margin-top:2px}
-.dash-kpi .s{color:#9aa4b2;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.dash-kpi.critical{border-top-color:#e5484d}.dash-kpi.warning{border-top-color:#d29922}
-.dash-ico{display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:50%;
-  font-size:10px;font-weight:700;background:#3b4a5e;color:#e6e6e6;flex:none}
-.dash-kpi.critical .dash-ico{background:#e5484d;color:#fff}.dash-kpi.warning .dash-ico{background:#d29922;color:#141518}
-.dash-layout{display:grid;grid-template-columns:minmax(0,1.8fr) minmax(0,1fr);gap:14px;align-items:start}
+.dash-actions{display:flex;align-items:center;gap:8px;margin-left:auto;flex-wrap:wrap;justify-content:flex-end}
+.dash-main{flex:1;min-height:0;overflow:auto;padding:24px 32px 48px;overscroll-behavior:contain}
+.dash-inner{max-width:1760px;margin:0 auto;display:flex;flex-direction:column;gap:16px}
+.dash-note{display:flex;align-items:center;gap:10px;background:#2e2a1f;border:1px solid #4a3f22;border-radius:10px;padding:10px 14px;color:#e3b341}
+.dash-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px}
+.dash-kpi{background:#1e1f22;border:1px solid #2c2f35;border-radius:12px;padding:14px 16px;min-width:0}
+.dash-kpi .l{display:flex;align-items:center;gap:10px;color:#c9d1d9;font-weight:500}
+.dash-kpi .l > .atqm-ico{width:28px;height:28px;border-radius:8px;background:#22262d;color:#9cc8ff}
+.dash-kpi .v{font-size:28px;font-weight:600;line-height:1.15;margin-top:10px;font-variant-numeric:tabular-nums}
+.dash-kpi .s{color:#9aa4b2;font-size:12px;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dash-kpi.critical{border-color:#5a3a3c}.dash-kpi.critical .l > .atqm-ico{background:#3a2226;color:#ff7b7f}
+.dash-kpi.warning{border-color:#4a3f22}.dash-kpi.warning .l > .atqm-ico{background:#352c1a;color:#e3b341}
+.dash-layout{display:grid;grid-template-columns:minmax(0,1.8fr) minmax(0,1fr);gap:16px;align-items:start}
 @media (max-width:1400px){.dash-layout{grid-template-columns:minmax(0,1fr)}}
-@media (max-width:760px){#atqm-dash{padding:12px 16px}}
-.dash-tablewrap{overflow-x:auto}
+@media (max-width:820px){.dash-main{padding:16px 16px 32px}}
+.dash-stack{display:flex;flex-direction:column;gap:16px;min-width:0}
+.dash-card{background:#1e1f22;border:1px solid #2c2f35;border-radius:12px;overflow:hidden;min-width:0}
+.dash-card-h{display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid #272a2f;flex-wrap:wrap}
+.dash-card-h > .atqm-ico{width:26px;height:26px;border-radius:7px;background:#22262d;color:#9cc8ff}
+#atqm-dash .dash-card-h h2{font-size:15px;font-weight:600;margin:0;line-height:1.4;color:#e6e6e6}
+.dash-count{color:#9aa4b2;font-size:12.5px}
+.dash-tools{margin-left:auto;display:flex;align-items:center;gap:6px}
+.dash-card-b{padding:12px 16px 14px}
+.dash-card-b.rows{padding:0}
+.dash-card-b > .atqm-hint{margin:0 0 10px}
+.dash-tablewrap{overflow-x:auto;margin:0 -16px}
 .dash-tt{font-size:13px}
 .dash-tt th{white-space:nowrap}.dash-tt.dash-mq th:last-child{text-align:right}
-.dash-tt td{padding:5px 8px;white-space:nowrap}
+.dash-tt td{padding:6px 8px;white-space:nowrap}
+.dash-tt th:first-child,.dash-tt td:first-child{padding-left:16px}.dash-tt th:last-child,.dash-tt td:last-child{padding-right:16px}
 .dash-tt td.fill{width:100%;max-width:0;overflow:hidden;text-overflow:ellipsis}
 .dash-tt .tt{color:#e6e6e6}.dash-tt .acct,.dash-tt .was,.dash-tt td.dl{color:#9aa4b2}
 .dash-tt td.when{font-weight:600}
-.dash-tt tr.dash-grp td{color:#9aa4b2;font-weight:600;padding-top:12px;border-bottom-color:#383835}
-.dash-tt tr:not(.dash-grp):hover td{background:#24262b}
+.dash-tt tr.dash-grp td{background:#1a1b1f;color:#9aa4b2;font-weight:600;font-size:12px;padding-top:7px;padding-bottom:7px;border-bottom-color:#272a2f}
+.dash-tt tr:not(.dash-grp):hover td{background:#202227}
 .dash-tt tr.overdue td:first-child{box-shadow:inset 3px 0 #e5484d}.dash-tt tr.soon td:first-child{box-shadow:inset 3px 0 #d29922}
 .dash-tt tr.doing td:first-child{box-shadow:inset 3px 0 #4ea1ff}.dash-tt tr.doing .when{color:#9cc8ff}.dash-tt tr.fresh td:first-child{box-shadow:inset 3px 0 #3fb950}
 .dash-tt tr.callnow td:first-child{box-shadow:inset 3px 0 #3fb950}.dash-tt tr.call td:first-child{box-shadow:inset 3px 0 #8b7cf6}
 .dash-tt tr.overdue .when{color:#ff7b7f}.dash-tt tr.soon .when{color:#e3b341}
 .dash-tt tr.resting td{color:#9aa4b2}.dash-tt tr.resting .tt{color:#c9d1d9}
-.dash-stack{display:flex;flex-direction:column;gap:14px;min-width:0}
-.dash-card{background:#1e1f22;border:1px solid #2c2f35;border-radius:6px;padding:12px 14px;min-width:0}
-.dash-card h2{display:flex;align-items:center;gap:8px;font-size:14px;margin:0 0 10px}
-.dash-card h2 span{color:#9aa4b2;font-weight:400;font-size:12px}
-.dash-mini{margin-left:auto;background:#2b2f36;color:#e6e6e6;border:1px solid #444;border-radius:4px;padding:1px 8px;cursor:pointer;font:inherit;font-size:12px}
 .dash-chart{position:relative;height:150px;margin:18px 4px 24px 30px}
 .dash-gl,.dash-base{position:absolute;left:0;right:0;height:0;border-top:1px solid #2c2f35}
 .dash-base{border-top-color:#383835}
@@ -1973,22 +2025,74 @@
 .dash-col:hover .dash-bar,.dash-col:focus .dash-bar{background:#5598e7}
 .dash-cap{color:#c9d1d9;font-size:11px;margin-bottom:2px}
 .dash-xl{position:absolute;bottom:-20px;color:#898781;font-size:11px;white-space:nowrap}
-.dash-tip{position:absolute;top:-8px;z-index:2;width:200px;background:#2b2f36;border:1px solid #444;border-radius:4px;
+.dash-tip{position:absolute;top:-8px;z-index:2;width:200px;background:#2b2f36;border:1px solid #3a3d44;border-radius:8px;
   padding:6px 8px;font-size:12px;pointer-events:none;box-shadow:0 4px 14px rgba(0,0,0,.45)}
 .dash-tip b{font-size:14px}
 .dash-table{width:100%;border-collapse:collapse;font-size:12px}
-.dash-table th{text-align:left;color:#9aa4b2;font-weight:600;border-bottom:1px solid #383835;padding:3px 6px}
-.dash-table td{border-bottom:1px solid #2c2f35;padding:4px 6px;vertical-align:top}
+.dash-table th{text-align:left;color:#9aa4b2;font-weight:600;border-bottom:1px solid #2c2f35;padding:6px}
+.dash-table td{border-bottom:1px solid #272a2f;padding:4px 6px;vertical-align:top}
 .dash-table td.num{font-variant-numeric:tabular-nums;text-align:right}
-.dash-q{padding:8px 0;border-top:1px solid #2c2f35}.dash-q:first-of-type{border-top:0;padding-top:0}
+.dash-q{padding:12px 16px;border-top:1px solid #272a2f}.dash-q:first-child{border-top:0}
+.dash-q .atqm-chips{margin:6px 0 0}
 .dash-qh{display:flex;align-items:center;gap:8px}.dash-qh .atqm-sub{font-size:12px}
-.dash-qn{margin-left:auto;font-weight:600}
-.dash-qs{font-size:12px;margin:2px 0 6px}
+.dash-qn{margin-left:auto;font-weight:600;font-variant-numeric:tabular-nums}
+.dash-qs{font-size:12px;margin:2px 0 0}
+.dash-card-b .atqm-list{margin:0}
+.set-btn.sm{height:26px;padding:0 10px;font-size:12px}
 .atqm-st{font-weight:600}
 .atqm-meta{margin-right:6px}.atqm-meta > * + *{margin-left:6px}
 .atqm-pri{color:#9aa4b2}.atqm-pri.hi{color:#ff7b7f;font-weight:600}
 .atqm-list li.action{border-color:#f0883e}
 .atqm-tag.atqm-acttag{background:#3d2a14;color:#ffb86b}
+#atqm-tabs button[data-tab=macros]{margin-left:auto}
+.mc-hint{margin-bottom:8px}
+.mc-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(84px,1fr));gap:8px}
+.mc-sq{aspect-ratio:1;min-width:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;padding:8px;
+  background:#24262b;color:#e6e6e6;border:1px solid #33363c;border-top:3px solid #4ea1ff;border-radius:6px;cursor:pointer;
+  font:inherit;text-align:center;overflow-wrap:anywhere;user-select:none}
+.mc-sq:hover,.mc-sq.on{background:#22303f;border-color:#4ea1ff}
+.mc-sq b{font-size:12.5px;font-weight:600;line-height:1.3}
+.mc-sq .atqm-sub{font-size:10.5px}
+.mc-sq:focus-visible{outline:2px solid #4ea1ff;outline-offset:1px}
+#atqm-mcwin{position:fixed;z-index:2147483002;width:320px;max-width:calc(100vw - 16px);max-height:calc(100vh - 16px);overflow:auto;
+  background:#1e1f22;color:#e6e6e6;border:1px solid #3b4a5e;border-top:3px solid #4ea1ff;border-radius:6px;padding:8px 12px 12px;
+  font:12px/1.45 system-ui,Segoe UI,sans-serif;box-shadow:0 8px 24px rgba(0,0,0,.5)}
+#atqm-mcwin *,#atqm-mcwin{box-sizing:border-box}
+#atqm-mcwin [hidden]{display:none!important}
+#atqm-mcwin .atqm-qsbtns{margin-top:10px}
+#atqm-mcwin button:focus-visible,#atqm-mcwin select:focus-visible,#atqm-mcwin input:focus-visible{outline:2px solid #4ea1ff;outline-offset:1px}
+.mcw-head{display:flex;align-items:center;gap:8px;margin-bottom:4px}
+.mcw-head b{flex:1;font-size:13px}
+.mcw-x{background:none;border:0;color:#9aa4b2;cursor:pointer;font:inherit;font-size:16px;line-height:1;padding:0 3px}
+.mcw-x:hover{color:#e6e6e6}
+.mc-field > label,.mcw-lbl{display:block;margin:8px 0 2px;color:#c9d1d9;font-weight:600}
+.mc-field > .atqm-sub{margin-top:3px}
+.mc-acc select,.mc-acc input,.mc-text{width:100%;background:#2b2f36;color:#e6e6e6;border:1px solid #444;border-radius:4px;padding:3px 6px;font:inherit}
+.mc-acc input{margin-top:4px}
+.mc-acc [hidden]{display:none}
+.mcw-way{display:flex;align-items:flex-start;gap:6px;background:#24262b;border-radius:4px;padding:5px 8px;margin-top:4px;cursor:pointer}
+.mcw-way > div{min-width:0}
+.mcw-way input{margin:2px 0 0;flex:none}
+.mcw-way.off{cursor:default}.mcw-way.off b{color:#9aa4b2}
+.mcw-on,.mcw-how{margin-top:8px}
+.atqm-qsbtns button:disabled{opacity:.5;cursor:default}
+#atqm-tkpill{position:fixed;right:16px;bottom:16px;z-index:2147483000;font:12px/1.45 system-ui,Segoe UI,sans-serif;color:#e6e6e6}
+#atqm-tkpill *{box-sizing:border-box}
+#atqm-tkpill [hidden]{display:none!important}
+#atqm-tkpill .tk-open{background:#1e1f22;color:#e6e6e6;border:1px solid #3b4a5e;border-left:3px solid #4ea1ff;border-radius:14px;
+  padding:4px 12px;cursor:pointer;font:inherit;opacity:.85;box-shadow:0 4px 12px rgba(0,0,0,.4)}
+#atqm-tkpill .tk-open:hover,#atqm-tkpill .tk-open:focus-visible{opacity:1}
+#atqm-tkpill .tk-box,#atqm-tkpill .tk-result{width:300px;background:#1e1f22;border:1px solid #3b4a5e;border-top:3px solid #4ea1ff;
+  border-radius:6px;padding:8px 10px 10px;box-shadow:0 8px 24px rgba(0,0,0,.5)}
+#atqm-tkpill .tk-result{display:flex;align-items:center;gap:8px}
+#atqm-tkpill .tk-result b{flex:1;font-weight:600}
+#atqm-tkpill .tk-result button{background:#2b2f36;color:#e6e6e6;border:1px solid #555;border-radius:4px;padding:3px 10px;cursor:pointer;font:inherit}
+#atqm-tkpill button:focus-visible,#atqm-tkpill select:focus-visible,#atqm-tkpill input:focus-visible{outline:2px solid #4ea1ff;outline-offset:1px}
+.mc-head{font-size:13px}
+.mc-run .atqm-list{margin-top:6px}
+.atqm-list li.mc-done{border-color:#3fb950}.atqm-list li.mc-failed{border-color:#e5484d}
+.atqm-list li.mc-check,.atqm-list li.mc-skipped{border-color:#d29922}
+.atqm-list li.mc-open,.atqm-list li.mc-edit,.atqm-list li.mc-verify{border-color:#4ea1ff;background:#22303f}
 .atqm-mnote.atqm-mnext{color:#c9d1d9;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .atqm-act{background:#1f6feb;color:#fff;border:0;border-radius:4px;padding:1px 8px;margin-left:4px;cursor:pointer;font:inherit;font-size:11px;vertical-align:1px}
 .atqm-act:hover{filter:brightness(1.15)}
@@ -1997,7 +2101,6 @@
 #atqm-setbtn svg{transition:transform .3s}
 #atqm-setbtn:hover{color:#e6e6e6}#atqm-setbtn:hover svg{transform:rotate(60deg)}
 .atqm-ico{display:inline-flex;align-items:center;justify-content:center;flex:none;line-height:0}
-.dash-actions .dash-set{display:inline-flex;align-items:center;gap:6px}
 #atqm-settings{position:fixed;inset:0;z-index:2147483002;display:flex;flex-direction:column;background:#141518;color:#e6e6e6;
   font:13px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif;text-align:left;animation:atqm-set-in .18s ease-out}
 @keyframes atqm-set-in{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
@@ -2009,7 +2112,7 @@
 .set-head{display:flex;align-items:center;gap:16px;padding:12px 24px;background:#1a1b1f;border-bottom:1px solid #2c2f35;flex:none}
 .set-brand{display:flex;align-items:center;gap:12px;min-width:0}
 .set-brand > .atqm-ico{width:36px;height:36px;border-radius:9px;background:linear-gradient(135deg,#1f6feb,#4ea1ff);color:#fff}
-#atqm-settings h1{font-size:18px;font-weight:600;margin:0;line-height:1.2;color:#e6e6e6}
+#atqm-settings h1,#atqm-dash h1{font-size:18px;font-weight:600;margin:0;line-height:1.2;color:#e6e6e6}
 .set-sub{color:#9aa4b2;font-size:12px}
 .set-find{position:relative;margin-left:auto;width:min(340px,40vw);display:block}
 .set-find .atqm-ico{position:absolute;left:11px;top:50%;transform:translateY(-50%);color:#9aa4b2;pointer-events:none}
@@ -2125,7 +2228,7 @@ label.set-label{cursor:pointer}
   .set-foot{padding:10px 16px}
 }
 @media (prefers-reduced-motion:reduce){
-  #atqm-settings,.set-row.flash{animation:none}.set-main{scroll-behavior:auto}
+  #atqm-settings,#atqm-dash,.set-row.flash{animation:none}.set-main{scroll-behavior:auto}
   #atqm-setbtn svg,#atqm-settings input.set-switch,#atqm-settings input.set-switch::before{transition:none}
 }
 `;
@@ -2196,14 +2299,14 @@ label.set-label{cursor:pointer}
     const st = get(q.state, null);
     const openIt = { cls: 'warn', text: rotatorAlive() ? 'Waiting for its turn in the monitoring tab.' : `Open ${qWhere(q)} in a tab and leave it open.` };
     if (!st) return openIt;
-    const fresh = Date.now() - (st.ts || 0) < staleMs();
+    const fresh = Date.now() - (st.ts || 0) < staleFor(q);
     if (fresh && (st.mode === 'waiting' || st.mode === 'error')) return { cls: 'warn', text: st.note };
     if (!st.lastScan) return openIt;
     if (Date.now() - st.lastScan > scanStaleMs(q)) {
       return { cls: 'warn', text: `Last scan ${ago(st.lastScan)}. Is the ${qWhere(q)} tab still open? ` +
         'If it is, your browser may have put it to sleep (see "Keeping monitoring alive" in the README).' };
     }
-    const left = st.lastScan + CONFIG.refreshMs - Date.now();
+    const left = st.lastScan + refreshOf(q) - Date.now();
     const next = left > 60000 ? `, next in ${dur(left)}` : ', next scan due now';
     const unit = (q.mode === 'calls' ? 'call' : 'ticket') + (st.count === 1 ? '' : 's');
     if (st.partial) {
@@ -2860,6 +2963,30 @@ label.set-label{cursor:pointer}
     set(K.alerts, get(K.alerts, []).map(a => (a.ticket === id && !a.read ? { ...a, read: true } : a)));
   }
 
+  // Opening a ticket counts as seeing its changes, without pressing Seen. While a ticket's page is open
+  // and in view its changes are marked read, and a status change the monitor notices meanwhile arrives
+  // already read (see statusAlert).
+  const VIEW_BEAT = 10000;
+  function openTicketId() {
+    for (const bar of document.querySelectorAll(AT.sel.ticketTitle)) {
+      if (bar.closest('#atqm') || !AT.text.ticketTitle.test(clean(bar.querySelector(AT.sel.ticketTitleKind)?.textContent || ''))) continue;
+      const m = bar.textContent.match(TICKET_RE);
+      if (m) return m[0];
+    }
+    return null;
+  }
+  function noteOpenTicket() {
+    if (document.visibilityState === 'hidden' || macroPage()) return; // a macro opening it isn't you looking
+    const id = openTicketId();
+    if (!id) return;
+    const now = Date.now(), viewed = {};
+    for (const [k, ts] of Object.entries(get(K.viewed, {}))) if (now - ts < 86400000) viewed[k] = ts;
+    viewed[id] = now;
+    set(K.viewed, viewed);
+    if (get(K.alerts, []).some(a => a.ticket === id && !a.read)) markTicketRead(id);
+  }
+  const viewingNow = id => Date.now() - (get(K.viewed, {})[id] || 0) < 3 * VIEW_BEAT;
+
   // A ticket's earliest deadline: first response SLA, another SLA (queues tracked for all changes), or the
   // response target for a ticket in New without a first response SLA. Resting tickets have none, unless
   // `all` (the dashboard's ticket table shows them, without asking for action).
@@ -3132,6 +3259,10 @@ label.set-label{cursor:pointer}
     { group: 'Service calls', id: 'calls', icon: 'phone', desc: 'Your scheduled calls in My Workspace, with reminders before each one.' },
     { key: 'serviceCalls', label: 'Service calls', type: 'checkbox',
       hint: 'Lets you track My Workspace > Service Calls. Your calls then appear in Overview and Next up.' },
+    { key: 'callRefreshMs', label: 'Refresh service calls every', unit: 'min', type: 'number', min: 1, max: 120, step: 1,
+      toUi: v => v / 60000, fromUi: v => Math.round(v * 60000),
+      hint: 'Calls change less often than queues, so they can be checked less often. Reminders still go off on time: ' +
+        'they work from the calls already found.' },
     { key: 'callReminders', label: 'Call reminders', type: 'checkbox',
       hint: 'Pings before a call starts, with a Dismiss button in the Queue monitor window.' },
     { key: 'callLeadTimes', label: 'Remind before start', unit: 'min', type: 'text',
@@ -3145,7 +3276,7 @@ label.set-label{cursor:pointer}
     { group: 'Monitoring', id: 'monitoring', icon: 'refresh', desc: 'How the monitoring tabs keep your queues up to date.' },
     { key: 'refreshMs', label: 'Refresh queues every', unit: 'min', type: 'number', min: 0.5, max: 60, step: 0.5,
       toUi: v => v / 60000, fromUi: v => Math.round(v * 60000),
-      hint: 'Browsers may slow background tabs to about one refresh a minute.' },
+      hint: 'Browsers may slow background tabs to about one refresh a minute. Service calls have their own setting, under Service calls.' },
     { key: 'oneTab', label: 'Monitor all queues from one tab', type: 'checkbox',
       hint: 'Quick start and Start tracking open a single monitoring tab that switches between all your tracked queues, ' +
         "instead of a tab per queue. Use it if your browser blocks Quick start's extra tabs. Each queue is still checked about once per refresh." },
@@ -3159,7 +3290,7 @@ label.set-label{cursor:pointer}
         'This changes your saved view for that grid. When off, the monitor offers a button when rows are missing.' },
     { group: 'Window and display', id: 'window', icon: 'layout', desc: 'How the Queue monitor window and the dashboard look.' },
     { key: 'dashboard', label: 'Dashboard button', type: 'checkbox',
-      hint: 'Adds a ⛶ button at the top of the Queue monitor window that opens a full-window dashboard: the numbers that matter, ' +
+      hint: "Adds a ⛶ button at the top of the Queue monitor window that opens a dashboard over the page, below Autotask's top bar: the numbers that matter, " +
         'what to do next, deadlines over the next 8 hours, every queue and recent changes. Esc closes it.' },
     { key: 'upcomingCount', label: 'Rows shown in each list', type: 'number', min: 1, max: 20, step: 1 },
     { key: 'showStatusCounts', label: 'Show status counts', type: 'checkbox',
@@ -3219,6 +3350,12 @@ label.set-label{cursor:pointer}
     x: '<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>',
     plus: '<line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>',
     alert: '<circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>',
+    grid: '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/>',
+    chart: '<line x1="12" y1="20" x2="12" y2="10"/><line x1="18" y1="20" x2="18" y2="4"/><line x1="6" y1="20" x2="6" y2="16"/>',
+    inbox: '<polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/>',
+    eye: '<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>',
+    maximize: '<path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/>',
+    minimize: '<path d="M8 3v3a2 2 0 0 1-2 2H3m18 0h-3a2 2 0 0 1-2-2V3m0 18v-3a2 2 0 0 1 2-2h3M3 16h3a2 2 0 0 1 2 2v3"/>',
   };
   const svgIcon = (name, size = 16) => `<svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="none" stroke="currentColor" ` +
     `stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">${ICONS[name]}</svg>`;
@@ -3241,6 +3378,7 @@ label.set-label{cursor:pointer}
   function openSettings(focusKey) {
     let d = document.getElementById(SET_ID);
     if (!d) {
+      closeMacroWindow(); // it would be left behind Settings
       setReturnFocus = document.activeElement;
       d = el('div');
       d.id = SET_ID;
@@ -3872,10 +4010,895 @@ label.set-label{cursor:pointer}
     return JSON.stringify(report, null, 2);
   }
 
+  // ---------------------------------------------------------------------------
+  // Macros (the Macros tab, and the Macros button on a ticket pop-up). Change account, two ways:
+  // - the ticket you're looking at: done right there, in that page ("here")
+  // - the tickets ticked in a queue: one at a time, in a tab of their own. The page you start it from
+  //   drives it: it shows each ticket in the macro tab in turn, and the copy of this script running
+  //   there does the clicking and reports back through localStorage.
+  // Either way: on the ticket press Edit, pick the new account, fill in Sub-Issue Type and Work Type
+  // where they're empty (if you gave them), Save, then check the ticket shows the new account.
+  // ---------------------------------------------------------------------------
+  const MACRO_WIN = 'atqm_macro'; // the macro tab's window name (names starting 'atqm-' are Quick start's)
+  const MACRO_SS = P + 'macro';   // the job id, in the macro tab's sessionStorage and so in any window Autotask opens from it
+  // ms: let a page settle; wait for the account list; wait for Save to finish; give up on a stuck step;
+  // reload the ticket if it doesn't show the new account by then
+  const MACRO = { settle: 1500, pick: 10000, saved: 12000, stage: 120000, verify: 30000 };
+  const MACRO_ACTIVE = new Set(['open', 'edit', 'verify']);
+  const MACRO_WORDS = {
+    waiting: 'Waiting', open: 'Opening', edit: 'Editing', verify: 'Saving', done: 'Done',
+    skipped: 'Already on it', failed: 'Failed', check: 'Check it',
+  };
+  // The edit page's fields Change account fills in as well as the account, only where they're empty
+  // (a speed code would set them every time, over what's there)
+  const FILL_FIELDS = {
+    subIssue: { label: 'Sub-Issue Type', re: AT.text.subIssueLabel, a: 'a Sub-Issue Type', many: 'Sub-Issue Types' },
+    workType: { label: 'Work Type', re: AT.text.workTypeLabel, a: 'a Work Type', many: 'Work Types' },
+  };
+  const ACCOUNT_FIELD = { label: 'Account', re: AT.text.accountLabel, a: 'an account', many: 'accounts' };
+  let macroWin = null; // the tab this page opened for its job
+  let macroBusy = false;
+
+  const macroJob = () => get(K.macro, null);
+  // jobId: only while that job is still the one in hand (a page left over from a stopped one mustn't
+  // carry on with a new job on the same ticket)
+  const macroItemState = (id, jobId) => {
+    const job = macroJob();
+    return !job || (jobId && job.id !== jobId) ? undefined : job.items.find(i => i.id === id)?.state;
+  };
+  function macroTabName() {
+    try { return W.top.name || ''; } catch { return W.name || ''; }
+  }
+  // This page does the job's steps: it's in the macro tab, or in a tab running a job "here" (or a window
+  // Autotask opened from one of those)
+  function macroPage() {
+    if (macroTabName() === MACRO_WIN) return true;
+    const job = macroJob();
+    try { return !!job && !job.finished && sessionStorage.getItem(MACRO_SS) === job.id; } catch { return false; }
+  }
+  // `from`: only if the ticket is still at that step. A step finishing late (a slow page, or a background
+  // tab's timers held back) mustn't undo the driving page having given up on it. The job is finished
+  // once no ticket is left to do (a job "here" has no driving page left to say so). jobId: as macroItemState.
+  function patchMacroItem(id, patch, from, jobId) {
+    const job = macroJob();
+    if (!job || (jobId && job.id !== jobId) || (from && job.items.find(i => i.id === id)?.state !== from)) return;
+    const items = job.items.map(i => (i.id === id ? { ...i, ...patch } : i));
+    const over = !job.finished && !items.some(i => MACRO_ACTIVE.has(i.state) || i.state === 'waiting');
+    set(K.macro, { ...job, items, ...(over ? { finished: Date.now() } : {}) });
+  }
+
+  const lastAccount = () => get(K.macroAccounts, [])[0] || '';
+  // Every ticket in your tracked ticket queues, once each (their accounts are offered to change to)
+  function macroPool() {
+    const seen = new Set(), out = [];
+    for (const q of activeQueues().filter(x => x.mode !== 'calls')) {
+      for (const t of snapTickets(q) || []) if (!seen.has(t.id)) { seen.add(t.id); out.push(t); }
+    }
+    return out;
+  }
+  const macroUrl = it => (it.tid
+    ? `${location.origin}${AT.path.ticketDetail}?workspace=False&ticketId=${it.tid}`
+    : commandUrl('TicketNumber', it.id));
+
+  // Show a page in the macro tab. Opening it the first time needs the click that started the job;
+  // after that it's steered by its handle.
+  function showInMacroTab(url) {
+    try { if (macroWin && !macroWin.closed) { macroWin.location.href = url; return true; } } catch { /* fall through */ }
+    macroWin = W.open(url, MACRO_WIN);
+    if (!macroWin) { notePopups('blocked'); return false; }
+    return true;
+  }
+  function closeMacroTab() {
+    try { macroWin?.close(); } catch { /* ignore */ }
+    macroWin = null;
+  }
+
+  // tickets: [{ id, tid }]. here: the one ticket this page shows, changed in this page.
+  // fill: { subIssue, workType }, each filled in only where the ticket's is empty (blank: left alone)
+  function startMacro(tickets, account, { here = false, fill = {} } = {}) {
+    const idx = ticketIndex(), name = clean(account);
+    set(K.macroAccounts, [name, ...get(K.macroAccounts, []).filter(a => !same(a, name))].slice(0, 10));
+    const fills = {}, recent = get(K.macroFills, {});
+    for (const key of Object.keys(FILL_FIELDS)) {
+      const v = clean(fill[key]);
+      if (!v) continue;
+      fills[key] = v;
+      recent[key] = [v, ...(recent[key] || []).filter(x => !same(x, v))].slice(0, 10);
+    }
+    if (Object.keys(fills).length) set(K.macroFills, recent);
+    const job = {
+      id: Date.now().toString(36) + ID.slice(0, 4), kind: 'account', account: name, fill: fills, by: ID, ts: Date.now(), here,
+      items: tickets.map(t => ({ id: t.id, tid: t.tid || idx[t.id]?.tid || null, state: 'waiting', note: '' })),
+    };
+    set(K.macro, job);
+    if (here) { try { sessionStorage.setItem(MACRO_SS, job.id); } catch { /* ignore */ } }
+    macroWin = null;
+    macroStep();
+    if (here) macroWork();
+  }
+  function stopMacro() {
+    const job = macroJob();
+    if (!job) return;
+    const items = job.items.map(i => (MACRO_ACTIVE.has(i.state) ? { ...i, state: 'check', note: 'Stopped part-way' } : i));
+    set(K.macro, { ...job, items, finished: Date.now(), note: 'Stopped.' });
+    closeMacroTab();
+  }
+  // The page that was driving it was closed or reloaded: carry on from this one
+  function takeOverMacro() {
+    const job = macroJob();
+    if (!job) return;
+    set(K.macro, { ...job, by: ID, ts: Date.now() });
+    macroWin = null;
+    macroStep();
+  }
+
+  // The driving page: move on once a ticket is finished with, and give up on one that's stuck
+  function macroStep() {
+    const job = macroJob();
+    if (!job || job.finished) { if (macroWin) closeMacroTab(); return; }
+    if (job.by !== ID) return;
+    const now = Date.now();
+    const items = job.items.map(i => ({ ...i }));
+    let cur = items.find(i => MACRO_ACTIVE.has(i.state));
+    let changed = false, note = '', reload = false;
+    if (cur?.state === 'verify' && now - cur.at > MACRO.verify) {
+      // The ticket page may still show the account from before Save (Autotask edited it in a window
+      // of its own): load it again, once. A job "here" is driven from that page itself.
+      if (!cur.reloaded) {
+        cur.reloaded = true;
+        cur.at = now;
+        if (job.here) reload = true;
+        else showInMacroTab(macroUrl(cur));
+      } else {
+        cur.state = 'check';
+        cur.note = `Saved, but the ticket didn't show ${job.account} afterwards`;
+        cur = null;
+      }
+      changed = true;
+    } else if (cur && now - cur.at > MACRO.stage) {
+      cur.note = stuckNote(cur);
+      cur.state = 'failed';
+      cur = null;
+      changed = true;
+    }
+    if (!cur) {
+      const next = items.find(i => i.state === 'waiting');
+      if (next && (job.here || showInMacroTab(macroUrl(next)))) Object.assign(next, { state: 'open', at: now });
+      else if (next) note = 'Your browser blocked the macro tab. Allow pop-ups for autotask.net and run it again.';
+      changed = changed || !!next;
+    }
+    const finished = !!note || !items.some(i => MACRO_ACTIVE.has(i.state) || i.state === 'waiting');
+    if (!changed && !finished && now - job.ts < 15000) return; // otherwise a heartbeat, so other tabs know it's alive
+    set(K.macro, { ...job, items, ts: now, ...(note ? { note } : {}), ...(finished ? { finished: now } : {}) });
+    if (finished) closeMacroTab();
+    if (reload) location.reload();
+  }
+
+  const stuckNote = it => (it.state === 'open' ? "The ticket page didn't open, or had no Edit button"
+    : "Stuck on the edit page (if Edit opens a window of its own, allow pop-ups for autotask.net)");
+
+  // The macro tab: do the current ticket's next step on whichever page Autotask is showing
+  async function macroWork() {
+    if (macroBusy || !macroPage()) return;
+    const job = macroJob();
+    const item = job && !job.finished ? job.items.find(i => MACRO_ACTIVE.has(i.state)) : null;
+    macroBanner(job, item);
+    if (!item) return;
+    const jid = job.id;
+    // A job "here" whose page has moved on (Edit, a reload) has no driving page left to give up on a stuck step
+    if (job.here && job.by !== ID && item.state !== 'verify' && Date.now() - item.at > MACRO.stage) {
+      patchMacroItem(item.id, { state: 'failed', note: stuckNote(item) }, item.state, jid);
+      return;
+    }
+    macroBusy = true;
+    try {
+      if (item.state === 'edit') {
+        if (macroEditPage()) await macroEdit(job, item);
+      } else if (openTicketId() === item.id && findButton(AT.text.editButton)) {
+        if (item.state === 'verify') {
+          if (accountShown(job.account, item.chosen)) {
+            const off = fillProblem(job, item); // the page is up to date now: the types it filled in should show too
+            patchMacroItem(item.id, off ? { state: 'check', note: off } : { state: 'done', note: '' }, 'verify', jid);
+          }
+          // Long after the driving page would have reloaded it (and a job "here" has no driving page left)
+          else if (Date.now() - item.at > 2 * MACRO.verify) {
+            patchMacroItem(item.id, { state: 'check', note: `Saved, but the ticket didn't show ${job.account} afterwards` }, 'verify', jid);
+          }
+        } else {
+          await sleep(MACRO.settle); // let the account show before judging it
+          if (macroItemState(item.id, jid) !== 'open') return; // stopped, or given up on, meanwhile
+          if (accountShown(job.account)) {
+            patchMacroItem(item.id, { state: 'skipped', note: `Already on ${job.account}` }, 'open', jid);
+          } else {
+            // The types the ticket has now, read off its page before editing: one it has is left alone,
+            // whatever the edit page shows (null: this page doesn't show that field)
+            const had = {};
+            for (const key of Object.keys(job.fill || {})) if (FILL_FIELDS[key]) had[key] = ticketField(FILL_FIELDS[key].re);
+            patchMacroItem(item.id, { state: 'edit', at: Date.now(), had }, 'open', jid);
+            press(findButton(AT.text.editButton));
+          }
+        }
+      }
+    } catch (e) {
+      console.error('[ATQM]', e);
+      patchMacroItem(item.id, { state: 'failed', note: 'Macro error: ' + e.message }, macroItemState(item.id, jid), jid);
+    } finally {
+      macroBusy = false;
+    }
+  }
+
+  async function macroEdit(job, item) {
+    let step = 'edit';
+    const fail = (note, state = 'failed') => patchMacroItem(item.id, { state, note }, step, job.id);
+    const before = new Set(dialogs()); // message boxes already on the page aren't questions for us
+    await sleep(MACRO.settle);
+    const input = accountField();
+    if (!input) return fail("Couldn't find the Account field on the edit page");
+    const pick = await chooseOption(input, job.account, ACCOUNT_FIELD);
+    if (pick.note) return fail(pick.note);
+    await sleep(MACRO.settle);
+    const asked = answerDialog(before);
+    if (asked) return fail(asked);
+    // Filled in only where the ticket has none: its page showed nothing there before editing, and the edit
+    // page shows nothing there now the account is picked. Anything showing counts, so a type is never written over.
+    const filled = [], kept = [], picks = {};
+    for (const [key, value] of Object.entries(job.fill || {})) {
+      const f = FILL_FIELDS[key];
+      if (!f || !value) continue;
+      if (item.had?.[key]) { kept.push(f.label); continue; }
+      const fld = findField(f.re);
+      if (!fld) return fail(`Couldn't find the ${f.label} field on the edit page`);
+      if (fieldShows(fld)) { kept.push(f.label); continue; }
+      if (fld.input.disabled) return fail(`${f.label} is greyed out on the edit page, so it couldn't be filled in`);
+      const got = await chooseOption(fld.input, value, f);
+      if (got.note) return fail(got.note);
+      filled.push(f.label);
+      picks[key] = got.text;
+      await sleep(MACRO.settle);
+      const q = answerDialog(before);
+      if (q) return fail(q);
+    }
+    const save = AT.text.saveButtons.map(findButton).find(Boolean);
+    if (!save) return fail("Couldn't find Save on the edit page");
+    if (macroItemState(item.id, job.id) !== 'edit') return; // stopped, or given up on, meanwhile
+    patchMacroItem(item.id, { state: 'verify', at: Date.now(), chosen: pick.text, filled, kept, picks }, 'edit', job.id);
+    step = 'verify';
+    press(save);
+    // Still on the edit page a while later: Autotask didn't take it (often another field it needs)
+    if (await waitSteps(() => !save.isConnected || !visible(save), MACRO.saved)) return;
+    const problem = answerDialog(before) || formProblem();
+    if (problem) fail(`Not saved: ${problem}`);
+    else fail('Pressed Save, but the edit page stayed open', 'check');
+  }
+
+  // Like waitFor, but counts its steps instead of reading the clock
+  async function waitSteps(fn, ms) {
+    for (let i = 0; i <= ms / 250; i++) {
+      const v = fn();
+      if (v) return v;
+      await sleep(250);
+    }
+    return null;
+  }
+  function visible(e) {
+    for (let n = e; n && n.nodeType === 1; n = n.parentElement) {
+      if (n.hidden) return false;
+      const cs = n.ownerDocument.defaultView.getComputedStyle(n);
+      if (cs.display === 'none' || cs.visibility === 'hidden') return false;
+    }
+    return true;
+  }
+  const notOurs = e => !e.closest(OUR_BOXES);
+  function findButton(text) {
+    const t = [...document.querySelectorAll(AT.sel.buttonText)].find(e => clean(e.textContent) === text && notOurs(e) && visible(e));
+    return t ? t.closest(AT.sel.button) || t : null;
+  }
+  // A field on the ticket's own page: what it shows ('' when empty), or null when the page has no such field
+  function ticketField(re) {
+    for (const box of document.querySelectorAll(AT.sel.detailField)) {
+      const label = box.querySelector(AT.sel.detailLabel);
+      if (!label || !notOurs(box) || !re.test(clean(label.textContent))) continue;
+      const value = box.querySelector(AT.sel.detailValue);
+      return value ? clean(value.innerText ?? value.textContent) : '';
+    }
+    return null;
+  }
+  // The ticket page shows one of these as its account: in its Account field (not a contact or resource
+  // who happens to have the same name), or on a page built another way, as one of its links
+  function accountShown(...names) {
+    const want = names.filter(Boolean).map(n => clean(n).toLowerCase());
+    const shown = ticketField(AT.text.accountLabel);
+    if (shown != null) return want.includes(shown.toLowerCase());
+    return [...document.querySelectorAll(AT.sel.accountLink)].some(e => notOurs(e) && want.includes(clean(e.textContent).toLowerCase()));
+  }
+  // A type it filled in that the ticket's page doesn't show afterwards (one the page doesn't have can't be checked)
+  function fillProblem(job, item) {
+    for (const [key, text] of Object.entries(item.picks || {})) {
+      const f = FILL_FIELDS[key], shown = f ? ticketField(f.re) : null;
+      if (shown == null || same(shown, text) || same(shown, job.fill?.[key])) continue;
+      return `Saved, but ${f.label} shows ${shown ? `"${shown}"` : 'nothing'} instead of ${text}`;
+    }
+    return '';
+  }
+  // An edit page field, by the label that names it ("Account"): the text box the label points at, or else
+  // the nearest one after the label, but never one past the next field's label (when this field's own
+  // isn't a text box, that one belongs to the next field). editor: the part of the page with the box in
+  // it and not the label, where a selector may show its choice beside an empty search box.
+  function findField(re) {
+    const ok = x => !!x && x.matches(AT.sel.textInput) && !x.closest(AT.sel.formTemplate) && notOurs(x) && visible(x);
+    const after = (a, b) => !!(a.compareDocumentPosition(b) & 4); // b comes after a in the page
+    for (const label of document.querySelectorAll(AT.sel.fieldLabel)) {
+      if (label.childElementCount > 1 || !re.test(clean(label.textContent)) || !notOurs(label) || !visible(label)) continue;
+      if (label.closest(AT.sel.detailField)) continue; // the ticket page's read-only fields have no box to type in
+      let input = label.htmlFor ? document.getElementById(label.htmlFor) : null;
+      const linked = ok(input);
+      if (!linked) {
+        input = null;
+        for (let n = label.parentElement, i = 0; n && i < 4 && !input; n = n.parentElement, i++) {
+          input = [...n.querySelectorAll(AT.sel.textInput)].find(x => ok(x) && after(label, x)) || null;
+        }
+      }
+      if (!input) continue;
+      let editor = input;
+      while (editor.parentElement && !editor.parentElement.contains(label)) editor = editor.parentElement;
+      // Around the box: the box's own part of the page, or the box's parent when it sits right beside the label
+      const area = editor === input ? input.parentElement : editor;
+      if (!linked) {
+        // Another field's name between the label and the box: that box is the other field's. (Text in the
+        // box's own part of the page is its choice, not a name; beside a bare box, any text counts, to be safe.)
+        const between = e => e !== label && !label.contains(e) && !e.contains(label) && after(label, e) && after(e, input) && notOurs(e);
+        const name = e => /[a-z]/i.test(e.textContent) && clean(e.textContent).length <= 60;
+        const other = [...document.querySelectorAll('label')].some(l => between(l) && name(l))
+          || [...document.querySelectorAll(AT.sel.fieldLabel)].some(e => !e.childElementCount && between(e) && !editor.contains(e) && name(e) && visible(e));
+        if (other) continue;
+      }
+      return { input, editor, area, label };
+    }
+    return null;
+  }
+  const fieldInput = re => findField(re)?.input || null;
+  const accountField = () => fieldInput(AT.text.accountLabel);
+  // A field shows something: typed in its box, or shown around it (a selector's choice beside an empty
+  // search box). Only what's on screen counts, not a hidden list, nor the field's own name.
+  function fieldShows(f) {
+    if (clean(f.input.value)) return true;
+    const shown = e => clean(e.innerText ?? e.textContent);
+    let text = shown(f.area);
+    if (f.area.contains(f.label)) text = text.replace(shown(f.label), '');
+    return /[^\s*:]/.test(text);
+  }
+  const macroEditPage = () => !!AT.text.saveButtons.map(findButton).find(Boolean) && !!accountField();
+
+  function typeInto(input, text) {
+    const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(input), 'value')?.set;
+    if (setter) setter.call(input, text); else input.value = text;
+    for (const type of ['keydown', 'input', 'keyup']) {
+      let ev;
+      try { ev = type === 'input' ? new Event(type, { bubbles: true }) : new KeyboardEvent(type, { bubbles: true, key: text.slice(-1) }); } catch { continue; }
+      input.dispatchEvent(ev);
+    }
+  }
+  // Choices in the open drop-down list for this name: the one that is exactly it (exact), else the only one
+  // with a part that is (another column beside it), else the only one containing it
+  function pickOptions(name) {
+    const want = clean(name).toLowerCase();
+    const text = o => clean(o.textContent).toLowerCase();
+    const opts = [...document.querySelectorAll(AT.sel.pickItem)].filter(o => notOurs(o) && !o.closest(AT.sel.formTemplate) && visible(o));
+    const exact = opts.find(o => text(o) === want);
+    if (exact) return { pick: exact, exact: true };
+    const part = opts.filter(o => [...o.children].some(c => text(c) === want));
+    if (part.length === 1) return { pick: part[0], exact: true };
+    const partial = opts.filter(o => text(o).includes(want));
+    return partial.length === 1 && !part.length ? { pick: partial[0] } : { many: Math.max(part.length, partial.length) };
+  }
+  // Type the name into a field's box and pick it from the list Autotask offers. A choice that only contains
+  // the name has to still be the only one a moment later, so a list still filling in (or one left over from
+  // before the typing) doesn't get it picked. f: ACCOUNT_FIELD or a FILL_FIELDS entry
+  async function chooseOption(input, name, f) {
+    press(input, true);
+    input.focus();
+    typeInto(input, name);
+    let found = { many: 0 }, last = null;
+    const pick = await waitSteps(() => {
+      found = pickOptions(name);
+      const sure = found.exact || (found.pick && found.pick === last);
+      last = found.pick || null;
+      return sure ? found.pick : null;
+    }, MACRO.pick);
+    if (!pick) {
+      return { note: found.many > 1 ? `${found.many} ${f.many} match "${name}": use the full name` : `Autotask didn't offer ${f.a} called "${name}"` };
+    }
+    const text = clean(pick.textContent);
+    press(pick, true);
+    return { text };
+  }
+
+  const dialogs = () => [...document.querySelectorAll(AT.sel.dialog)].filter(d => notOurs(d) && visible(d) && clean(d.textContent));
+  // A message box that came up while editing. One with just OK is acknowledged; one that asks something
+  // isn't answered, so the ticket is left unsaved. Returns what it asked.
+  function answerDialog(before) {
+    const box = dialogs().find(d => !before.has(d));
+    if (!box) return '';
+    const btns = [...box.querySelectorAll(AT.sel.dialogButton)].filter(visible);
+    if (btns.length === 1 && AT.text.dialogOk.test(clean(btns[0].textContent))) { press(btns[0]); return ''; }
+    return `Autotask asked "${clean(box.textContent).slice(0, 160)}" (not answered)`;
+  }
+  const formProblem = () => [...new Set([...document.querySelectorAll(AT.sel.formError)]
+    .filter(e => notOurs(e) && visible(e)).map(e => clean(e.textContent)).filter(t => t && t.length < 200))].slice(0, 2).join(' ');
+
+  // A strip across the macro tab, so it's clear why the page is moving by itself
+  function macroBanner(job, item) {
+    if (!isTop || !document.body) return;
+    let bar = document.getElementById('atqm-macrobar');
+    if (!item) { bar?.remove(); return; }
+    if (!bar) {
+      bar = el('div');
+      bar.id = 'atqm-macrobar';
+      bar.style.cssText = 'position:fixed;left:0;right:0;bottom:0;z-index:2147483001;background:#22303f;color:#e6e6e6;' +
+        'border-top:3px solid #4ea1ff;padding:6px 12px;font:13px/1.4 system-ui,Segoe UI,sans-serif';
+      document.body.append(bar);
+    }
+    const n = job.items.indexOf(job.items.find(i => i.id === item.id)) + 1;
+    bar.textContent = job.here
+      ? `Queue monitor macro: changing the account on ${item.id} to ${job.account}. Leave this page until it's done.`
+      : `Queue monitor macro: changing the account on ${item.id} to ${job.account} (${n} of ${job.items.length}). ` +
+        'Leave this tab alone. It closes when the macro finishes.';
+  }
+
+  // Tickets ticked in the queue grid (Autotask's row checkboxes), with their internal IDs
+  function tickedTickets() {
+    const out = [];
+    for (const r of gridScope().querySelectorAll(AT.sel.row)) {
+      if (!r.querySelector(AT.sel.rowTicked)) continue;
+      const cell = [...r.cells].find(c => TICKET_RE.test(cellText(c)));
+      if (cell) out.push({ id: cellText(cell).match(TICKET_RE)[0], tid: findTicketRef(r, cell).tid });
+    }
+    return out;
+  }
+
+  // The account to change to. A list: the accounts you've changed tickets to (the last one picked to
+  // start with) and the accounts in your queues, with "Another account…" to type any other name.
+  const OTHER_ACCOUNT = '\u0000other';
+  function accountPicker(id, onChange) {
+    const root = el('div', 'mc-acc');
+    const sel = el('select');
+    sel.id = id;
+    const other = el('input');
+    other.placeholder = 'Account name, as Autotask shows it';
+    other.autocomplete = 'off';
+    other.setAttribute('aria-label', 'Account name');
+    root.append(sel, other);
+    let sig = null;
+    function refresh() {
+      const recent = get(K.macroAccounts, []);
+      const queues = [...new Set(macroPool().map(t => clean(t.account)).filter(Boolean))]
+        .filter(a => !recent.some(r => same(r, a))).sort((a, b) => a.localeCompare(b));
+      const s = recent.join('\n') + '\u0001' + queues.join('\n');
+      if (s !== sig) {
+        const keep = sig === null ? lastAccount() : sel.value;
+        sig = s;
+        const group = (label, names) => {
+          if (!names.length) return;
+          const g = el('optgroup');
+          g.label = label;
+          for (const n of names) { const o = el('option', null, n); o.value = n; g.append(o); }
+          sel.append(g);
+        };
+        sel.replaceChildren();
+        // The one picked stays picked even when it drops out of both lists (its last ticket left your queues)
+        if (keep && keep !== OTHER_ACCOUNT && ![...recent, ...queues].includes(keep)) { const o = el('option', null, keep); o.value = keep; sel.append(o); }
+        group('Used recently', recent);
+        group('In your queues', queues);
+        const o = el('option', null, 'Another account…');
+        o.value = OTHER_ACCOUNT;
+        sel.append(o);
+        sel.value = [...sel.options].some(x => x.value === keep) ? keep : recent[0] || OTHER_ACCOUNT;
+      }
+      other.hidden = sel.value !== OTHER_ACCOUNT;
+    }
+    sel.addEventListener('change', () => { refresh(); if (sel.value === OTHER_ACCOUNT) other.focus(); onChange(); });
+    other.addEventListener('input', onChange);
+    refresh();
+    return { root, refresh, value: () => clean(sel.value === OTHER_ACCOUNT ? other.value : sel.value) };
+  }
+
+  // ---------------------------------------------------------------------------
+  // The macros: a square each in the Macros grid (the Macros tab, and the Macros button on a ticket
+  // pop-up). A click opens its window, which asks for what it needs and has Run. One that asks for
+  // nothing also runs straight from its square on a double-click; a single click never runs anything.
+  //   params: what its window asks for: { id, label, type: 'account' | 'text', required, hint, recent }
+  //     (required: what to say while it's empty; without it, it can be left blank)
+  //   start(values, way): run it on way.tickets (way.here: the one ticket this page shows, in this page)
+  // ---------------------------------------------------------------------------
+  const MACROS = [
+    {
+      id: 'account', name: 'Change account',
+      about: 'Moves tickets to another account: presses Edit, picks the account, fills in the types below where ' +
+        "the ticket doesn't have one, saves, and checks the ticket shows the new account.",
+      params: [
+        { id: 'account', label: 'Change to', type: 'account', required: 'Pick the account to change to.' },
+        { id: 'subIssue', label: 'Sub-Issue Type, if empty', type: 'text', recent: () => get(K.macroFills, {}).subIssue || [] },
+        { id: 'workType', label: 'Work Type, if empty', type: 'text', recent: () => get(K.macroFills, {}).workType || [],
+          hint: "Each is only filled in where the ticket doesn't have one. Leave it blank to leave it alone." },
+      ],
+      start: (v, way) => startMacro(way.tickets, v.account, { here: way.here, fill: { subIssue: v.subIssue, workType: v.workType } }),
+    },
+  ];
+  const macroRunning = () => { const job = macroJob(); return !!job && !job.finished; };
+
+  // The tickets a macro can run on from this page: the one it shows (done right there), or the ones ticked
+  // in the queue it shows (one at a time, in a tab of their own). A ticket pop-up only has its ticket.
+  function macroWays(ctx) {
+    const ways = [{
+      key: 'ticket', title: 'This ticket', here: true, tickets: ctx.ticket ? [{ id: ctx.ticket }] : [],
+      sub: ctx.ticket ? `${ctx.ticket}, in this page` : 'Open a ticket to run it on just that one.',
+      how: "It happens in this page: leave it until it says it's done.",
+    }];
+    if (ctx.popup) return ways;
+    const inQueue = !!ctx.cur && !ctx.isCalls, ticked = inQueue ? ctx.ticked || [] : [];
+    ways.push({
+      key: 'ticked', title: 'Ticked in this queue', here: false, tickets: ticked,
+      sub: !inQueue ? 'Open a queue and tick the tickets to run it on them together.'
+        : ticked.length ? `${ticked.length} ticked in ${ctx.cur.nav}` : `Tick tickets in ${ctx.cur.nav} to run it on them together.`,
+      how: 'Each ticket opens in a separate tab, one at a time. Keep this tab open until it finishes.',
+    });
+    return ways;
+  }
+
+  // One thing a macro's window asks for: { root, p, value(), refresh() }
+  function macroField(p, onChange) {
+    const root = el('div', 'mc-field');
+    const label = el('label', null, p.label);
+    label.htmlFor = 'atqm-mc-' + p.id;
+    root.append(label);
+    let field;
+    if (p.type === 'account') {
+      const picker = accountPicker(label.htmlFor, onChange);
+      root.append(picker.root);
+      field = { value: picker.value, refresh: picker.refresh };
+    } else {
+      const input = el('input', 'mc-text');
+      input.id = label.htmlFor;
+      input.autocomplete = 'off';
+      root.append(input);
+      const recent = p.recent ? p.recent() : [];
+      if (recent.length) { // what you've used before, offered as you type
+        const list = el('datalist');
+        list.id = input.id + '-used';
+        for (const v of recent) { const o = el('option'); o.value = v; list.append(o); }
+        input.setAttribute('list', list.id);
+        root.append(list);
+      }
+      input.addEventListener('input', onChange);
+      field = { value: () => clean(input.value), refresh() {} };
+    }
+    if (p.hint) root.append(el('div', 'atqm-sub', p.hint));
+    return { root, p, ...field };
+  }
+
+  // A macro's window: what it asks for, which tickets, and Run. One at a time, beside where it was opened
+  // from (the Queue monitor window, or a ticket pop-up's Macros box). panel: opened from the Queue monitor
+  // window, which keeps it up to date with the page (tickets ticked meanwhile) and closes it when you
+  // leave the Macros tab.
+  let mcWin = null; // { root, macro, panel, sq, back, refresh(ctx) }
+  function openMacroWindow(macro, { ctx, anchor, after, panel = false, sq = null }) {
+    if (mcWin?.macro === macro) { (mcWin.root.querySelector('select, input:not([type=radio])') || mcWin.root).focus(); return; }
+    closeMacroWindow();
+    ensureCss();
+    const back = sq || document.activeElement; // where focus goes back to when it's closed
+    const root = el('div', 'atqm-mc');
+    root.id = 'atqm-mcwin';
+    root.tabIndex = -1;
+    root.setAttribute('role', 'dialog');
+    root.setAttribute('aria-labelledby', 'atqm-mcwin-t');
+    const head = el('div', 'mcw-head'), title = el('b', null, macro.name), x = el('button', 'mcw-x', '×');
+    title.id = 'atqm-mcwin-t';
+    x.title = 'Close';
+    x.setAttribute('aria-label', 'Close');
+    head.append(title, x);
+    root.append(head, el('div', 'atqm-sub', macro.about));
+    const fields = macro.params.map(p => macroField(p, () => refresh()));
+    for (const f of fields) root.append(f.root);
+
+    // Which tickets: a choice when this page offers more than one way
+    let cur = ctx, way = '';
+    const rows = {}, waysBox = el('div', 'mcw-ways');
+    const ways0 = macroWays(ctx);
+    if (ways0.length > 1) {
+      waysBox.append(el('div', 'mcw-lbl', 'Run on'));
+      for (const w of ways0) {
+        const row = el('label', 'mcw-way'), radio = el('input'), text = el('div'), sub = el('div', 'atqm-sub');
+        radio.type = 'radio';
+        radio.name = 'atqm-mcwin-way';
+        radio.value = w.key;
+        radio.onchange = () => { way = w.key; refresh(); };
+        text.append(el('b', null, w.title), sub);
+        row.append(radio, text);
+        waysBox.append(row);
+        rows[w.key] = { row, radio, sub };
+      }
+    } else {
+      waysBox.classList.add('mcw-on');
+    }
+    const how = el('div', 'mcw-how');
+    const btns = el('div', 'atqm-qsbtns'), run = el('button', 'atqm-qsgo', 'Run'), cancel = el('button', null, 'Cancel');
+    btns.append(run, cancel);
+    root.append(waysBox, how, btns);
+
+    let started = false;
+    function refresh(c = cur) {
+      if (started) return null;
+      cur = c;
+      for (const f of fields) f.refresh();
+      const ways = macroWays(c);
+      if (!ways.find(w => w.key === way)?.tickets.length) way = ways.find(w => w.tickets.length)?.key || '';
+      for (const w of ways) {
+        const r = rows[w.key];
+        if (!r) continue;
+        r.sub.textContent = w.sub;
+        r.radio.disabled = !w.tickets.length;
+        r.radio.checked = w.key === way;
+        r.row.classList.toggle('off', !w.tickets.length);
+      }
+      if (ways.length === 1) waysBox.replaceChildren(el('b', null, `${ways[0].title}: `), ways[0].sub);
+      const chosen = ways.find(w => w.key === way), busy = macroRunning();
+      const need = fields.find(f => f.p.required && !f.value());
+      run.disabled = busy || !chosen || !!need;
+      how.className = 'mcw-how ' + (busy ? 'atqm-warn' : 'atqm-sub');
+      how.textContent = busy ? 'Another macro is running. Wait for it to finish.'
+        : !chosen ? 'Open a ticket, or tick tickets in a queue, to run it.'
+        : need ? need.p.required : chosen.how;
+      return chosen;
+    }
+    // Only Run starts it (not Enter, which also picks from a field's suggestions). The tickets are read
+    // again first: if they've changed since they were shown (one unticked a moment ago), it shows them
+    // instead. Afterwards the window stays a moment, so a double-click's second click lands here and not
+    // on the page underneath.
+    run.onclick = () => {
+      if (started) return;
+      const shown = JSON.stringify(macroWays(cur).find(w => w.key === way)?.tickets || []);
+      const chosen = refresh(panel ? pageInfo(true) : cur);
+      if (run.disabled || !chosen || JSON.stringify(chosen.tickets) !== shown) return;
+      const values = Object.fromEntries(fields.map(f => [f.p.id, f.value()]));
+      started = true;
+      run.disabled = cancel.disabled = x.disabled = true;
+      how.className = 'mcw-how atqm-sub';
+      how.textContent = 'Started.';
+      macro.start(values, chosen);
+      after();
+      setTimeout(() => { if (mcWin?.root === root) closeMacroWindow(); }, 400);
+    };
+    cancel.onclick = x.onclick = () => closeMacroWindow(true);
+    root.addEventListener('keydown', e => e.stopPropagation()); // typing here isn't for Autotask's own shortcuts
+
+    document.body.append(root);
+    sq?.classList.add('on');
+    mcWin = { root, macro, panel, sq, back, refresh, started: () => started };
+    refresh();
+    placeMacroWindow(root, anchor);
+    (root.querySelector('select, input:not([type=radio])') || run).focus();
+  }
+  function closeMacroWindow(restore = false) {
+    if (!mcWin) return;
+    const { root, sq, back } = mcWin;
+    mcWin = null;
+    root.remove();
+    sq?.classList.remove('on');
+    if (restore && back?.isConnected) back.focus();
+  }
+  // Beside the box it was opened from: on its left, else on its right, else in the middle of the page
+  function placeMacroWindow(win, anchor) {
+    const r = win.getBoundingClientRect(), gap = 8;
+    const a = anchor?.isConnected ? anchor.getBoundingClientRect() : null;
+    let left = Math.max(gap, (innerWidth - r.width) / 2), top = Math.max(gap, (innerHeight - r.height) / 3);
+    if (a && a.width) {
+      const side = a.left - gap - r.width >= gap ? a.left - gap - r.width
+        : a.right + gap + r.width <= innerWidth - gap ? a.right + gap : null;
+      if (side != null) { left = side; top = Math.max(gap, Math.min(a.top, innerHeight - r.height - gap)); }
+    }
+    Object.assign(win.style, { left: left + 'px', top: top + 'px' });
+  }
+
+  // Run one that asks for nothing on what this page offers first. False: it can't run now (another macro
+  // is running, or there's no ticket here), so its window opens instead to say why.
+  function quickRunMacro(macro, ctx, after) {
+    const way = macroWays(ctx).find(w => w.tickets.length);
+    if (macroRunning() || !way) return false;
+    closeMacroWindow();
+    macro.start({}, way);
+    after();
+    return true;
+  }
+
+  // The squares. getCtx: what the page shows now (pageInfo, or the pop-up's ticket); getAnchor: the box to
+  // open windows beside; after: once a macro has started
+  function macroGrid(getCtx, getAnchor, after, panel = false) {
+    const grid = el('div', 'mc-grid');
+    for (const m of MACROS) {
+      const sq = el('button', 'mc-sq');
+      sq.type = 'button';
+      sq.dataset.macro = m.id;
+      sq.title = m.about;
+      sq.append(el('b', null, m.name));
+      if (!m.params.length) sq.append(el('span', 'atqm-sub', 'Double-click to run'));
+      let wait = null;
+      const open = () => openMacroWindow(m, { ctx: getCtx(), anchor: getAnchor(), after, panel, sq });
+      sq.addEventListener('click', e => {
+        clearTimeout(wait);
+        if (m.params.length || !e.detail) open(); // Enter or Space: straight to its window
+        else if (e.detail === 1) wait = setTimeout(open, 350); // unless a second click makes it a double-click
+      });
+      sq.addEventListener('dblclick', () => {
+        if (m.params.length) return;
+        clearTimeout(wait);
+        if (!quickRunMacro(m, getCtx(), after)) open();
+      });
+      grid.append(sq);
+    }
+    return grid;
+  }
+
+  // The Macros tab: the squares, or the macro that's running (or ran last) until you clear it. Built once
+  // and kept, so the squares keep focus through the window's regular redraws.
+  let macroBox = null;
+  function renderMacros(panel, pg) {
+    if (!macroBox) {
+      macroBox = el('div', 'atqm-mc');
+      const pick = el('div', 'mc-pick');
+      pick.append(el('div', 'atqm-sub mc-hint', 'Click a macro to set it up and run it.'),
+        macroGrid(() => pageInfo(), () => document.getElementById('atqm'), () => render(), true));
+      macroBox.append(pick, el('div', 'mc-run'));
+    }
+    if (panel.firstChild !== macroBox || panel.childNodes.length > 1) panel.replaceChildren(macroBox);
+    const job = macroJob(), run = macroBox.querySelector('.mc-run');
+    macroBox.querySelector('.mc-pick').hidden = !!job;
+    run.hidden = !job;
+    if (job) renderMacroRun(run, job);
+    if (!mcWin?.panel) return;
+    if (job && !mcWin.started()) closeMacroWindow(); // one started elsewhere: its squares are put away until it's cleared
+    else mcWin.refresh(pg);
+  }
+  // Run the tickets that didn't get done again: in this page if it's the one ticket this page shows
+  function retryMacro(job) {
+    const rest = job.items.filter(i => ['failed', 'check', 'waiting'].includes(i.state));
+    startMacro(rest, job.account, { here: job.here && rest.length === 1 && openTicketId() === rest[0].id, fill: job.fill });
+  }
+  // What it did with the types on a ticket: "Filled in Sub-Issue Type; kept its Work Type"
+  const filledText = it => [it.filled?.length ? `Filled in ${it.filled.join(' and ')}` : '',
+    it.kept?.length ? `kept its ${it.kept.join(' and ')}` : ''].filter(Boolean).join('; ').replace(/^k/, 'K');
+  function renderMacroRun(box, job) {
+    box.replaceChildren();
+    const count = s => job.items.filter(i => i.state === s).length;
+    const total = job.items.length, over = job.items.filter(i => !MACRO_ACTIVE.has(i.state) && i.state !== 'waiting').length;
+    const head = el('div', 'mc-head');
+    head.append(job.finished ? 'Changed account to ' : 'Changing account to ', el('b', null, job.account));
+    box.append(head);
+    const fills = Object.entries(job.fill || {}).filter(([k]) => FILL_FIELDS[k]).map(([k, v]) => `${FILL_FIELDS[k].label} ${v}`);
+    if (fills.length) box.append(el('div', 'atqm-sub', `Where the ticket has none: ${fills.join(', ')}`));
+    const parts = [`${over} of ${total} finished`];
+    for (const s of ['done', 'skipped', 'check', 'failed']) if (count(s)) parts.push(`${count(s)} ${MACRO_WORDS[s].toLowerCase()}`);
+    box.append(el('div', 'atqm-sub', parts.join(' · ')));
+    // The driving page writes a heartbeat; a background tab's timers can run a minute late.
+    // A job "here" moves through the ticket's own pages, so it has no driving page to watch.
+    const alive = job.here || Date.now() - job.ts < 150000;
+    if (job.note) box.append(el('div', 'atqm-warn', job.note));
+    else if (!job.finished && job.by !== ID) {
+      box.append(el('div', alive ? 'atqm-sub' : 'atqm-warn', job.here ? "Running in the ticket's page."
+        : alive ? 'Running from another tab.' : 'The tab running it was closed or reloaded.'));
+    }
+
+    const list = el('ul', 'atqm-list');
+    for (const it of job.items) {
+      const li = el('li', 'mc-' + it.state);
+      li.append(el('span', 'atqm-when', it.state === 'waiting' && job.finished ? 'Not started' : MACRO_WORDS[it.state] || it.state), ticketLink(it.id, { tid: it.tid }));
+      const sub = it.note || filledText(it);
+      if (sub) li.append(el('div', 'atqm-sub', sub));
+      list.append(li);
+    }
+    box.append(list);
+
+    // These buttons change places as they're pressed (Stop becomes Done and Try again), so the second
+    // click of a double-click is ignored rather than pressing whatever has just appeared under it
+    const btns = el('div', 'atqm-qsbtns');
+    const act = (b, fn) => { b.onclick = e => { if (e.detail > 1) return; fn(); render(); }; return b; };
+    if (!job.finished) {
+      btns.append(act(el('button', null, 'Stop'), stopMacro));
+      if (!alive && job.by !== ID) btns.prepend(act(el('button', 'atqm-qsgo', 'Continue here'), takeOverMacro));
+    } else {
+      const rest = count('failed') + count('check') + count('waiting');
+      const done = act(el('button', 'atqm-qsgo', 'Done'), () => del(K.macro));
+      done.title = 'Clear this list';
+      btns.append(done);
+      if (rest) {
+        const again = act(el('button', null, rest === 1 ? 'Try again' : `Try the ${rest} again`), () => retryMacro(job));
+        again.title = "Run the tickets that didn't get done again";
+        btns.append(again);
+      }
+    }
+    box.append(btns);
+  }
+
+  // A ticket pop-up hides the Queue monitor window (setting "Hide in ticket pop-up windows"), so its
+  // macros are behind a small Macros button in the corner instead, for that ticket
+  let tkPill = null;
+  function renderTicketPill() {
+    const id = isTop && document.body && !document.getElementById('atqm') && macroTabName() !== MACRO_WIN ? openTicketId() : null;
+    const job = macroJob();
+    const mine = job?.here && job.items.length === 1 && job.items[0].id === id ? job : null;
+    if (!id || (mine && !mine.finished)) { // while it runs, the strip along the bottom says so
+      tkPill?.remove();
+      tkPill = null;
+      if (mcWin && !mcWin.panel && !mcWin.started()) closeMacroWindow();
+      return;
+    }
+    ensureCss();
+    if (!tkPill || !tkPill.isConnected || tkPill.dataset.id !== id) {
+      tkPill?.remove();
+      if (mcWin && !mcWin.panel) closeMacroWindow();
+      tkPill = buildTicketPill(id);
+      document.body.append(tkPill);
+    }
+    const result = tkPill.querySelector('.tk-result');
+    result.hidden = !mine;
+    if (mine) {
+      const it = mine.items[0];
+      result.replaceChildren();
+      const ok = it.state === 'done' || it.state === 'skipped';
+      const filled = filledText(it);
+      result.append(el('b', ok ? null : 'atqm-warn', ok ? `Account: ${mine.account}${filled ? ` · ${filled}` : ''}`
+        : `${MACRO_WORDS[it.state]}: ${it.note || 'the account may not have changed'}`));
+      const close = el('button', null, 'OK');
+      close.onclick = () => { del(K.macro); renderTicketPill(); };
+      result.append(close);
+      tkPill.querySelector('.tk-open').hidden = true;
+      tkPill.querySelector('.tk-box').hidden = true;
+    } else if (tkPill.querySelector('.tk-box').hidden) {
+      tkPill.querySelector('.tk-open').hidden = false;
+    }
+    if (mcWin && !mcWin.panel) mcWin.refresh();
+  }
+  function buildTicketPill(id) {
+    const pill = el('div');
+    pill.id = 'atqm-tkpill';
+    pill.dataset.id = id;
+    const open = el('button', 'tk-open', 'Macros');
+    open.title = `Queue monitor macros for ${id}`;
+    open.setAttribute('aria-expanded', 'false');
+    const box = el('div', 'tk-box');
+    box.hidden = true;
+    box.setAttribute('role', 'group');
+    box.setAttribute('aria-label', `Macros for ${id}`);
+    const head = el('div', 'mcw-head'), x = el('button', 'mcw-x', '×');
+    x.title = 'Close';
+    x.setAttribute('aria-label', 'Close macros');
+    head.append(el('b', null, 'Macros'), x);
+    const show = on => {
+      box.hidden = !on;
+      open.hidden = on;
+      open.setAttribute('aria-expanded', String(on));
+      if (!on && mcWin && !mcWin.panel && !mcWin.started()) closeMacroWindow();
+    };
+    box.append(head, macroGrid(() => ({ ticket: id, popup: true }), () => box, () => { show(false); renderTicketPill(); }));
+    const result = el('div', 'tk-result');
+    result.hidden = true;
+    pill.append(open, box, result);
+    open.onclick = () => { show(true); box.querySelector('.mc-sq')?.focus(); };
+    x.onclick = () => { show(false); open.focus(); };
+    box.addEventListener('keydown', e => { if (e.key === 'Escape') { show(false); open.focus(); } });
+    return pill;
+  }
+
+  function ensureCss() {
+    if (document.getElementById('atqm-css')) return;
+    const style = el('style', null, CSS);
+    style.id = 'atqm-css';
+    document.head.append(style);
+  }
+
   function createWidget() {
     if (document.getElementById('atqm') || !document.body || document.body.tagName === 'FRAMESET') return;
 
-    document.head.append(el('style', null, CSS));
+    ensureCss();
     const w = el('div');
     w.id = 'atqm';
     w.innerHTML = `
@@ -3894,6 +4917,7 @@ label.set-label{cursor:pointer}
         <div id="atqm-tabs" role="tablist" aria-label="Queue monitor views">
           <button role="tab" id="atqm-tab-next" data-tab="next" aria-controls="atqm-panel">Next up</button>
           <button role="tab" id="atqm-tab-overview" data-tab="overview" aria-controls="atqm-panel">Overview</button>
+          <button role="tab" id="atqm-tab-macros" data-tab="macros" aria-controls="atqm-panel">Macros</button>
         </div>
         <div id="atqm-panel" role="tabpanel"></div>
         <div id="atqm-btns">
@@ -3981,28 +5005,39 @@ label.set-label{cursor:pointer}
   // one in view at the same time. Close or Esc returns to the page. Read-only: monitoring carries on
   // in the monitoring tabs.
   // ---------------------------------------------------------------------------
-  const DASH_SS = P + 'dash'; // open in this tab (kept across reloads, so it can stay up on a wall screen)
-  const dashOpen = () => { try { return !!CONFIG.dashboard && !!sessionStorage.getItem(DASH_SS); } catch { return false; } };
-  function openDashboard() { try { sessionStorage.setItem(DASH_SS, '1'); } catch { /* ignore */ } render(); }
+  // Open in this tab: the page it was opened on. A reload of that page keeps it open (so it can stay up
+  // on a wall screen); going to another page from Autotask's top bar leaves it closed.
+  const DASH_SS = P + 'dash';
+  const dashPage = () => location.pathname + location.search;
+  const dashOpen = () => { try { return !!CONFIG.dashboard && sessionStorage.getItem(DASH_SS) === dashPage(); } catch { return false; } };
+  function openDashboard() { closeMacroWindow(); try { sessionStorage.setItem(DASH_SS, dashPage()); } catch { /* ignore */ } render(); }
   function closeDashboard() {
     try { sessionStorage.removeItem(DASH_SS); } catch { /* ignore */ }
     try { if (document.fullscreenElement) document.exitFullscreen(); } catch { /* ignore */ }
     render();
   }
   // Registered before the lock's key handling, so Esc works on a locked monitoring tab too. Esc closes
-  // Settings first (it sits over the dashboard), unless it's clearing the settings search.
+  // a macro's window first, then Settings (it sits over the dashboard), unless it's clearing the
+  // settings search.
   addEventListener('keydown', e => {
     if (e.key !== 'Escape') return;
-    if (settingsOpen()) {
+    if (mcWin) {
+      e.preventDefault();
+      e.stopPropagation(); // and not the box it was opened from as well
+      closeMacroWindow(true);
+    } else if (settingsOpen()) {
       if (e.target?.closest?.('.set-find') && e.target.value) return;
       e.preventDefault();
       closeSettings();
     } else if (document.getElementById('atqm-dash')) closeDashboard();
   }, true);
+  addEventListener('resize', () => { const d = document.getElementById('atqm-dash'); if (d) placeDashboard(d); });
 
   let dashTable = false;      // deadlines shown as a table instead of the chart
   let dashAllChanges = false; // the longer change history
   const dueOf = it => it.due || it.dl?.due || null;
+  // Tickets in Next up that need you within the hour: overdue, or a deadline in the next 60 minutes
+  const needYouWithinHour = items => items.filter(it => it.kind !== 'call' && dueOf(it) && dueOf(it) - Date.now() <= 3600000);
 
   // The numbers across the top
   function dashboardStats(items) {
@@ -4022,22 +5057,22 @@ label.set-label{cursor:pointer}
     const high = all.filter(t => isHighPriority(t.priority)).length;
     const acting = all.filter(t => !resting(t)).length;
     const stats = [
-      { label: 'Overdue', value: overdue.length, status: overdue.length ? 'critical' : '', icon: '!',
+      { label: 'Overdue', value: overdue.length, status: overdue.length ? 'critical' : '', icon: 'alert',
         sub: overdue.length ? `longest ${dur(now - Math.min(...overdue.map(dueOf)))}` : 'nothing past due' },
-      { label: 'Due in the next hour', value: nextHour.length, status: nextHour.length ? 'warning' : '', icon: '◷',
+      { label: 'Due in the next hour', value: nextHour.length, status: nextHour.length ? 'warning' : '', icon: 'clock',
         sub: nextHour.length ? `next in ${dur(dueOf(nextHour[0]) - now)}` : 'nothing due' },
-      { label: 'Waiting for a first response', value: waiting.length,
+      { label: 'Waiting for a first response', value: waiting.length, icon: 'inbox',
         sub: !waiting.length ? 'none in New status'
           : pastTarget ? `${pastTarget} past your ${dur(CONFIG.responseTarget * 60000)} target`
           : `longest ${dur(now - Math.min(...waiting.map(age)))}` },
-      { label: 'Changed since you looked', value: changed, sub: changed ? 'in Next up' : 'all seen' },
-      { label: 'Need action', value: acting, sub: [`of ${all.length} ticket${all.length === 1 ? '' : 's'}`, high ? `${high} high priority` : ''].filter(Boolean).join(' · ') },
+      { label: 'Changed since you looked', value: changed, icon: 'eye', sub: changed ? 'in Next up' : 'all seen' },
+      { label: 'Need action', value: acting, icon: 'list', sub: [`of ${all.length} ticket${all.length === 1 ? '' : 's'}`, high ? `${high} high priority` : ''].filter(Boolean).join(' · ') },
     ];
     if (activeQueues().some(q => q.mode === 'calls')) {
       const calls = activeQueues().filter(q => q.mode === 'calls').flatMap(q => snapTickets(q) || [])
         .filter(c => c.start && c.end > now).sort((a, b) => a.start - b.start);
       const inProgress = calls.find(c => c.start <= now), next = calls.find(c => c.start > now);
-      stats.push({ label: 'Service calls', value: inProgress ? 'Now' : next ? timeOf(next.start) : '–',
+      stats.push({ label: 'Service calls', icon: 'phone', value: inProgress ? 'Now' : next ? timeOf(next.start) : '–',
         sub: inProgress ? callLabel(inProgress) : next ? callLabel(next) : 'none coming up' });
     }
     return stats;
@@ -4062,17 +5097,44 @@ label.set-label{cursor:pointer}
   }
   const niceMax = n => (n <= 4 ? Math.max(1, n) : n <= 10 ? Math.ceil(n / 2) * 2 : Math.ceil(n / 5) * 5);
 
+  // A dashboard card, built like a Settings section: an icon, the title, a short note and any controls
+  // across the top, the content below. Returns the card and the box its content goes in.
+  function dashCard(ico, title, note, ...tools) {
+    const card = el('section', 'dash-card');
+    const head = el('div', 'dash-card-h');
+    head.append(icon(ico, 15), el('h2', null, title));
+    if (note) head.append(el('span', 'dash-count', note));
+    if (tools.length) { const t = el('div', 'dash-tools'); t.append(...tools); head.append(t); }
+    const body = el('div', 'dash-card-b');
+    card.append(head, body);
+    return { card, body };
+  }
+  // A button like the ones in Settings, with an icon
+  function dashButton(label, ico, onclick, { cls = '', title = '' } = {}) {
+    const b = el('button', 'set-btn' + (cls ? ' ' + cls : ''));
+    b.type = 'button';
+    if (ico) b.append(icon(ico, 14));
+    b.append(label);
+    if (title) b.title = title;
+    b.onclick = onclick;
+    return b;
+  }
+
   // Columns, one per hour, single series. Hover or focus a column for its tickets; Table shows the same.
   function deadlineChart(items) {
-    const card = el('section', 'dash-card');
-    const head = el('h2', null, 'Deadlines in the next 8 hours');
-    const toggle = el('button', 'dash-mini', dashTable ? 'Chart' : 'Table');
-    toggle.setAttribute('aria-pressed', String(dashTable));
-    toggle.onclick = () => { dashTable = !dashTable; render(); };
-    head.append(toggle);
-    card.append(head);
     const buckets = deadlineBuckets(items);
     if (!buckets.some(b => b.items.length)) return null; // nothing due: no card
+    const seg = el('div', 'set-seg');
+    seg.setAttribute('role', 'group');
+    seg.setAttribute('aria-label', 'Show deadlines as');
+    for (const [label, table] of [['Chart', false], ['Table', true]]) {
+      const b = el('button', null, label);
+      b.type = 'button';
+      b.setAttribute('aria-pressed', String(dashTable === table));
+      b.onclick = () => { dashTable = table; render(); };
+      seg.append(b);
+    }
+    const { card, body } = dashCard('chart', 'Deadlines in the next 8 hours', '', seg);
     const range = b => `${b.label === 'Now' ? 'Now' : b.label}–${timeOf(b.to)}`;
     const describe = it => `${it.t.id} · ${it.due ? it.what : it.dl.what} ${timeOf(dueOf(it))}`;
     if (dashTable) {
@@ -4085,7 +5147,7 @@ label.set-label{cursor:pointer}
         tr.append(el('td', null, range(b)), el('td', 'num', String(b.items.length)), el('td', null, b.items.map(describe).join(', ')));
         table.append(tr);
       }
-      card.append(table);
+      body.append(table);
       return card;
     }
     const max = Math.max(...buckets.map(b => b.items.length));
@@ -4130,7 +5192,7 @@ label.set-label{cursor:pointer}
       columns.append(col);
     });
     chart.append(columns, tip);
-    card.append(chart);
+    body.append(chart);
     return card;
   }
 
@@ -4177,19 +5239,16 @@ label.set-label{cursor:pointer}
   // Next up as a table, grouped as in the window
   function nextUpTable(items) {
     const qs = activeQueues();
-    const card = el('section', 'dash-card');
     const urgent = urgentCount(items);
-    const head = el('h2', null, 'Next up');
-    head.append(el('span', null, urgent ? `${urgent} need${urgent === 1 ? 's' : ''} you now` : 'all clear'));
-    card.append(head);
+    const { card, body } = dashCard('zap', 'Next up', urgent ? `${urgent} need${urgent === 1 ? 's' : ''} you now` : 'all clear');
     if (!qs.length) {
-      card.append(el('div', 'atqm-empty', 'No queues tracked. Open a queue in My Workspace & Queues and press Start tracking.'));
+      body.append(el('div', 'atqm-empty', 'No queues tracked. Open a queue in My Workspace & Queues and press Start tracking.'));
       return card;
     }
     const hint = basisHint(qs);
-    if (hint) card.append(el('div', 'atqm-hint atqm-basis-hint', hint));
+    if (hint) body.append(el('div', 'atqm-hint', hint));
     if (!items.length) {
-      card.append(el('div', 'atqm-empty', 'Nothing needs action right now.'));
+      body.append(el('div', 'atqm-empty', 'Nothing needs action right now.'));
       return card;
     }
     const showQueue = qs.length > 1;
@@ -4209,7 +5268,7 @@ label.set-label{cursor:pointer}
         table.append(tr);
       }
     }
-    card.append(tableCard(table));
+    body.append(tableCard(table));
     return card;
   }
   function nextTableRow(it, showQueue) {
@@ -4237,17 +5296,14 @@ label.set-label{cursor:pointer}
   // Every ticket in a queue tracked for all changes (My queue), so you can work from the dashboard: those
   // that need action first, most urgent at the top, then those resting in a status that needs nothing yet
   function ticketTable(q) {
-    const card = el('section', 'dash-card');
     const tickets = snapTickets(q);
-    const head = el('h2', null, qName(q));
-    if (tickets) head.append(el('span', null, `${tickets.length} ticket${tickets.length === 1 ? '' : 's'}`));
-    card.append(head);
+    const { card, body } = dashCard('list', qName(q), tickets ? `${tickets.length} ticket${tickets.length === 1 ? '' : 's'}` : '');
     if (!tickets) {
-      card.append(el('div', 'atqm-empty', `No data yet. Fills in after the first scan of ${qWhere(q)}.`));
+      body.append(el('div', 'atqm-empty', `No data yet. Fills in after the first scan of ${qWhere(q)}.`));
       return card;
     }
     if (!tickets.length) {
-      card.append(el('div', 'atqm-empty', 'No tickets in this queue.'));
+      body.append(el('div', 'atqm-empty', 'No tickets in this queue.'));
       return card;
     }
     const unread = unreadByTicket();
@@ -4265,7 +5321,7 @@ label.set-label{cursor:pointer}
       table.append(groupRow(name, list.length, names.length));
       for (const r of list) table.append(ticketRow(r, withDeadline));
     }
-    card.append(tableCard(table));
+    body.append(tableCard(table));
     return card;
   }
   function ticketRow({ t, d, age, changes }, withDeadline) {
@@ -4298,6 +5354,45 @@ label.set-label{cursor:pointer}
     return card;
   }
 
+  // Autotask's own bar across the top of the page (New, search, its menus). Found by where it is rather than
+  // what it's called: the full-width strip at the very top. Returns its bottom edge, or null if there's none.
+  const OUR_BOXES = '#atqm-dash, #atqm, #atqm-settings, #atqm-lock, #atqm-tkpill, #atqm-macrobar, #atqm-mcwin';
+  function pageAt(x, y) {
+    if (typeof document.elementsFromPoint !== 'function') return [];
+    return document.elementsFromPoint(x, y).filter(e => e !== document.documentElement && e !== document.body && !e.closest(OUR_BOXES));
+  }
+  // The z-index something paints at against the rest of the page: the outermost one set around it
+  function zOf(e) {
+    let z = 0;
+    for (let n = e; n && n !== document.body; n = n.parentElement) {
+      const s = getComputedStyle(n);
+      if (s.position !== 'static' && s.zIndex !== 'auto') z = parseInt(s.zIndex, 10) || 0;
+    }
+    return z;
+  }
+  function topBarBottom() {
+    const w = innerWidth;
+    let bottom = 0;
+    for (const x of [w * 0.25, w * 0.5, w * 0.75]) {
+      const top = pageAt(x, 3)[0];
+      // The widest box around it that's still a strip along the top
+      for (let n = top; n && n !== document.body; n = n.parentElement) {
+        const r = n.getBoundingClientRect();
+        if (r.top <= 4 && r.height >= 24 && r.height <= 160 && r.width >= w * 0.6) bottom = Math.max(bottom, r.bottom);
+      }
+    }
+    return bottom ? Math.round(bottom) : null;
+  }
+  // The dashboard covers the page below Autotask's top bar, so New, search and the menus stay usable. It
+  // sits just above the page it covers, and so under the bar's drop-down menus. Full screen, and a locked
+  // monitoring tab (greyed out, bar and all), get the whole window.
+  function placeDashboard(d) {
+    const bar = document.fullscreenElement === d || lockActive() ? null : topBarBottom();
+    const below = bar ? Math.max(0, ...pageAt(innerWidth / 2, bar + (innerHeight - bar) / 2).slice(0, 5).map(zOf)) : 0;
+    d.style.top = bar ? bar + 'px' : '';
+    d.style.zIndex = bar ? String(below + 1) : '';
+  }
+
   function renderDashboard(items) {
     let d = document.getElementById('atqm-dash');
     if (!isTop || !dashOpen()) { d?.remove(); return; }
@@ -4310,45 +5405,53 @@ label.set-label{cursor:pointer}
       d.setAttribute('aria-label', 'Queue monitor dashboard');
       document.body.append(d);
     }
-    const scroll = d.scrollTop;
+    placeDashboard(d);
+    const scroll = d.querySelector('.dash-main')?.scrollTop || 0;
     d.replaceChildren();
 
-    const top = el('div', 'dash-top');
-    const title = el('div', 'dash-title');
-    title.append(el('b', null, 'Queue monitor'), el('span', null, `Dashboard · updated ${timeOf(Date.now())}`));
+    // The same header bar as Settings: icon, title and what it is, then the buttons and close
+    const head = el('header', 'set-head');
+    const brand = el('div', 'set-brand');
+    const titles = el('div');
+    titles.append(el('h1', null, 'Dashboard'), el('div', 'set-sub', `Queue monitor · updated ${timeOf(Date.now())}`));
+    brand.append(icon('grid', 18), titles);
     const actions = el('div', 'dash-actions');
-    const scan = el('button', null, 'Scan now');
-    scan.onclick = requestScan;
-    const full = el('button', null, document.fullscreenElement === d ? 'Exit full screen' : 'Full screen');
-    full.title = 'Use the whole screen';
-    full.hidden = typeof d.requestFullscreen !== 'function';
-    full.onclick = () => {
+    const fullNow = document.fullscreenElement === d;
+    const full = dashButton(fullNow ? 'Exit full screen' : 'Full screen', fullNow ? 'minimize' : 'maximize', () => {
       try { if (document.fullscreenElement) document.exitFullscreen(); else d.requestFullscreen(); } catch { /* not allowed */ }
       setTimeout(render, 300);
-    };
-    const settings = el('button', 'dash-set');
-    settings.innerHTML = svgIcon('cog', 14);
-    settings.append('Settings');
-    settings.onclick = () => openSettings();
-    const close = el('button', 'dash-close', 'Close');
-    close.title = 'Back to the page (Esc)';
+    }, { title: 'Use the whole screen' });
+    full.hidden = typeof d.requestFullscreen !== 'function';
+    const close = el('button', 'set-x');
+    close.type = 'button';
+    close.title = 'Close (Esc)';
+    close.setAttribute('aria-label', 'Close the dashboard');
+    close.append(icon('x', 18));
     close.onclick = closeDashboard;
-    actions.append(scan, full, settings, close);
-    top.append(title, actions);
-    d.append(top);
-    for (const text of [...globalWarnings(), ...(localNote ? [localNote] : [])]) d.append(el('div', 'dash-note', text));
+    actions.append(dashButton('Scan now', 'refresh', requestScan, { title: 'Refresh every tracked queue now' }), full,
+      dashButton('Settings', 'cog', () => openSettings()), close);
+    head.append(brand, actions);
+    const main = el('div', 'dash-main');
+    const inner = el('div', 'dash-inner');
+    main.append(inner);
+    d.append(head, main);
+    for (const text of [...globalWarnings(), ...(localNote ? [localNote] : [])]) {
+      const note = el('div', 'dash-note');
+      note.append(icon('alert', 15), el('span', null, text));
+      inner.append(note);
+    }
 
+    // The numbers, each with its icon (tinted red or amber when it needs you)
     const kpis = el('div', 'dash-kpis');
     for (const s of dashboardStats(items)) {
       const tile = el('div', 'dash-kpi' + (s.status ? ' ' + s.status : ''));
       const label = el('div', 'l');
-      if (s.icon) label.append(el('span', 'dash-ico', s.icon));
-      label.append(s.label);
+      label.append(icon(s.icon || 'list', 15), el('span', null, s.label));
       tile.append(label, el('div', 'v', String(s.value)));
       if (s.sub) tile.append(el('div', 's', s.sub));
       kpis.append(tile);
     }
-    d.append(kpis);
+    inner.append(kpis);
 
     // Two columns that each fill downwards on their own (no row lines them up, so no gaps): what to do
     // and every ticket on the left, the wider picture on the right
@@ -4357,35 +5460,31 @@ label.set-label{cursor:pointer}
     left.append(nextUpTable(items));
     for (const q of activeQueues().filter(x => x.mode === 'full')) left.append(ticketTable(q));
     const right = el('div', 'dash-stack');
-    const queues = el('section', 'dash-card');
-    queues.append(el('h2', null, 'Queues'));
-    for (const q of activeQueues()) queues.append(dashQueueCard(q));
-    if (!activeQueues().length) queues.append(el('div', 'atqm-empty', 'No queues tracked.'));
-    const changes = el('section', 'dash-card');
-    const ch = el('h2', null, 'Recent changes');
+    const queues = dashCard('layout', 'Queues', '');
+    queues.body.classList.add('rows');
+    for (const q of activeQueues()) queues.body.append(dashQueueCard(q));
+    if (!activeQueues().length) queues.body.append(el('div', 'dash-q atqm-empty', 'No queues tracked.'));
     const all = get(K.alerts, []);
     const unread = all.filter(a => !a.read).length;
-    if (unread) {
-      ch.append(el('span', null, `${unread} unread`));
-      const mark = el('button', 'dash-mini', 'Mark all read');
-      mark.onclick = () => { set(K.alerts, get(K.alerts, []).map(a => ({ ...a, read: true }))); render(); };
-      ch.append(mark);
-    }
+    const markAll = unread ? [dashButton('Mark all read', '', () => {
+      set(K.alerts, get(K.alerts, []).map(a => ({ ...a, read: true })));
+      render();
+    }, { cls: 'sm' })] : [];
+    const changes = dashCard('bell', 'Recent changes', unread ? `${unread} unread` : '', ...markAll);
     const shown = dashAllChanges ? CONFIG.displayAlerts : 15;
-    changes.append(ch, all.length ? alertList(all.slice(-shown).reverse())
-      : el('div', 'atqm-empty', 'No changes since monitoring started.'));
+    changes.body.append(all.length ? alertList(all.slice(-shown).reverse()) : el('div', 'atqm-empty', 'No changes since monitoring started.'));
     if (!dashAllChanges && all.length > shown) {
       const more = el('button', 'atqm-more', `Show more (up to ${Math.min(all.length, CONFIG.displayAlerts)})`);
       more.onclick = () => { dashAllChanges = true; render(); };
-      changes.append(more);
+      changes.body.append(more);
     }
     const chart = deadlineChart(items);
-    right.append(queues);
+    right.append(queues.card);
     if (chart) right.append(chart);
-    right.append(changes);
+    right.append(changes.card);
     columns.append(left, right);
-    d.append(columns);
-    d.scrollTop = scroll;
+    inner.append(columns);
+    main.scrollTop = scroll;
     if (opening) d.focus();
   }
 
@@ -4541,16 +5640,26 @@ label.set-label{cursor:pointer}
     w.querySelector('#atqm-dashbtn').hidden = !CONFIG.dashboard;
     renderDashboard(nextItems);
 
-    const unread = get(K.alerts, []).filter(a => !a.read).length;
+    // The red count: tickets that need you within the hour (the unread changes are counted under Recent changes)
+    const hot = needYouWithinHour(nextItems);
+    const overdue = hot.filter(it => dueOf(it) < Date.now()).length;
     const badge = w.querySelector('#atqm-badge');
-    badge.textContent = unread;
-    badge.style.display = unread ? '' : 'none';
+    badge.textContent = hot.length;
+    badge.style.display = hot.length ? '' : 'none';
+    const hotText = `${hot.length} ticket${hot.length === 1 ? ' needs' : 's need'} you within the hour` +
+      (overdue ? `: ${overdue} overdue${hot.length > overdue ? `, ${hot.length - overdue} due soon` : ''}` : '');
+    badge.title = hotText;
+    badge.setAttribute('role', 'img');
+    badge.setAttribute('aria-label', hotText);
 
     // Next up is the first tab; a saved 'changes' tab (before 0.9) now lives in Next up, and a saved
     // 'settings' tab (before 0.14) is its own window behind the cog
     let tab = get(K.tab, 'next');
-    if (!['next', 'overview'].includes(tab)) tab = 'next';
-    const TAB_LABELS = { next: urgent ? `Next up (${urgent})` : 'Next up', overview: 'Overview' };
+    if (!['next', 'overview', 'macros'].includes(tab)) tab = 'next';
+    if (mcWin?.panel && (tab !== 'macros' || minimised)) closeMacroWindow(); // its square is out of sight
+    const job = macroJob();
+    const macroLeft = job && !job.finished ? job.items.filter(i => MACRO_ACTIVE.has(i.state) || i.state === 'waiting').length : 0;
+    const TAB_LABELS = { next: urgent ? `Next up (${urgent})` : 'Next up', overview: 'Overview', macros: macroLeft ? `Macros (${macroLeft} to go)` : 'Macros' };
     w.querySelectorAll('#atqm-tabs button').forEach(b => {
       const selected = b.dataset.tab === tab;
       b.setAttribute('aria-selected', String(selected));
@@ -4562,9 +5671,13 @@ label.set-label{cursor:pointer}
     panel.setAttribute('aria-labelledby', 'atqm-tab-' + tab);
     panel.dataset.tab = tab;
     const scroll = panel.scrollTop;
-    panel.replaceChildren();
-    if (tab === 'next') renderNextUp(panel, nextItems);
-    else renderOverview(panel, pg);
+    if (tab === 'macros') {
+      renderMacros(panel, pg); // kept between redraws, not rebuilt
+    } else {
+      panel.replaceChildren();
+      if (tab === 'next') renderNextUp(panel, nextItems);
+      else renderOverview(panel, pg);
+    }
     panel.scrollTop = scroll;
   }
 
@@ -4806,7 +5919,7 @@ label.set-label{cursor:pointer}
     lastReportHadQueue = !!pg.cur;
     postToTop({
       atqm: 'page', ts: Date.now(), cur: pg.cur || null, qKey: pg.q?.key || null, owns: !!pg.owns, foreign: !!pg.foreign, ownsAny: !!pg.ownsAny,
-      choose: !!pg.choose, isCalls: !!pg.isCalls, url: location.href, storageFail: storageFail?.ts || 0,
+      choose: !!pg.choose, isCalls: !!pg.isCalls, url: location.href, storageFail: storageFail?.ts || 0, ticked: pg.ticked || [],
     });
   }
 
@@ -4843,14 +5956,17 @@ label.set-label{cursor:pointer}
     clearTimeout(loopTimer);
     loopTimer = setTimeout(async () => {
       await tick();
-      schedule(rotationTab() ? rotationStep(owned.size || activeQueues().length) : CONFIG.refreshMs);
+      const mine = trackedQueues().filter(q => owned.has(q.key));
+      schedule(rotationTab() ? rotationStep(owned.size || activeQueues().length)
+        : mine.length ? Math.min(...mine.map(refreshOf)) : CONFIG.refreshMs);
     }, delay);
   }
+  // Next scan when this page's queue is next due (its own refresh after its last scan)
   function reschedule() {
     if (rotationTab()) return schedule(2000);
-    const mine = trackedQueues().filter(q => owned.has(q.key)).map(q => get(q.state, {}).lastScan || 0);
-    const last = mine.length ? Math.max(...mine) : 0;
-    schedule(Math.max(2000, last + CONFIG.refreshMs - Date.now()));
+    const mine = trackedQueues().filter(q => owned.has(q.key));
+    const due = mine.length ? Math.min(...mine.map(q => (get(q.state, {}).lastScan || 0) + refreshOf(q))) : 0;
+    schedule(Math.max(2000, due - Date.now()));
   }
 
   // ---------------------------------------------------------------------------
@@ -4868,11 +5984,12 @@ label.set-label{cursor:pointer}
       readGrid, readCallGrid, findColumns, pagerInfo, coverage, missingColumns,
       scanFull, scanIntake, scanCalls, health, globalWarnings, navItems, currentQueue, diagnose,
       claim, mayMonitorHere, consentHere,
-      nextUpItems, urgentCount, markTicketRead, nextSummary,
+      nextUpItems, urgentCount, markTicketRead, nextSummary, openTicketId, noteOpenTicket,
       rotate, rotationTab, rotationStep, switchToQueue, gridSignature, monitorElsewhere,
       openQueueTab, popupsBlocked,
       readableColor, statusColor, statusWord, alertText, targetDue, dashboardStats, deadlineBuckets,
       needsAction, resting, ticketDeadline, priorityWord,
+      MACRO, MACROS, macroJob, startMacro, stopMacro, macroStep, macroWork, patchMacroItem, accountField, fieldInput, ticketField, tickedTickets, renderTicketPill,
     });
     return;
   }
@@ -4882,6 +5999,16 @@ label.set-label{cursor:pointer}
   // ---------------------------------------------------------------------------
   let topHasNoBody = false;
   try { topHasNoBody = !isTop && W.top.document.body?.tagName === 'FRAMESET'; } catch { /* ignore */ }
+  // The macro tab got a copy of its opener's sessionStorage: drop any monitoring role in it (it's not a
+  // queue tab), and note the job, which windows Autotask opens from here (Edit) inherit in turn
+  if (macroTabName() === MACRO_WIN) {
+    try {
+      for (const k of [SS_KEY, P + 'launched', ROTATE_SS, CONSENT_KEY]) sessionStorage.removeItem(k);
+      const job = macroJob();
+      if (job && !job.finished) sessionStorage.setItem(MACRO_SS, job.id);
+    } catch { /* ignore */ }
+  }
+  setInterval(macroWork, 1000); // does nothing unless this page is doing a macro's steps (see macroPage)
   if (isTop && launchKey()) {
     try { sessionStorage.setItem(SS_KEY, launchKey()); sessionStorage.setItem(P + 'launched', '1'); } catch { /* ignore */ }
     if (launchKey() === ROTATE_KEY) {
@@ -4893,7 +6020,11 @@ label.set-label{cursor:pointer}
 
   const wantsWidget = () => !(CONFIG.hideInPopups && isPopup()) && (isTop || (topHasNoBody && gridPresent()));
   if (wantsWidget()) createWidget();
-  const boot = setInterval(() => { if (!document.getElementById('atqm') && wantsWidget()) createWidget(); }, 3000);
+  const boot = setInterval(() => {
+    if (!document.getElementById('atqm') && wantsWidget()) createWidget();
+    renderTicketPill();
+  }, 3000);
+  setTimeout(renderTicketPill, 1500);
   // (No pagehide clean-up here: a tab opened by script can receive a stale pagehide from the blank
   //  page it started as, which would stop the widget ever appearing. Timers end with the page anyway.)
 
@@ -4901,11 +6032,12 @@ label.set-label{cursor:pointer}
   document.addEventListener('click', () => setTimeout(() => { pageCache.t = 0; renderSoon(); }, 800), true);
 
   addEventListener('storage', e => {
-    if (!e.key || !e.key.startsWith(P)) return;
+    if (!e.key || !e.key.startsWith(P) || e.key === K.viewed) return; // viewed changes every few seconds and shows nowhere
     if (e.key === K.scanReq && trackedQueues().some(ownsLock)) tick({ manual: true });
     if (e.key === K.moveReq) handleMoveRequest();
     if (e.key === K.gridFixReq) handleGridFixRequest();
     if (e.key === K.beepReq) playRelayedBeep();
+    if (e.key === K.macro) { macroStep(); macroWork(); renderTicketPill(); } // a step finished, or a new one is due here
     if (e.key === K.settings) { loadSettings(); reschedule(); setForm?.refresh(); }
     if (e.key === K.queues) { pageCache.t = 0; setForm?.refreshQueues(); }
     renderSoon();
@@ -4915,6 +6047,11 @@ label.set-label{cursor:pointer}
   if (isTop) setInterval(() => { if (document.getElementById('atqm-dash')) render(); }, 15000); // dashboard countdowns
 
   schedule(3000);
+  // A ticket's page (any frame): its changes count as seen while it's open in front of you
+  setTimeout(noteOpenTicket, 1500);
+  setInterval(noteOpenTicket, VIEW_BEAT);
+  document.addEventListener('visibilitychange', noteOpenTicket);
+  setInterval(macroStep, 2000); // only does anything in the page that started a macro
   if (isTop) {
     setTimeout(callTicker, 3000);
     setInterval(() => { callTicker(); healthTicker(); }, 15000);

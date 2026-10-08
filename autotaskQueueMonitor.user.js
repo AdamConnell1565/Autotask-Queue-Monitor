@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Autotask Queue Monitor
 // @namespace    autotask
-// @version      0.16.0
+// @version      0.16.1
 // @description  Track any My Workspace & Queues queue (My queue by default) in its own tab, with a live overview on every Autotask page
 // @author       AdamConnell1565
 // @homepageURL  https://github.com/AdamConnell1565/Autotask-Queue-Monitor
@@ -2120,8 +2120,8 @@
 html.atqm-set-open #atqm{visibility:hidden}
 #atqm.atqm-off{display:none!important}
 #atqm-navbtn{max-width:none}
-.atqm-navlabel{display:flex;flex-direction:column;justify-content:center;min-width:0;line-height:1.2;text-align:left}
-.atqm-navby{font-size:10.5px;opacity:.75}
+.atqm-navlabel{position:relative;min-width:0;text-align:left}
+.atqm-navby{position:absolute;left:0;top:100%;margin-top:1px;font-size:10px;line-height:1.1;white-space:nowrap;opacity:.75}
 #atqm-navmenu{position:fixed;z-index:2147483003;min-width:250px;padding:4px 0;box-shadow:0 8px 24px rgba(0,0,0,.35);
   font:13px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif;text-align:left}
 #atqm-navmenu *{box-sizing:border-box}

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.16.1 (2026-10-08)
+
+### Changed
+
+- The Queue monitor menu's name lines up with Autotask's own menus beside it, with the credit line underneath it rather than pushing it up.
+
 ## 0.16.0 (2026-10-08)
 
 ### Added

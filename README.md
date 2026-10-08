@@ -96,6 +96,16 @@ On each ticket it reads the Account field. A ticket already on that account is s
 
 Each ticket ends up **Done** (with which types were filled in, and which it kept because the ticket had one), **Already on it** (skipped), **Failed** (with why: the account or type wasn't offered, several matched, a field wasn't on the edit page or was greyed out, Autotask wanted another field before saving, or it asked a question) or **Check it** (saved, but the change couldn't be confirmed). **Stop** halts it straight away and closes the macro tab (the ticket it was on is marked **Check it**). At the end, **Try the _n_ again** reruns the tickets that didn't get done, and **Done** clears the list. A message box with only OK is acknowledged; any other question is left unanswered and that ticket isn't saved.
 
+## Queue monitor menu
+
+Autotask's top bar gets an **Autotask Queue Monitor** menu after its own (Dashboards, My, Calendar), showing the version, with a credit line underneath. It's built from Autotask's own menu buttons, so it looks like them. It has:
+
+- **Dashboard** and **Settings**, which open them.
+- **Hide** or **Show Queue monitor window**. Hidden, the window stays out of the way on pages with Autotask's top bar, and this menu brings it back. Locked monitoring tabs always show it.
+- **Hide** or **Show Macros button on ticket pop-ups**, the small button in the corner of ticket pop-up windows.
+
+Both choices are saved, so every Autotask tab follows them. They're also in Settings, under Window and display. Pages without Autotask's new top bar don't get the menu, and there the window always shows.
+
 ## Dashboard
 
 The ⛶ button at the top of the window opens a dashboard over the page, below Autotask's own top bar so **New**, search and the menus still work (turn off **Dashboard button** in Settings to remove it), for keeping SLAs and the tickets without one in view at the same time:
@@ -159,7 +169,7 @@ The sections, and the settings most people change:
 - **Alerts**: **Desktop notifications** and **Sound on new alerts**. **Send a test** checks both.
 - **Service calls**: **Service calls**, **Refresh service calls every** (10 minutes by default, separate from the queues) and **Call reminders**.
 - **Monitoring**: **Refresh queues every**, **Monitor all queues from one tab** (see [One tab for all queues](#one-tab-for-all-queues)) and **Lock monitoring tabs**.
-- **Window and display**: **Dashboard button** (adds the ⛶ button that opens the dashboard), and how the window looks.
+- **Window and display**: **Dashboard button** (adds the ⛶ button that opens the dashboard), **Queue monitor window** and **Macros button on ticket pop-ups** (show or hide them, as the Queue monitor menu does), and how the window looks.
 - **Dates and times**: **Date format in Autotask** (detected from your queues; set it if the window shows the wrong dates) and **Autotask time zone** (set it if the time zone in your Autotask profile differs from your PC's; the window warns you when due times look hours out).
 - **Backup and help**: **Export** / **Import** move your settings and tracked queues to another browser or PC. **Diagnostics** and **Reset to defaults** are here too.
 

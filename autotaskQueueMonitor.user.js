@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Autotask Queue Monitor
 // @namespace    autotask
-// @version      0.15.4
+// @version      0.16.0
 // @description  Track any My Workspace & Queues queue (My queue by default) in its own tab, with a live overview on every Autotask page
 // @author       AdamConnell1565
 // @homepageURL  https://github.com/AdamConnell1565/Autotask-Queue-Monitor
@@ -51,6 +51,8 @@
       chooserSave: '.StandardButtonIcon.Save',
       dialogClose: '.DialogTitleBarIcon.Close',
       topBar: '[data-slot="header"]',          // Autotask's bar across the top (logo, menus, search, New): the dashboard sits below it
+      topBarNav: '[data-slot="header:navigation-section"]', // its menus (Dashboards, My, Calendar): the Queue monitor menu goes after them
+      topBarMenu: '[data-slot="header:navigation-menu-button"]', // one of those menus' buttons, copied for the Queue monitor menu's
       ticketTitle: '.TitleBarItem.Title',      // a ticket's page: "Ticket - T20261007.0081 - Title"
       ticketTitleKind: '.Text',
       // Ticket pages and the ticket edit page (the Macros tab works them)
@@ -174,6 +176,8 @@
     lockMonitorTabs: true,        // monitoring tabs: big centred window, page greyed out and not clickable
     oneTab: false,                // Quick start opens one tab that monitors every queue in turn
     dashboard: true,              // a button that opens the full-window dashboard
+    showWindow: true,             // the Queue monitor window (hidden only where the Queue monitor menu in Autotask's top bar can bring it back)
+    ticketMacroButton: true,      // the Macros button in the corner of ticket pop-ups
     notify: true,
     sound: true,
     hideInPopups: true,
@@ -2114,6 +2118,19 @@
 @keyframes atqm-set-in{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
 #atqm-settings *{box-sizing:border-box}
 html.atqm-set-open #atqm{visibility:hidden}
+#atqm.atqm-off{display:none!important}
+#atqm-navbtn{max-width:none}
+.atqm-navlabel{display:flex;flex-direction:column;justify-content:center;min-width:0;line-height:1.2;text-align:left}
+.atqm-navby{font-size:10.5px;opacity:.75}
+#atqm-navmenu{position:fixed;z-index:2147483003;min-width:250px;padding:4px 0;box-shadow:0 8px 24px rgba(0,0,0,.35);
+  font:13px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif;text-align:left}
+#atqm-navmenu *{box-sizing:border-box}
+.atqm-navitem{display:flex;align-items:center;gap:8px;width:100%;min-height:32px;padding:6px 12px;border:0;font:inherit;text-align:left;cursor:pointer}
+.atqm-navitem .atqm-ico{opacity:.8}
+:where(#atqm-navmenu){background:#1e1f22;color:#e6e6e6;border:1px solid #3b4a5e;border-radius:6px}
+:where(.atqm-navitem){background:transparent;color:inherit}
+:where(.atqm-navitem:hover,.atqm-navitem:focus-visible){background:rgba(127,127,127,.2)}
+.atqm-navitem:focus-visible{outline:2px solid #4ea1ff;outline-offset:-2px}
 #atqm-settings [hidden]{display:none!important}
 #atqm-settings:focus{outline:none}
 #atqm-settings button:focus-visible,#atqm-settings input:focus-visible,#atqm-settings select:focus-visible,
@@ -3301,6 +3318,11 @@ label.set-label{cursor:pointer}
     { key: 'dashboard', label: 'Dashboard button', type: 'checkbox',
       hint: "Adds a ⛶ button at the top of the Queue monitor window that opens a dashboard over the page, below Autotask's top bar: the numbers that matter, " +
         'what to do next, deadlines over the next 8 hours, every queue and recent changes. Esc closes it.' },
+    { key: 'showWindow', label: 'Queue monitor window', type: 'checkbox',
+      hint: "Turn off to hide the window on pages with Autotask's top bar. The Queue monitor menu there opens the dashboard and " +
+        'Settings, and brings the window back. Locked monitoring tabs always show it.' },
+    { key: 'ticketMacroButton', label: 'Macros button on ticket pop-ups', type: 'checkbox',
+      hint: 'The small button in the corner of ticket pop-up windows, for running a macro on that ticket.' },
     { key: 'upcomingCount', label: 'Rows shown in each list', type: 'number', min: 1, max: 20, step: 1 },
     { key: 'showStatusCounts', label: 'Show status counts', type: 'checkbox',
       hint: 'Ticket counts per status at the top of queues tracked for all changes.' },
@@ -4870,7 +4892,9 @@ label.set-label{cursor:pointer}
     const id = isTop && document.body && !document.getElementById('atqm') && macroTabName() !== MACRO_WIN ? openTicketId() : null;
     const job = macroJob();
     const mine = job?.here && job.items.length === 1 && job.items[0].id === id ? job : null;
-    if (!id || (mine && !mine.finished)) { // while it runs, the strip along the bottom says so
+    // Turned off (setting "Macros button on ticket pop-ups"): none, though a macro run here still says how it went.
+    // While one runs, the strip along the bottom says so.
+    if (!id || (mine && !mine.finished) || (!CONFIG.ticketMacroButton && !mine)) {
       tkPill?.remove();
       tkPill = null;
       if (mcWin && !mcWin.panel && !mcWin.started()) closeMacroWindow();
@@ -5061,12 +5085,15 @@ label.set-label{cursor:pointer}
     try { if (document.fullscreenElement) document.exitFullscreen(); } catch { /* ignore */ }
     render();
   }
-  // Registered before the lock's key handling, so Esc works on a locked monitoring tab too. Esc closes
-  // a macro's window first, then Settings (it sits over the dashboard), unless it's clearing the
-  // settings search.
+  // Registered before the lock's key handling, so Esc works on a locked monitoring tab too. Esc closes the
+  // Queue monitor menu first, then a macro's window, then Settings (it sits over the dashboard), unless
+  // it's clearing the settings search.
   addEventListener('keydown', e => {
     if (e.key !== 'Escape') return;
-    if (mcWin) {
+    if (navMenu) {
+      e.preventDefault();
+      closeNavMenu(true);
+    } else if (mcWin) {
       e.preventDefault();
       e.stopPropagation(); // and not the box it was opened from as well
       closeMacroWindow(true);
@@ -5403,7 +5430,7 @@ label.set-label{cursor:pointer}
     return card;
   }
 
-  const OUR_BOXES = '#atqm-dash, #atqm, #atqm-settings, #atqm-lock, #atqm-tkpill, #atqm-macrobar, #atqm-mcwin';
+  const OUR_BOXES = '#atqm-dash, #atqm, #atqm-settings, #atqm-lock, #atqm-tkpill, #atqm-macrobar, #atqm-mcwin, #atqm-navbtn, #atqm-navmenu';
   function pageAt(x, y) {
     if (typeof document.elementsFromPoint !== 'function') return [];
     return document.elementsFromPoint(x, y).filter(e => e !== document.documentElement && e !== document.body && !e.closest(OUR_BOXES));
@@ -5554,6 +5581,105 @@ label.set-label{cursor:pointer}
     if (opening) d.focus();
   }
 
+  // ---------------------------------------------------------------------------
+  // The Queue monitor menu in Autotask's top bar, after its own menus (Dashboards, My, Calendar): the
+  // dashboard, Settings, and showing or hiding the Queue monitor window and the ticket pop-ups' Macros button.
+  // Its button is a copy of Autotask's own (its classes copied), so it looks like the menus beside it; the
+  // drop-down uses Autotask's colour classes, with ours underneath in case they're gone.
+  // ---------------------------------------------------------------------------
+  const NAV_BUTTON = 'h-full min-w-4.5rem flex-none flex items-center px-4 text-body color-text-primary truncate cursor-pointer outline-none ' +
+    'hover:bg-white/18 focus-visible:bg-white/18'; // Autotask's, for a page whose menus can't be copied
+  const NAV_ITEM = 'atqm-navitem min-h-8 w-full flex items-center gap-2 px-2 py-1 outline-none cursor-pointer text-body color-text-primary ' +
+    'bg-background-primary hover:bg-background-hover focus-visible:bg-background-hover';
+  let navMenu = null; // { menu, btn } while it's open
+
+  // Put the button in the top bar, or back in it after Autotask redraws the bar. Pages without the bar
+  // (older pages, ticket pop-ups) don't get one.
+  function ensureNavMenu() {
+    if (!isTop || !document.body) return;
+    const header = document.querySelector(AT.sel.topBar);
+    let btn = document.getElementById('atqm-navbtn');
+    if (btn && header?.contains(btn)) return;
+    btn?.remove();
+    closeNavMenu();
+    if (!header) return;
+    ensureCss();
+    const like = header.querySelector(AT.sel.topBarMenu);
+    btn = el('button', `${like?.className || NAV_BUTTON} max-sm:hidden`);
+    btn.type = 'button';
+    btn.id = 'atqm-navbtn';
+    btn.setAttribute('aria-haspopup', 'menu');
+    btn.setAttribute('aria-expanded', 'false');
+    const label = el('div', 'flex-grow atqm-navlabel');
+    label.append(el('div', 'atqm-navname', `Autotask Queue Monitor ${VERSION === 'dev' ? '(dev)' : 'v' + VERSION}`),
+      el('div', 'atqm-navby', 'By Adam Connell'));
+    btn.append(label, el('span', like?.querySelector('[class*="fa-chevron"]')?.className || 'fa-chevron-down fa-regular'));
+    btn.onclick = () => (navMenu ? closeNavMenu() : openNavMenu(btn));
+    btn.addEventListener('keydown', e => { if (e.key === 'ArrowDown') { e.preventDefault(); openNavMenu(btn, true); } });
+    const section = header.querySelector(AT.sel.topBarNav);
+    if (section) section.after(btn);
+    else (header.firstElementChild || header).append(btn);
+  }
+  const navMenuThere = () => !!document.getElementById('atqm-navbtn');
+
+  function openNavMenu(btn, focusFirst = false) {
+    closeNavMenu();
+    const menu = el('div', 'atqm-navmenu bg-background-primary border border-solid border-border-primary rounded');
+    menu.id = 'atqm-navmenu';
+    menu.setAttribute('role', 'menu');
+    menu.setAttribute('aria-label', 'Queue monitor');
+    const item = (label, ico, run) => {
+      const b = el('button', NAV_ITEM);
+      b.type = 'button';
+      b.setAttribute('role', 'menuitem');
+      b.append(icon(ico, 15), el('span', null, label));
+      b.onclick = () => { closeNavMenu(); run(); };
+      menu.append(b);
+    };
+    if (CONFIG.dashboard) item('Dashboard', 'grid', openDashboard);
+    item('Settings', 'cog', () => openSettings());
+    if (document.getElementById('atqm')) {
+      item(CONFIG.showWindow ? 'Hide Queue monitor window' : 'Show Queue monitor window', 'layout', () => toggleSetting('showWindow'));
+    }
+    item(CONFIG.ticketMacroButton ? 'Hide Macros button on ticket pop-ups' : 'Show Macros button on ticket pop-ups', 'zap',
+      () => toggleSetting('ticketMacroButton'));
+    // Up and down move between the items
+    menu.addEventListener('keydown', e => {
+      const items = [...menu.querySelectorAll('button')], i = items.indexOf(document.activeElement);
+      const j = { ArrowDown: i + 1, ArrowUp: i - 1, Home: 0, End: items.length - 1 }[e.key];
+      if (e.key === 'Tab') closeNavMenu();
+      if (j == null) return;
+      e.preventDefault();
+      items[(j + items.length) % items.length].focus();
+    });
+    document.body.append(menu);
+    const r = btn.getBoundingClientRect();
+    Object.assign(menu.style, { left: Math.max(4, Math.min(r.left, innerWidth - menu.offsetWidth - 4)) + 'px', top: r.bottom + 'px' });
+    btn.setAttribute('aria-expanded', 'true');
+    navMenu = { menu, btn };
+    if (focusFirst) menu.querySelector('button')?.focus();
+  }
+  function closeNavMenu(restore = false) {
+    if (!navMenu) return;
+    const { menu, btn } = navMenu;
+    navMenu = null;
+    menu.remove();
+    btn.setAttribute('aria-expanded', 'false');
+    if (restore && btn.isConnected) btn.focus();
+  }
+  // A click anywhere else closes it, and so does going into Autotask's frame (which takes the focus from this page)
+  addEventListener('pointerdown', e => { if (navMenu && !e.target.closest?.('#atqm-navmenu, #atqm-navbtn')) closeNavMenu(); }, true);
+  addEventListener('blur', () => closeNavMenu());
+
+  // Turn a yes/no setting over straight away (from the Queue monitor menu): saved, so every tab follows
+  function toggleSetting(key) {
+    if (!set(K.settings, { ...get(K.settings, {}), [key]: !CONFIG[key] })) return;
+    loadSettings();
+    setForm?.refresh();
+    render();
+    renderTicketPill();
+  }
+
   // ---- Lock monitoring tabs ----
   const UNLOCK_KEY = P + 'unlockedUntil';
   const unlockedUntil = () => { try { return +sessionStorage.getItem(UNLOCK_KEY) || 0; } catch { return 0; } };
@@ -5634,11 +5760,15 @@ label.set-label{cursor:pointer}
       if (wantsLock || movedOff) setTimeout(() => tick(), 0);
     }
     reportPage(pg);
+    ensureNavMenu();
     if (!w) return;
 
     const monitoring = !!(pg.q && pg.owns) || !!pg.ownsAny;
     if (monitoring && !wasMonitoring) w.classList.remove('min');
     renderLock(w, pg);
+    // Hidden (setting "Queue monitor window") only where the Queue monitor menu can bring it back, and never
+    // on a locked monitoring tab, where it's all there is
+    w.classList.toggle('atqm-off', !CONFIG.showWindow && navMenuThere() && !w.classList.contains('locked'));
     const rounds = rotationTab();
     w.classList.toggle('lv-calls', rounds ? activeQueues().some(q => q.mode === 'calls') : !!(pg.q && pg.q.mode === 'calls'));
     if (w.classList.contains('locked')) {
@@ -5722,7 +5852,7 @@ label.set-label{cursor:pointer}
     // 'settings' tab (before 0.14) is its own window behind the cog
     let tab = get(K.tab, 'next');
     if (!['next', 'overview', 'macros'].includes(tab)) tab = 'next';
-    if (mcWin?.panel && (tab !== 'macros' || minimised)) closeMacroWindow(); // its square is out of sight
+    if (mcWin?.panel && (tab !== 'macros' || minimised || w.classList.contains('atqm-off'))) closeMacroWindow(); // its square is out of sight
     const job = macroJob();
     const macroLeft = job && !job.finished ? job.items.filter(i => MACRO_ACTIVE.has(i.state) || i.state === 'waiting').length : 0;
     const TAB_LABELS = { next: urgent ? `Next up (${urgent})` : 'Next up', overview: 'Overview', macros: macroLeft ? `Macros (${macroLeft} to go)` : 'Macros' };
@@ -6093,6 +6223,7 @@ label.set-label{cursor:pointer}
   const boot = setInterval(() => {
     if (!document.getElementById('atqm') && wantsWidget()) createWidget();
     renderTicketPill();
+    ensureNavMenu(); // back in Autotask's top bar soon after it's redrawn
   }, 3000);
   setTimeout(renderTicketPill, 1500);
   // (No pagehide clean-up here: a tab opened by script can receive a stale pagehide from the blank

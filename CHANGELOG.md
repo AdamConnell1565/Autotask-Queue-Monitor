@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.16.0 (2026-10-08)
+
+### Added
+
+- **Queue monitor menu** in Autotask's top bar, after Dashboards, My and Calendar, showing the version with a credit line underneath. It's built from Autotask's own menu buttons and colours, so it looks like them. It opens the **Dashboard** and **Settings**, and shows or hides the **Queue monitor window** and the **Macros button on ticket pop-ups**.
+- Settings **Queue monitor window** and **Macros button on ticket pop-ups**, under Window and display: the same two switches as the menu. The window is only hidden on pages with Autotask's top bar, where the menu can bring it back, and never on a locked monitoring tab. With the Macros button off, a macro run in a pop-up still shows how it went.
+
 ## 0.15.4 (2026-10-08)
 
 ### Changed

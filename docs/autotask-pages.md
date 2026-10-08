@@ -67,6 +67,8 @@ The bar across the top of Autotask, on every page. It holds the logo, the Dashbo
 - The menus and buttons open with `aria-expanded`. Where their drop-downs are attached hasn't been captured yet.
 - The profile button shows your initials and first name. Leave them out of any copy.
 
+**The Queue monitor menu.** `ensureNavMenu()` puts a button just after `[data-slot="header:navigation-section"]`. The button copies the `className` of one of Autotask's `header:navigation-menu-button`s, plus `max-sm:hidden`, and that button's chevron `<span>`. So it takes on whatever Autotask's own buttons look like now. Its drop-down (`#atqm-navmenu`) is our own element at the end of `<body>`. It uses Autotask's colour classes (`bg-background-primary`, `border-border-primary`, `color-text-primary`, `hover:bg-background-hover`), which are all seen in the bar and side panels. Our own colours sit under them in `:where()` rules (no specificity), so they only apply if Autotask's classes go away. If Autotask redraws its bar, the button is put back within 3 seconds.
+
 **How the dashboard and Settings use it.** `topBarBottom()` returns the header's bottom edge, and `placeBelowBar()` starts the dashboard and Settings there, so the bar and its menus stay usable. Their z-index is set just above the page they cover, Settings one step above the dashboard, so the bar's drop-down menus open over both. Full screen and locked monitoring tabs cover the bar on purpose. While Settings is open, the Queue monitor window (z-index 2147483000) is hidden, since it would float over Settings' own controls.
 
 On a page without the header, `topBarBottom()` looks for full-width strips at the top of the window instead:

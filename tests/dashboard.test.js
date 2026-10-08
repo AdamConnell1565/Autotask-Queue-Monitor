@@ -8,6 +8,8 @@ const MIN = 60000, HOUR = 60 * MIN;
 const NOW = Date.UTC(2026, 9, 2, 12, 20);
 const plain = v => JSON.parse(JSON.stringify(v));
 const sleep = ms => new Promise(r => setTimeout(r, ms));
+const button = (root, re) => [...root.querySelectorAll('button')].find(b => re.test(b.textContent));
+const esc = window => window.document.body.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
 
 // ---- Status colours ----
 
@@ -255,8 +257,9 @@ test("boot: the dashboard opens below Autotask's top bar and under its menus, an
 // Autotask's top bar as it's built today, structure only (see docs/autotask-pages.md)
 const HEADER = '<div class="relative min-h-3.5rem h-3.5rem flex justify-between" data-slot="header" id="hdr">' +
   '<div class="min-w-0 min-h-0 flex"><div class="flex-none flex items-center" data-slot="header:logo"><img alt=""></div>' +
-  '<div class="relative min-w-0 flex" data-slot="header:navigation-section"><button type="button" data-slot="header:navigation-menu-button">' +
-  '<div class="flex-grow">Dashboards</div></button></div></div>' +
+  '<div class="relative min-w-0 flex" data-slot="header:navigation-section"><button class="h-full min-w-4.5rem max-w-12rem flex-none flex ' +
+  'items-center px-4 text-body color-text-primary truncate cursor-pointer outline-none" type="button" data-slot="header:navigation-menu-button">' +
+  '<div class="flex-grow">Dashboards</div><span class="fa-chevron-down fa-regular flex"></span></button></div></div>' +
   '<div class="relative flex justify-end"><div data-slot="header:search-bar-container"><input placeholder="Search"></div>' +
   '<div class="flex" data-slot="header:utility-buttons"><button type="button" data-slot="header:utility-menu-button" id="plus"></button></div></div></div>';
 
@@ -280,6 +283,80 @@ test("boot: the dashboard opens below Autotask's header, with a notice above it 
     window.dispatchEvent(new window.StorageEvent('storage', { key: 'atqm:alerts' }));
     await sleep(200);
     assert.equal(doc.getElementById('atqm-dash').style.top, '86px');
+  } finally {
+    close();
+  }
+});
+
+test("boot: a Queue monitor menu in Autotask's top bar, built like Autotask's own, opens the dashboard and Settings and shows or hides things", async () => {
+  const html = '<!doctype html><body>' + HEADER + '<div id="content"><p id="grid">Tickets</p></div></body>';
+  const { window, close } = load({ boot: true, now: NOW, html, storage: DASH_STORAGE });
+  try {
+    const doc = window.document;
+    await sleep(200);
+    const btn = doc.getElementById('atqm-navbtn');
+    const theirs = doc.querySelector('[data-slot="header:navigation-menu-button"]');
+    // After Autotask's own menus, with their button's classes and chevron
+    assert.equal(doc.querySelector('[data-slot="header:navigation-section"]').nextElementSibling, btn);
+    assert.equal(btn.className, theirs.className + ' max-sm:hidden');
+    assert.equal(btn.querySelector('span').className, theirs.querySelector('span').className);
+    assert.match(btn.querySelector('.atqm-navname').textContent, /^Autotask Queue Monitor (v\d+\.\d+\.\d+|\(dev\))$/);
+    assert.match(btn.querySelector('.atqm-navby').textContent, /^By \S/);
+
+    const menu = () => doc.getElementById('atqm-navmenu');
+    const items = () => [...menu().querySelectorAll('[role=menuitem]')].map(b => b.textContent);
+    btn.click();
+    assert.equal(btn.getAttribute('aria-expanded'), 'true');
+    assert.deepEqual(items(), ['Dashboard', 'Settings', 'Hide Queue monitor window', 'Hide Macros button on ticket pop-ups']);
+    // Esc closes it, back to its button; so does a click anywhere else
+    menu().dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    assert.equal(menu(), null);
+    assert.equal(doc.activeElement, btn);
+    btn.click();
+    doc.getElementById('grid').dispatchEvent(new window.MouseEvent('pointerdown', { bubbles: true }));
+    assert.equal(menu(), null);
+
+    btn.click();
+    button(menu(), /^Dashboard$/).click();
+    assert.equal(menu(), null);
+    assert.ok(doc.getElementById('atqm-dash'));
+    btn.click();
+    button(menu(), /^Settings$/).click();
+    assert.ok(doc.getElementById('atqm-settings'));
+    esc(window);
+
+    // The window: hidden, saved for every tab, and back again
+    const w = doc.getElementById('atqm');
+    btn.click();
+    button(menu(), /^Hide Queue monitor window$/).click();
+    assert.ok(w.classList.contains('atqm-off'));
+    assert.equal(JSON.parse(window.localStorage.getItem('atqm:settings')).showWindow, false);
+    btn.click();
+    button(menu(), /^Show Queue monitor window$/).click();
+    assert.ok(!w.classList.contains('atqm-off'));
+    // The ticket pop-ups' Macros button
+    btn.click();
+    button(menu(), /^Hide Macros button on ticket pop-ups$/).click();
+    assert.equal(JSON.parse(window.localStorage.getItem('atqm:settings')).ticketMacroButton, false);
+    btn.click();
+    assert.deepEqual(items().slice(-1), ['Show Macros button on ticket pop-ups']);
+
+    // Autotask redraws its bar: the menu goes back in
+    btn.remove();
+    window.dispatchEvent(new window.StorageEvent('storage', { key: 'atqm:alerts' }));
+    await sleep(200);
+    assert.ok(doc.querySelector('[data-slot="header"] #atqm-navbtn'));
+  } finally {
+    close();
+  }
+});
+
+test("boot: without Autotask's top bar there's no menu, so the window stays even with the setting off", async () => {
+  const { window, close } = load({ boot: true, now: NOW, settings: { showWindow: false }, storage: DASH_STORAGE });
+  try {
+    await sleep(200);
+    assert.equal(window.document.getElementById('atqm-navbtn'), null);
+    assert.ok(!window.document.getElementById('atqm').classList.contains('atqm-off'));
   } finally {
     close();
   }

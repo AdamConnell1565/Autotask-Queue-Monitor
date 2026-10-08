@@ -689,6 +689,20 @@ test('a ticket pop-up without the Queue monitor window gets a Macros button in t
   close();
 });
 
+test('the ticket pop-ups\' Macros button can be turned off, though a macro run there still says how it went', () => {
+  const { api, window, close } = load({ now: NOW, html: ticketPage(A, 'Northwind Ltd'), settings: { ticketMacroButton: false } });
+  const doc = window.document;
+  api.renderTicketPill();
+  assert.equal(doc.getElementById('atqm-tkpill'), null);
+  api.set('atqm:macro', { id: 'job6', kind: 'account', account: 'Northwind Ltd', fill: {}, by: 'x', ts: NOW, here: true, finished: NOW,
+    items: [{ id: A, tid: '111', state: 'done', at: NOW, note: '' }] });
+  api.renderTicketPill();
+  assert.match(doc.getElementById('atqm-tkpill').textContent, /Account: Northwind Ltd/);
+  button(doc.getElementById('atqm-tkpill'), /^OK$/).click();
+  assert.equal(doc.getElementById('atqm-tkpill'), null);
+  close();
+});
+
 test('a macro that asks for nothing runs from its square on a double-click; one click only opens its window', async () => {
   const { api, window, close } = load({ now: NOW, html: ticketPage(A, 'Fabrikam Ltd') });
   const doc = window.document;

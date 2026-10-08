@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Autotask Queue Monitor
 // @namespace    autotask
-// @version      0.17.1
+// @version      0.17.2
 // @description  Track any My Workspace & Queues queue (My queue by default) in its own tab, with a live overview on every Autotask page
 // @author       AdamConnell1565
 // @homepageURL  https://github.com/AdamConnell1565/Autotask-Queue-Monitor
@@ -81,9 +81,13 @@
       dialogButton: '.Button2, button',
       formError: '[role="alert"], .ErrorMessage, .ValidationMessage, .Error, .ValidationSummary .Message', // what's wrong, in words
       invalidLabel: '.LabelContainer1.Invalid', // a field Autotask won't save as it is (an empty required one); its editor gets .Invalid too
-      // A grid row you've ticked: a checkbox, or Autotask's own kind (<div class="Checkbox2"><div class="TabIndexHack Checked">);
-      // not a disabled one, which is a yes/no column
-      rowTicked: 'input[type="checkbox"]:checked:not(:disabled), .Checkbox2 .Checked:not(.Disabled), [role="checkbox"][aria-checked="true"]:not([aria-disabled="true"])',
+      // A grid row you've ticked. Autotask's grids draw their own tick box in the row's first cell:
+      // <td class="ImageSelectionCell"><div class="Container"><div class="Decoration Icon CheckBox Selected">, and the
+      // row itself gets Selected (tr.Display.Selected). Also a real checkbox, or the Checkbox2 kind on other pages;
+      // never a disabled one, which is a yes/no column
+      rowTicked: '.ImageSelectionCell .CheckBox.Selected, input[type="checkbox"]:checked:not(:disabled), .Checkbox2 .Checked:not(.Disabled), ' +
+        '[role="checkbox"][aria-checked="true"]:not([aria-disabled="true"])',
+      rowKey: 'data-row-key',                  // a grid row's Autotask ID: the ticket's internal ID in a ticket grid
     },
     text: {
       myQueueNav: 'Open Tickets',
@@ -811,6 +815,7 @@
       }
     }
     if (!tid) { const cb = row.querySelector('input[type=checkbox]'); if (cb && isId(cb.value)) tid = cb.value; }
+    if (!tid && isId(row.getAttribute(AT.sel.rowKey))) tid = row.getAttribute(AT.sel.rowKey);
     if (!tid) for (const at of row.attributes) { if (/id$/i.test(at.name) && isId(at.value)) { tid = at.value; break; } }
     return { url, tid };
   }
@@ -4578,13 +4583,15 @@ label.set-label{cursor:pointer}
     if (btns.length === 1 && AT.text.dialogOk.test(clean(btns[0].textContent))) { press(btns[0]); return ''; }
     return `Autotask asked "${clean(box.textContent).slice(0, 160)}" (not answered)`;
   }
-  // Why Autotask didn't save: what it says is wrong (two messages at most), and the fields it marks, by name
-  // (a marked field's own box isn't read: its text is "Type to search..." and the like)
+  // Why Autotask didn't save: what it says is wrong (two messages at most; its summary says just "Required" for
+  // a required field left empty), and the fields it marks, by name: "Required: Account". (A marked field's own
+  // box isn't read: its text is "Type to search..." and the like.)
   function formProblem() {
     const seen = sel => [...document.querySelectorAll(sel)].filter(e => notOurs(e) && visible(e));
-    const said = [...new Set(seen(AT.sel.formError).map(e => clean(e.textContent)).filter(t => t && t.length < 200))].slice(0, 2);
-    const fields = [...new Set(seen(AT.sel.invalidLabel).map(e => clean(e.textContent).replace(/\s*\*$/, '')).filter(Boolean))];
-    return [...said, ...(fields.length ? [`Check ${fields.join(', ')}`] : [])].join(' ');
+    const said = [...new Set(seen(AT.sel.formError).map(e => clean(e.textContent)).filter(t => t && t.length < 200))].slice(0, 2).join(' ');
+    const fields = [...new Set(seen(AT.sel.invalidLabel).map(e => clean(e.textContent).replace(/\s*\*$/, '')).filter(Boolean))].join(', ');
+    if (said && fields) return `${said}: ${fields}`;
+    return said || (fields ? `Check ${fields}` : '');
   }
 
   // A strip across the macro tab, so it's clear why the page is moving by itself

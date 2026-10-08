@@ -435,15 +435,18 @@ test("change account: when Autotask won't save, the note says what it said and w
   fast(api);
   const doc = window.document;
   autotaskPickers(doc);
-  // Save: Autotask marks the Account field (its label and its box) and says so at the top; the page stays
+  // Save: Autotask marks the Account field (its label and its box) and its summary at the top says "Required",
+  // as it does for a required field left empty; the page stays
   doc.getElementById('save').addEventListener('click', () => {
-    doc.querySelector('.ValidationSummary .Message').textContent = '1 field needs attention';
+    doc.querySelector('.ValidationSummary').classList.add('Active');
+    doc.querySelector('.ValidationSummary .FormValidation').className = 'FormValidation Single';
+    doc.querySelector('.ValidationSummary .Message').textContent = 'Required';
     doc.querySelector('.LabelContainer1').classList.add('Invalid');
     doc.querySelector('#acc').classList.add('Invalid');
   });
   await api.macroWork();
   assert.deepEqual(states(api), ['failed', 'waiting']);
-  assert.equal(api.macroJob().items[0].note, 'Not saved: 1 field needs attention Check Account');
+  assert.equal(api.macroJob().items[0].note, 'Not saved: Required: Account');
   close();
 });
 
@@ -637,6 +640,28 @@ test("the account picked stays picked when it drops out of the lists", () => {
   api.renderTicketPill();
   assert.equal(sel.value, 'Example Dental');
   assert.equal(button(doc.getElementById('atqm-mcwin'), /^Run$/).disabled, false);
+  close();
+});
+
+test("the tickets ticked in Autotask's grid, as it draws them: its own tick box, the ticket's ID on the row", () => {
+  // Two rows as Autotask builds them (structure only, placeholders): the first ticked, the second not
+  const open = id => `(function(e) { e.preventDefault(); e.stopPropagation(); return autotask.siteNavigation.__openPage(new Autotask.NewWindowPage(` +
+    `'TicketDetail','/Mvc/ServiceDesk/TicketDetail.mvc?workspace=False\\u0026ids%5B0%5D=100001\\u0026ids%5B1%5D=100002',false,'ticketId','${id}',true)); })(event)`;
+  const row = (id, number, ticked) => `<tr class="Display${ticked ? ' Selected' : ''}" data-row-key="${id}">` +
+    `<td class="ImageSelectionCell FW61"><div class="Container"><div class="Decoration Icon CheckBox${ticked ? ' Selected' : ''}"></div></div></td>` +
+    '<td class="ContextMenuCell FW30"><div class="Button ButtonIcon ContextMenu"><div class="Icon"></div></div></td>' +
+    `<td class="TextCell SA Link FW130 AL" onclick="${open(id)}">${number}</td>` +
+    `<td class="TextCell SA Link LW200 HW800 R AL" onclick="${open(id)}">Printer not working</td>` +
+    '<td class="ColorSwatch ColorText ColorizedTextCell Color3 SA LW100 HW300 R AL">Waiting Customer</td></tr>';
+  const html = '<!doctype html><body><div class="Grid"><table><tr class="Heading"><td></td><td></td><td>Ticket Number</td><td>Title</td><td>Status</td></tr>' +
+    row('100001', 'T20261001.0001', true) + row('100002', 'T20261001.0002', false) + '</table></div></body>';
+  const { api, window, close } = load({ html });
+  assert.deepEqual(plain(api.tickedTickets()), [{ id: 'T20261001.0001', tid: '100001' }]);
+  // Ticking the second: Autotask marks its box (and the row) Selected
+  const second = window.document.querySelectorAll('tr.Display')[1];
+  second.classList.add('Selected');
+  second.querySelector('.CheckBox').classList.add('Selected');
+  assert.deepEqual(plain(api.tickedTickets()).map(t => t.tid), ['100001', '100002']);
   close();
 });
 

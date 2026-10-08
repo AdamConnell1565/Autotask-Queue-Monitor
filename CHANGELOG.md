@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.17.2 (2026-10-08)
+
+### Fixed
+
+- **Ticked in this queue** never saw a ticked ticket. Autotask's grids draw their own tick box rather than using a real checkbox, so ticks were missed. They're now read from Autotask's own tick box. The ticket's ID comes from the row too.
+- The "Not saved" note reads like "Not saved: Required: Account": Autotask's own message, then the fields it marked.
+
 ## 0.17.1 (2026-10-08)
 
 ### Fixed

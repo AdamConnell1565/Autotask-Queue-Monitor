@@ -36,6 +36,40 @@ In Autotask's new layout, an outer page holds the top bar and side panels. Autot
   - `[role="checkbox"][aria-checked="true"]`
 - **Third-party scripts.** The outer page loads feedback and guidance tools. One of them puts the signed-in user's details in `window.dataLayer`. Never copy those script blocks into a fixture or into this file.
 
+## Ticket grids
+
+Queues in My Workspace & Queues, and dashboard widgets' drill-down lists, show tickets in the same grid. Captured October 2026, from a drill-down.
+
+```html
+<tr class="Display Selected" data-row-key="100001">
+  <td class="ImageSelectionCell FW61"><div class="Container"><div class="Decoration Icon CheckBox Selected"></div></div></td>
+  <td class="ContextMenuCell FW30"><div class="Button ButtonIcon ContextMenu" data-route-key="0"><div class="Icon"></div></div></td>
+  <td class="ImageCell SA FW30 AC"><img src="…/circle_3_gold_16x16.png" alt="Gold (3)" title="Gold (3)"></td>
+  <td class="TextCell SA Link FW130 AL" onclick="…__openPage(new Autotask.NewWindowPage('TicketDetail',
+      '/Mvc/ServiceDesk/TicketDetail.mvc?workspace=False&ids%5B0%5D=100001&ids%5B1%5D=100002…',
+      false,'ticketId','100001',true))…">T20260101.0001</td>
+  <td class="TextCell SA Link LW200 HW800 R AL" onclick="…the same…">Printer not working</td>
+  <td class="TextCell SA LW200 HW800 R AL">…the description, cut short…</td>
+  <td class="TextCell SA Link LW100 HW200 R AL" onclick="…NewWindowPage('AccountDetail',…,'accountId','…',true)…">Contoso Ltd</td>
+  <td class="DateTimeCell SA FW72 AC"><div>01/01/2026</div><div>09:30</div></td>
+  <td class="TextCell SA LW100 HW200 R AL">Doe, Jane (primary)</td>
+  <td class="ColorSwatch ColorText ColorizedTextCell Color3 SA LW100 HW300 R AL">Waiting Customer</td>
+  <td class="ColorSwatch ColorText ColorizedTextCell Color10 SA FW100 AL">High</td>
+  <td class="TextCell SA Link …" onclick="…NewWindowPage('ContactDetail',…,'ContactId','…',false)…">Smith, John</td>
+  <td class="TextCell SA FW100 AL">Support 1st Line</td>
+</tr>
+```
+
+- **A data row** is `tr.Display` (`AT.sel.row`). Its `data-row-key` is the ticket's internal ID, the one `TicketDetail.mvc?ticketId=` needs (`AT.sel.rowKey`).
+- **Ticked rows:** there's no real checkbox. The first cell draws one: `td.ImageSelectionCell .Decoration.Icon.CheckBox`, which gets `Selected` when ticked, as does the row (`tr.Display.Selected`). `tickedTickets()` looks for `.ImageSelectionCell .CheckBox.Selected` (`AT.sel.rowTicked`). Before October 2026 the script only looked for real checkboxes, so it never saw a tick.
+- **Links aren't `<a>`s:** each link cell has an `onclick` calling `autotask.siteNavigation.__openPage(new Autotask.NewWindowPage(page, url, …, idName, id, …))`. The ticket's links carry `'ticketId','<id>'` and a URL listing every ticket in the grid (`ids[0]`, `ids[1]`, …, for next and previous). Inside the attribute the `&`s are written `&`. `findTicketRef()` reads the ID from `'ticketId','<id>'`, and falls back to the row's `data-row-key`.
+- **Columns** follow the grid's own column layout, which you choose with the Column Chooser. So the ticket number is found by its pattern, and the other columns by their header names (`HEADERS`).
+- **Cell styles:**
+  - Status and priority cells are `ColorizedTextCell` with a `ColorN` class, which is where the colours the monitor shows come from.
+  - Date cells (`DateTimeCell`) hold the date and the time in two `<div>`s. `cellText()` uses `innerText`, so the two stay apart.
+  - Empty cells are `EmptyCell`.
+  - Width and alignment classes (`FW`, `LW`, `HW` with a number; `AL`, `AC`) mean nothing to the script.
+
 ## Top bar
 
 The bar across the top of Autotask, on every page. It holds the logo, the Dashboards, My and Calendar menus, search, and buttons for New (+), favourites, recent items, links, help and your profile. Captured October 2026.
@@ -202,7 +236,7 @@ Without the guards, the walk up from a label container can reach a level that al
 
 ## Ticket edit page
 
-Captured October 2026. The title bar reads `Edit Ticket -` followed by the ticket number, so `openTicketId()` (which wants "Ticket") doesn't take it for the ticket page. The body has the class `EntityEdit` (the ticket page's is `EntityDetail`). Whether Edit opens the page in the same tab or in a window of its own still isn't known. The macro handles both, because a window opened from the macro tab inherits the job through sessionStorage.
+Captured October 2026. The title bar reads `Edit Ticket -` followed by the ticket number, so `openTicketId()` (which wants "Ticket") doesn't take it for the ticket page. The body has the class `EntityEdit` (the ticket page's is `EntityDetail`). **Edit opens it in the same tab, as a new page load**, so the script starts afresh there. The macro's job carries over through sessionStorage, and the macro tab keeps its window name. (`pressEdit()` still watches for a blocked window, in case some setup opens one.)
 
 ### Toolbar
 
@@ -351,8 +385,21 @@ If the field doesn't show it, the ticket fails unsaved.
 ### Validation
 
 - **No errors:** `.ValidationSummary > .FormValidation.Valid`, with an empty `.Count` and `.Message`.
-- **Errors:** a field that's wrong gets `Invalid` on its label (`.LabelContainer1.Invalid`) and on its editor. That's been seen on a required field left empty. The summary's wording with errors hasn't been captured yet.
-- **What the macro reports:** "Not saved: …", made from up to two messages it finds (`AT.sel.formError`, which includes `.ValidationSummary .Message`) plus "Check <field>" for each field marked `Invalid`.
+- **Errors:** a field that's wrong gets `Invalid` on its label (`.LabelContainer1.Invalid`) and on its editor. The summary at the top goes `Active`. For a required field left empty, it says just "Required":
+
+  ```html
+  <div class="ValidationSummary Active">
+    <div class="CustomValidation Valid"></div>
+    <div class="FormValidation Single"><div class="ErrorContent"><div class="TransitionContainer">
+      <div class="IconContainer"><div class="Icon"></div></div>
+      <div class="TextContainer"><span class="Count"></span><span class="Count Spacer"> </span><span class="Message">Required</span></div>
+    </div></div>
+    <div class="ChevronContainer"><div class="Up DisabledState"></div><div class="Down DisabledState"></div></div></div>
+  </div>
+  ```
+
+  `Single` is for one error. With several errors it's presumably `Multiple`, with a count and the arrows (`ChevronContainer`) to step through them.
+- **What the macro reports:** "Not saved: Required: Account", made from the summary's message and other messages it finds (`AT.sel.formError`, two at most) and the fields marked `Invalid`, by their labels. With no message, it says "Check Account".
 
 ## Capturing a page safely
 

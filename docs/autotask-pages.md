@@ -236,7 +236,25 @@ Every field is a label followed by its editor, side by side in the section's `.C
 - The sections (`.DetailsSection`) match the ticket page's: the top one with no heading (Account, Contact, Status, Priority), then Ticket Information, Assignment and Billing.
   - Collapsible ones are `.CollapsibleSectionContainer`, with a `.HeadingContainer`.
   - Autotask remembers which you've closed. A field in a closed section is hidden, so `findFieldOpening()` presses the section's heading to open it first.
-- The capture was cut off in Assignment, so Billing (with Work Type) hasn't been seen. Work Type is presumably a single-item picker like Sub-Issue Type.
+- **Billing** on the edit page:
+
+  | Field | Editor |
+  |---|---|
+  | Additional Contacts | `.MultipleDataSelector2`: a data picker that holds several chips (`.ChipList.MultipleDataSelection`), its chip list after the button rather than inside `.ContentContainer` |
+  | Contract | data picker |
+  | Service/Bundle | single-item picker |
+  | Work Type | **data picker**, not a single-item picker. Its chosen work type is a chip; its drop-down list (`SingleDataSelectorDropDownOverlay`) has every work type; typing searches |
+  | Estimated Hours | `<input class="DecimalBox2" maxlength="11">` straight in its `.Size2`, no picker |
+  | Purchase Order Number | `<input class="TextBox2" maxlength="50">` straight in its `.Size1` |
+  | Line of Business | single-item picker |
+
+  Work type names are your own company's list in Autotask, such as Remote Support, Onsite Support and Meeting. Typing "Onsite" finds Onsite Support, the only one containing it, which the macro then picks.
+- **Fields that depend on others are locked until those are filled in.** The editor gets `Disabled Locked`, its search box `Disabled`, its input `disabled`, and its icon buttons `Disabled2`. Its placeholder says what to choose first:
+  - **With no account:** Contact, Contract and Additional Contacts read "Choose Account".
+  - **With no contract:** Service/Bundle reads "Choose Contract".
+  - A locked single-item picker shows its placeholder as its `Default` item, for example `<div class="Item" data-item-type="Default">…Choose Contract…</div>`. So a `Default` item can have text, and "empty" means `data-item-type="Default"`, whatever the text. That's how `fieldShows()` reads it.
+  - Picking a new account presumably resets these, so Contract and Service/Bundle may need choosing again. The macro doesn't touch them.
+- **Required fields left empty** are marked `Invalid`: both the label (`.LabelContainer1.Invalid`) and the editor (`.SingleDataSelector2.Invalid`). `formProblem()` names the marked fields from their labels ("Check Account"). It never reads the marked editor's own text, which is just "Type to search..." and the like.
 
 ### The two kinds of picker
 
@@ -270,7 +288,7 @@ Every field is a label followed by its editor, side by side in the section's `.C
 - **The list** is in the picker's own `.ContextOverlayContainer`. Its first line is always the empty `Default` item. The chosen line has `data-is-selected="true"`, and the keyboard's line `data-is-targeted="true"`. Status and Priority lines (`data-item-type="IconSingleText"`) also have a coloured icon before the text.
 - **Typing in the search box** narrows the list (assumed). The macro picks from the field's own list first (`pickOptions(name, scope)`), and from any open list only when the field has none.
 
-**Data picker** (`.SingleDataSelector2`): Account, Contact, Location.
+**Data picker** (`.SingleDataSelector2`): Account, Contact, Location, Contract, Work Type. `.MultipleDataSelector2` is the same with several chips (Additional Contacts).
 
 ```html
 <div class="SingleDataSelector2">
@@ -310,10 +328,13 @@ If the field doesn't show it, the ticket fails unsaved.
 ### Other editors
 
 - **Due Date**: `.DateAndTimeEditor` with a `.DateBox2` and a `.TimeBox2`, each a plain `<input type="text">` holding the date or time as you'd type it.
+- **Numbers and free text** (Estimated Hours, Purchase Order Number): a plain `<input type="text">` with the class `DecimalBox2` or `TextBox2`, straight in its size box with no picker around it. `fieldShows()` reads its value.
 
 ### Validation
 
-`.ValidationSummary > .FormValidation.Valid` on a page with no errors. The error markup hasn't been captured yet. `AT.sel.formError` assumes `.Invalid` and the like, and the macro reports the first two messages it finds as "Not saved: …".
+- **No errors:** `.ValidationSummary > .FormValidation.Valid`, with an empty `.Count` and `.Message`.
+- **Errors:** a field that's wrong gets `Invalid` on its label (`.LabelContainer1.Invalid`) and on its editor. That's been seen on a required field left empty. The summary's wording with errors hasn't been captured yet.
+- **What the macro reports:** "Not saved: …", made from up to two messages it finds (`AT.sel.formError`, which includes `.ValidationSummary .Message`) plus "Check <field>" for each field marked `Invalid`.
 
 ## Capturing a page safely
 
@@ -325,5 +346,19 @@ If the field doesn't show it, the ticket fails unsaved.
    - account alert text
 3. Trim it to the structure you need. One or two fields of each shape is enough.
 4. Use made-up placeholders: Contoso Ltd and Fabrikam Ltd for accounts, Jane Doe and John Smith for people, T20260101.0001 for ticket numbers.
+
+**Keep each copy small.** Copy the one part you need (a section, a field) rather than `<body>`. A whole page runs past 50,000 characters and gets cut off when pasted.
+
+**Lists that close when you right-click.** Autotask closes its drop-downs as soon as the page loses focus, which happens when you open DevTools or right-click. To copy one, open DevTools on the **Console** tab first. If the page is inside Autotask's frame, pick that frame in the console's context drop-down, which reads "top" by default. Then run:
+
+```js
+setTimeout(() => {
+  const open = [...document.querySelectorAll('.ContextOverlay')].filter(o => o.getClientRects().length && o.querySelector('.Item'));
+  copy(open.map(o => o.outerHTML).join('\n\n') || 'No list was open');
+  console.log(`Copied ${open.length} open list(s)`);
+}, 6000);
+```
+
+Within 6 seconds, click back into the page and open the list (type into the box, or click its arrow). After 6 seconds, whatever list is open is copied to the clipboard, ready to paste.
 
 `tests/macros.test.js` builds its ticket page this way, from the markup above.

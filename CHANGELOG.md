@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.17.1 (2026-10-08)
+
+### Fixed
+
+- When Autotask wouldn't save a ticket, the macro's "Not saved" note could include the marked field's own text ("Type to search..." and the like). It now gives Autotask's message and names the fields Autotask marked, for example "Not saved: … Check Account".
+
 ## 0.17.0 (2026-10-08)
 
 ### Added

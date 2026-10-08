@@ -57,17 +57,24 @@ const itemPicker = (id, chosen, options) => `<div class="Size1"><div class="Sing
   '<div class="Item" data-item-type="Default" data-index="0"><div class="Text"><span></span></div></div>' +
   options.map((o, i) => `<div class="Item" data-item-type="SingleText" data-index="${i + 1}"><div class="Text"><span>${o}</span></div></div>`).join('') +
   '</div></div></div></div></div></div></div>';
-// A data picker (Account, Contact…): a search box, the chosen value as a chip, and a list of what's found
-const dataPicker = (id, chosen) => `<div class="BundleContainer"><div class="EditorContainer"><div class="Size1"><div class="SingleDataSelector2" id="${id}">` +
+// A data picker (Account, Contact, Work Type…): a search box, the chosen value as a chip, its full list (closed;
+// Work Type's has every work type), and a list of what typing finds. Account and Contact sit in a .BundleContainer.
+const dataPicker = (id, chosen, { all = [], bundle = true } = {}) => (bundle ? '<div class="BundleContainer"><div class="EditorContainer">' : '') +
+  `<div class="Size1"><div class="SingleDataSelector2" id="${id}">` +
   '<div class="ContentContainer"><div class="SearchBox"><div class="Placeholder">Type to search...</div><input type="text"></div>' +
   `<div class="ChipList SingleDataSelection">${chosen ? `<div class="Chip"><div class="Text">${chosen}</div><div class="RemoveButton"></div></div>` : ''}</div></div>` +
+  '<div class="ContextOverlayContainer" style="display:none"><div class="ContextOverlay SingleDataSelectorDropDownOverlay"><div class="Content"><div class="ItemSet"><div class="ItemList">' +
+  all.map((o, i) => `<div class="Item" data-item-type="SingleText" data-index="${i}"><div class="Text"><span>${o}</span></div></div>`).join('') + '</div></div></div></div></div>' +
   '<div class="ContextOverlayContainer" style="display:none"><div class="ContextOverlay SingleDataSelectorAutoCompleteOverlay"><div class="Content">' +
-  '<div class="ItemSetContainer"></div></div></div></div></div></div></div></div>';
+  '<div class="ItemSetContainer"></div></div></div></div></div></div>' + (bundle ? '</div></div>' : '');
+const WORK_TYPES = ['Meeting', 'Onsite Support', 'Remote Support', 'Server Support Billable (On Site)'];
 const section = (id, title, fields, closed) => '<div class="DetailsSection"><div class="CollapsibleSectionContainer">' +
   `<div class="HeadingContainer" id="${id}-head"><div class="DetailsSectionHeading Title"><div class="Left"><span class="Text">${title}</span></div></div></div>` +
   `<div class="ContentContainer" id="${id}"${closed ? ' style="display:none"' : ''}><div class="Content">${fields}</div></div></div></div>`;
 const realEditPage = ({ subIssue = '', workType = 'Remote Support', billingClosed = true } = {}) => '<!doctype html><body>' +
   '<div class="TitleBarItem Title"><span class="Text">Edit Ticket -</span><span class="SecondaryText">T20261007.0081 - Laptop (Fabrikam Ltd)</span></div>' +
+  '<div class="ValidationSummary"><div class="FormValidation Valid"><div class="ErrorContent"><div class="TextContainer">' +
+  '<span class="Count"></span><span class="Message"></span></div></div></div></div>' +
   '<div class="ToolBar"><div class="Button2" id="save"><div class="Text2">Save</div></div>' +
   '<div class="Button2" id="saveclose"><div class="Text2">Save &amp; Close</div></div><div class="Button2"><div class="Text2">Cancel</div></div>' +
   '<div class="FormTemplateSelector"><div class="SingleItemSelector2"><div class="ValueContainer"><div class="SearchBox"><input type="text"></div>' +
@@ -76,11 +83,11 @@ const realEditPage = ({ subIssue = '', workType = 'Remote Support', billingClose
   editorLabel('Contact') + dataPicker('con', 'Jane Doe') + '</div></div>' +
   section('info', 'Ticket Information', editorLabel('Sub-Issue Type') + itemPicker('sub', subIssue, ['Hardware', 'Other', 'Software']) +
     editorLabel('Source') + itemPicker('src', 'Other', ['Email', 'Other', 'Phone'])) +
-  section('billing', 'Billing', editorLabel('Work Type') + itemPicker('work', workType, ['Onsite', 'Remote Support']), billingClosed) +
+  section('billing', 'Billing', editorLabel('Work Type') + dataPicker('work', workType, { all: WORK_TYPES, bundle: false }), billingClosed) +
   '</body>';
-// How those pickers behave: typing opens the list (a data picker's with what it finds), clicking a line chooses
-// it (takes: false, a click that doesn't), and a closed section opens from its heading
-function autotaskPickers(doc, { accounts = ['Northwind Ltd'], takes = true } = {}) {
+// How those pickers behave: typing opens the list (a data picker's with what it finds, from found by its id),
+// clicking a line chooses it (takes: false, a click that doesn't), and a closed section opens from its heading
+function autotaskPickers(doc, { found: lists = { acc: ['Northwind Ltd'], work: WORK_TYPES }, takes = true } = {}) {
   const choose = (picker, overlay, input, html) => item => item.addEventListener('click', () => {
     if (takes) picker.querySelector('.SelectionDisplay, .ChipList').innerHTML = html(item.textContent);
     overlay.style.display = 'none';
@@ -92,9 +99,10 @@ function autotaskPickers(doc, { accounts = ['Northwind Ltd'], takes = true } = {
     overlay.querySelectorAll('.Item').forEach(choose(p, overlay, input, t => `<div class="Item" data-item-type="SingleText"><div class="Text"><span>${t}</span></div></div>`));
   }
   for (const p of doc.querySelectorAll('.SingleDataSelector2')) {
-    const input = p.querySelector('.SearchBox input'), overlay = p.querySelector('.ContextOverlayContainer'), list = p.querySelector('.ItemSetContainer');
+    const input = p.querySelector('.SearchBox input'), list = p.querySelector('.ItemSetContainer');
+    const overlay = list.closest('.ContextOverlayContainer');
     input.addEventListener('input', () => {
-      const found = accounts.filter(a => input.value && a.toLowerCase().includes(input.value.toLowerCase()));
+      const found = (lists[p.id] || []).filter(a => input.value && a.toLowerCase().includes(input.value.toLowerCase()));
       list.innerHTML = found.map(a => `<div class="Item" data-item-type="SingleText"><div class="Text"><span>${a}</span></div></div>`).join('');
       overlay.style.display = found.length ? '' : 'none';
       list.querySelectorAll('.Item').forEach(choose(p, overlay, input, t => `<div class="Chip"><div class="Text">${t}</div></div>`));
@@ -377,7 +385,7 @@ test('change account: a type the ticket page shows is kept, even where the edit 
   off.close();
 });
 
-test("change account on Autotask's edit page as it's built: the account's chip, a type from its own list, a closed section, Save & Close", async () => {
+test("change account on Autotask's edit page as it's built: the account's chip, a type from its own list, Work Type in a closed section, Save & Close", async () => {
   const { api, window, close } = load({ now: NOW, html: realEditPage(), storage: job('edit', {}, { subIssue: 'Other', workType: 'Onsite' }) });
   window.sessionStorage.setItem('atqm:macro', 'job1'); // an Edit window opened from the macro tab carries the job
   fast(api);
@@ -390,14 +398,15 @@ test("change account on Autotask's edit page as it's built: the account's chip, 
   assert.equal(shown('sub'), 'Other', 'from its own list');
   assert.equal(shown('src'), 'Other', "Source, showing the same word, isn't touched");
   assert.equal(doc.getElementById('billing').style.display, '', 'Billing opened to find Work Type');
-  assert.equal(shown('work'), 'Remote Support', 'kept: it has one');
+  assert.equal(doc.querySelector('#work .Chip').textContent, 'Remote Support', 'kept: it has one');
   assert.equal(doc.querySelector('.FormTemplateSelector input').value, '', 'the speed code box is never used');
   const item = plain(api.macroJob().items[0]);
   assert.deepEqual([item.state, item.filled, item.kept, item.chosen], ['verify', ['Sub-Issue Type'], ['Work Type'], 'Northwind Ltd']);
   assert.equal(saved, 'saveclose', 'Save & Close, so an Edit window of its own closes');
   close();
 
-  // An empty Work Type in the closed section is filled in; in the macro tab itself, plain Save
+  // An empty Work Type (no chip) in the closed section is filled in, "Onsite" finding Onsite Support; in the
+  // macro tab itself, plain Save
   const tab = load({ now: NOW, name: 'atqm_macro', html: realEditPage({ subIssue: 'Hardware', workType: '' }), storage: job('edit', {}, { subIssue: 'Other', workType: 'Onsite' }) });
   fast(tab.api);
   const d2 = tab.window.document;
@@ -405,11 +414,28 @@ test("change account on Autotask's edit page as it's built: the account's chip, 
   let saved2 = '';
   for (const id of ['save', 'saveclose']) d2.getElementById(id).addEventListener('click', () => { saved2 = id; d2.getElementById(id).remove(); });
   await tab.api.macroWork();
-  assert.equal(d2.querySelector('#work .SelectionDisplay').textContent, 'Onsite');
+  assert.equal(d2.querySelector('#work .Chip').textContent, 'Onsite Support');
   assert.equal(d2.querySelector('#sub .SelectionDisplay').textContent, 'Hardware');
   assert.deepEqual(plain([tab.api.macroJob().items[0].filled, tab.api.macroJob().items[0].kept]), [['Work Type'], ['Sub-Issue Type']]);
   assert.equal(saved2, 'save');
   tab.close();
+});
+
+test("change account: when Autotask won't save, the note says what it said and which fields it marked", async () => {
+  const { api, window, close } = load({ now: NOW, name: 'atqm_macro', html: realEditPage({ subIssue: 'Other' }), storage: job('edit') });
+  fast(api);
+  const doc = window.document;
+  autotaskPickers(doc);
+  // Save: Autotask marks the Account field (its label and its box) and says so at the top; the page stays
+  doc.getElementById('save').addEventListener('click', () => {
+    doc.querySelector('.ValidationSummary .Message').textContent = '1 field needs attention';
+    doc.querySelector('.LabelContainer1').classList.add('Invalid');
+    doc.querySelector('#acc').classList.add('Invalid');
+  });
+  await api.macroWork();
+  assert.deepEqual(states(api), ['failed', 'waiting']);
+  assert.equal(api.macroJob().items[0].note, 'Not saved: 1 field needs attention Check Account');
+  close();
 });
 
 test("change account: a pick the field doesn't take fails the ticket, unsaved", async () => {
@@ -447,7 +473,7 @@ test('change account: a ticket already on the account is still edited for a type
   doc.getElementById('save').addEventListener('click', () => doc.getElementById('save').remove());
   await edit.api.macroWork();
   assert.equal(typed, 0);
-  assert.equal(doc.querySelector('#work .SelectionDisplay').textContent, 'Onsite');
+  assert.equal(doc.querySelector('#work .Chip').textContent, 'Onsite Support');
   assert.deepEqual(states(edit.api), ['verify', 'waiting']);
   edit.close();
 

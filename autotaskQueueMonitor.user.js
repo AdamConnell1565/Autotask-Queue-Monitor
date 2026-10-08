@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Autotask Queue Monitor
 // @namespace    autotask
-// @version      0.17.0
+// @version      0.17.1
 // @description  Track any My Workspace & Queues queue (My queue by default) in its own tab, with a live overview on every Autotask page
 // @author       AdamConnell1565
 // @homepageURL  https://github.com/AdamConnell1565/Autotask-Queue-Monitor
@@ -79,7 +79,8 @@
       sectionHead: '.HeadingContainer',
       dialog: '[role="dialog"], [role="alertdialog"], .Dialog, .DialogBox, .MessageBox, .Modal',
       dialogButton: '.Button2, button',
-      formError: '[role="alert"], .ErrorMessage, .ValidationMessage, .Error, .Invalid',
+      formError: '[role="alert"], .ErrorMessage, .ValidationMessage, .Error, .ValidationSummary .Message', // what's wrong, in words
+      invalidLabel: '.LabelContainer1.Invalid', // a field Autotask won't save as it is (an empty required one); its editor gets .Invalid too
       // A grid row you've ticked: a checkbox, or Autotask's own kind (<div class="Checkbox2"><div class="TabIndexHack Checked">);
       // not a disabled one, which is a yes/no column
       rowTicked: 'input[type="checkbox"]:checked:not(:disabled), .Checkbox2 .Checked:not(.Disabled), [role="checkbox"][aria-checked="true"]:not([aria-disabled="true"])',
@@ -4577,8 +4578,14 @@ label.set-label{cursor:pointer}
     if (btns.length === 1 && AT.text.dialogOk.test(clean(btns[0].textContent))) { press(btns[0]); return ''; }
     return `Autotask asked "${clean(box.textContent).slice(0, 160)}" (not answered)`;
   }
-  const formProblem = () => [...new Set([...document.querySelectorAll(AT.sel.formError)]
-    .filter(e => notOurs(e) && visible(e)).map(e => clean(e.textContent)).filter(t => t && t.length < 200))].slice(0, 2).join(' ');
+  // Why Autotask didn't save: what it says is wrong (two messages at most), and the fields it marks, by name
+  // (a marked field's own box isn't read: its text is "Type to search..." and the like)
+  function formProblem() {
+    const seen = sel => [...document.querySelectorAll(sel)].filter(e => notOurs(e) && visible(e));
+    const said = [...new Set(seen(AT.sel.formError).map(e => clean(e.textContent)).filter(t => t && t.length < 200))].slice(0, 2);
+    const fields = [...new Set(seen(AT.sel.invalidLabel).map(e => clean(e.textContent).replace(/\s*\*$/, '')).filter(Boolean))];
+    return [...said, ...(fields.length ? [`Check ${fields.join(', ')}`] : [])].join(' ');
+  }
 
   // A strip across the macro tab, so it's clear why the page is moving by itself
   function macroBanner(job, item) {

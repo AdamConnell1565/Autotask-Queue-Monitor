@@ -155,6 +155,8 @@ The fields are grouped in sections. Each is a `.DetailsSection > .CollapsibleSec
 | Assignment | Queue, Primary Resource (Role), Secondary Resources (Role) |
 | Billing | Additional Contacts, Contract, Service/Bundle, Work Type, Purchase Order Number, Estimated Hours, Line of Business, Monitor Type, Co-managed Visibility, Closure Reason |
 
+Which fields a section shows, and in what order, varies from ticket to ticket. It follows the ticket's category and form. Another ticket's Billing had Estimated Hours before Purchase Order Number, and no Monitor Type, Co-managed Visibility or Closure Reason. So always find a field by its label, never by its position. A field with its own action has an icon button in its label container, after `.LabelContainer1`. For example, Additional Contacts has `.InlineIconButton.Note` titled "Notify Contacts", as Secondary Resources has "Notify Resources".
+
 `QuickEditEnabled` with `ClickEnabled` means clicking the label edits that one field in place. The script doesn't use this yet. It could replace the full edit page for changing a single field.
 
 **The Account field is read directly.** The page has several `.LinkButton2` links (Account, Contact, Primary Resource and others). The script used to accept any of them, so a contact with the same name as the target account made a ticket count as "already on it". `accountShown()` now reads the Account field. It only falls back to "any link" on a page without `.ReadOnlyData` fields.

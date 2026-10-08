@@ -288,7 +288,13 @@ Every field is a label followed by its editor, side by side in the section's `.C
 
 - **What's chosen** is the `.Chip` in `.ChipList`. There's none when the field is empty, and the "Type to search..." placeholder isn't a value.
 - **Typing in the search box** fills `.ItemSetContainer` with what Autotask finds, after a moment. The markup of those lines hasn't been captured. The macro assumes `.Item`s and matches their text, or the text of one of their parts.
-- **Contact's list** uses `data-item-type="PersonName"` lines with the first and last names in two `.Text` children.
+- **Contact's chip** has an icon before its text: `<div class="ItemGroupingIcon ChildAccount"></div><div class="Text">Jane Doe</div>`.
+- **Contact's list**:
+  - It's split by `.GroupHeader`s (`data-item-type="GroupHeader"`, text in `.HeaderText`): "Account Contacts", then "Parent Account Contacts" when the account has a parent. The same person can be in both groups.
+  - Each line is `data-item-type="IconPersonName"` (or `PersonName` without the icon): an `.ItemGroupingIcon ChildAccount` or `ParentAccount`, then the first and last names in two `.Text` children. The primary contact's last name ends "(primary)".
+  - The line's `textContent` runs the two names together with no space, so matching a person needs the `.Text` parts joined with a space.
+- **Location** is a data picker too, but without the `.BundleContainer > .EditorContainer` wrapper Account and Contact have.
+- **Required single-item pickers** (Status, Priority) have no empty `Default` line: their list starts with the first real choice. Optional ones (Issue Type, Sub-Issue Type, Source) start with it.
 
 **After a pick**, `chooseOption()` waits up to `MACRO.confirm` (3 s) for the field to show it:
 

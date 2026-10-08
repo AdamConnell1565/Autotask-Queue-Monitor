@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Autotask Queue Monitor
 // @namespace    autotask
-// @version      0.15.0
+// @version      0.15.1
 // @description  Track any My Workspace & Queues queue (My queue by default) in its own tab, with a live overview on every Autotask page
 // @author       AdamConnell1565
 // @homepageURL  https://github.com/AdamConnell1565/Autotask-Queue-Monitor
@@ -50,6 +50,7 @@
       chooserMoveRight: '.StandardButtonIcon.MoveRight',
       chooserSave: '.StandardButtonIcon.Save',
       dialogClose: '.DialogTitleBarIcon.Close',
+      topBar: '[data-slot="header"]',          // Autotask's bar across the top (logo, menus, search, New): the dashboard sits below it
       ticketTitle: '.TitleBarItem.Title',      // a ticket's page: "Ticket - T20261007.0081 - Title"
       ticketTitleKind: '.Text',
       // Ticket pages and the ticket edit page (the Macros tab works them)
@@ -4179,7 +4180,10 @@ label.set-label{cursor:pointer}
 
   // The macro tab: do the current ticket's next step on whichever page Autotask is showing
   async function macroWork() {
-    if (macroBusy || !macroPage()) return;
+    if (macroBusy) return;
+    // Not (or no longer) doing a macro's steps: a ticket's page running one "here" stops being one the moment
+    // it finishes (or is stopped, or cleared), and its strip along the bottom goes with it
+    if (!macroPage()) { macroBanner(null, null); return; }
     const job = macroJob();
     const item = job && !job.finished ? job.items.find(i => MACRO_ACTIVE.has(i.state)) : null;
     macroBanner(job, item);
@@ -4225,6 +4229,8 @@ label.set-label{cursor:pointer}
     } finally {
       macroBusy = false;
     }
+    // Finished by this page just now (its own change brings it no storage event): the strip goes, the result shows
+    if (!macroPage()) { macroBanner(null, null); renderTicketPill(); }
   }
 
   async function macroEdit(job, item) {
@@ -5354,8 +5360,6 @@ label.set-label{cursor:pointer}
     return card;
   }
 
-  // Autotask's own bar across the top of the page (New, search, its menus). Found by where it is rather than
-  // what it's called: the full-width strip at the very top. Returns its bottom edge, or null if there's none.
   const OUR_BOXES = '#atqm-dash, #atqm, #atqm-settings, #atqm-lock, #atqm-tkpill, #atqm-macrobar, #atqm-mcwin';
   function pageAt(x, y) {
     if (typeof document.elementsFromPoint !== 'function') return [];
@@ -5370,16 +5374,32 @@ label.set-label{cursor:pointer}
     }
     return z;
   }
+  // Autotask's own bar across the top of the page (New, search, its menus). Returns its bottom edge, or null if
+  // there's none. Its header (AT.sel.topBar) where the page has one, wherever it starts: a notice above it
+  // pushes it down. Otherwise by where it is: the full-width strips stacked at the very top of the window.
   function topBarBottom() {
     const w = innerWidth;
     let bottom = 0;
-    for (const x of [w * 0.25, w * 0.5, w * 0.75]) {
-      const top = pageAt(x, 3)[0];
-      // The widest box around it that's still a strip along the top
-      for (let n = top; n && n !== document.body; n = n.parentElement) {
-        const r = n.getBoundingClientRect();
-        if (r.top <= 4 && r.height >= 24 && r.height <= 160 && r.width >= w * 0.6) bottom = Math.max(bottom, r.bottom);
+    for (const h of document.querySelectorAll(AT.sel.topBar)) {
+      const r = h.getBoundingClientRect();
+      if (notOurs(h) && r.width >= w * 0.6 && r.height > 0 && r.bottom > 0 && r.top < 200) bottom = Math.max(bottom, r.bottom);
+    }
+    if (bottom) return Math.round(bottom);
+    // Every element at the point counts, not just the one in front: something transparent laid over the page
+    // mustn't hide the bar. A strip found, look again just below it, for a bar under a notice.
+    for (let y = 3, i = 0; i < 3 && y < 200; i++) {
+      let found = 0;
+      for (const x of [w * 0.25, w * 0.5, w * 0.75]) {
+        for (const e of pageAt(x, y)) {
+          for (let n = e; n && n !== document.body; n = n.parentElement) {
+            const r = n.getBoundingClientRect();
+            if (r.top <= y && r.bottom > y && r.height >= 24 && r.height <= 160 && r.width >= w * 0.6) found = Math.max(found, r.bottom);
+          }
+        }
       }
+      if (!found) break;
+      bottom = found;
+      y = found + 3;
     }
     return bottom ? Math.round(bottom) : null;
   }

@@ -252,6 +252,39 @@ test("boot: the dashboard opens below Autotask's top bar and under its menus, an
   }
 });
 
+// Autotask's top bar as it's built today, structure only (see docs/autotask-pages.md)
+const HEADER = '<div class="relative min-h-3.5rem h-3.5rem flex justify-between" data-slot="header" id="hdr">' +
+  '<div class="min-w-0 min-h-0 flex"><div class="flex-none flex items-center" data-slot="header:logo"><img alt=""></div>' +
+  '<div class="relative min-w-0 flex" data-slot="header:navigation-section"><button type="button" data-slot="header:navigation-menu-button">' +
+  '<div class="flex-grow">Dashboards</div></button></div></div>' +
+  '<div class="relative flex justify-end"><div data-slot="header:search-bar-container"><input placeholder="Search"></div>' +
+  '<div class="flex" data-slot="header:utility-buttons"><button type="button" data-slot="header:utility-menu-button" id="plus"></button></div></div></div>';
+
+test("boot: the dashboard opens below Autotask's header, with a notice above it and something laid over the page", async () => {
+  const html = '<!doctype html><body><div id="notice">Scheduled maintenance tonight</div>' + HEADER +
+    '<div id="content" style="position:relative;z-index:2"><p id="grid">Tickets</p></div><div id="layer" style="position:fixed;inset:0"></div></body>';
+  const { window, close } = load({ boot: true, now: NOW, html, storage: DASH_STORAGE });
+  try {
+    const doc = window.document, W = window.innerWidth;
+    const at = (el, top, bottom) => { el.getBoundingClientRect = () => ({ top, bottom, height: bottom - top, width: W, left: 0, right: W }); };
+    const [notice, hdr, content, layer] = ['notice', 'hdr', 'content', 'layer'].map(id => doc.getElementById(id));
+    // A 30 px notice, the 56 px bar under it, the page below, and a transparent layer over everything
+    at(notice, 0, 30); at(hdr, 30, 86); at(content, 86, 800); at(layer, 0, 800);
+    doc.elementsFromPoint = (x, y) => [layer, ...(y < 30 ? [notice] : y < 86 ? [doc.getElementById('plus'), hdr] : [doc.getElementById('grid'), content])];
+    await sleep(200);
+    doc.getElementById('atqm-dashbtn').click();
+    assert.equal(doc.getElementById('atqm-dash').style.top, '86px');
+
+    // A page without that header: found by where it is, through the layer and past the notice
+    hdr.removeAttribute('data-slot');
+    window.dispatchEvent(new window.StorageEvent('storage', { key: 'atqm:alerts' }));
+    await sleep(200);
+    assert.equal(doc.getElementById('atqm-dash').style.top, '86px');
+  } finally {
+    close();
+  }
+});
+
 test('boot: the dashboard button is there by default, and gone with the setting off', async () => {
   const on = load({ boot: true, storage: DASH_STORAGE });
   try {

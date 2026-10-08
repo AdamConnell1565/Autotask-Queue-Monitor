@@ -364,6 +364,30 @@ test('change account: a job "here" whose page has moved on still gives up on a s
   close();
 });
 
+test('a ticket page running a macro takes its strip down when the macro finishes', async () => {
+  const { api, window, close } = load({ now: NOW, html: ticketPage(A, 'Northwind Ltd') });
+  const doc = window.document;
+  const running = state => ({ id: 'job5', kind: 'account', account: 'Northwind Ltd', fill: {}, by: 'a page since reloaded', ts: NOW, here: true,
+    items: [{ id: A, tid: '111', state, at: NOW, note: '', chosen: 'Northwind Ltd' }] });
+  window.sessionStorage.setItem('atqm:macro', 'job5');
+
+  // Saved and showing the new account: done, so the strip goes straight away and the corner shows how it went
+  api.set('atqm:macro', running('verify'));
+  await api.macroWork();
+  assert.ok(api.macroJob().finished);
+  assert.equal(doc.getElementById('atqm-macrobar'), null);
+  assert.match(doc.getElementById('atqm-tkpill').textContent, /Account: Northwind Ltd/);
+
+  // Stopped from another window part-way: the strip goes on the next tick
+  api.set('atqm:macro', running('edit'));
+  await api.macroWork();
+  assert.ok(doc.getElementById('atqm-macrobar'), 'up while it runs');
+  api.set('atqm:macro', { ...running('check'), finished: NOW, note: 'Stopped.' });
+  await api.macroWork();
+  assert.equal(doc.getElementById('atqm-macrobar'), null);
+  close();
+});
+
 test("the account picked stays picked when it drops out of the lists", () => {
   const { api, window, close } = load({ now: NOW, html: ticketPage(A, 'Fabrikam Ltd'), storage: {
     'atqm:macro:accounts': ['Northwind Ltd'], 'atqm:snap:my-open-tickets': { [B]: { status: 'New', account: 'Example Dental' } } } });

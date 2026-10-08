@@ -4,6 +4,44 @@ A reference for the parts of Autotask's pages that the script reads and clicks. 
 
 > **No personal information, ever.** This file and the test fixtures describe structure only. People's names, email addresses, phone numbers, account and company names, ticket numbers, titles, descriptions, notes and alert text are all replaced with made-up placeholders, such as Contoso Ltd, Jane Doe and T20260101.0001. Keep it that way when you add to them. [Capturing a page safely](#capturing-a-page-safely) explains how.
 
+## Top bar
+
+The bar across the top of Autotask, on every page. It holds the logo, the Dashboards, My and Calendar menus, search, and buttons for New (+), favourites, recent items, links, help and your profile. Captured October 2026.
+
+```html
+<div class="relative min-h-3.5rem h-3.5rem flex justify-between …" data-slot="header">
+  <div class="min-w-0 min-h-0 flex">
+    <div class="…" data-slot="header:logo"><img …></div>
+    <div class="…" data-slot="header:navigation-section">
+      <button type="button" data-slot="header:navigation-menu-button" aria-expanded="false">
+        <div class="flex-grow">Dashboards</div><span class="fa-chevron-down …"></span>
+      </button>
+      … My, Calendar, and a More button that's invisible until the menus don't fit …
+    </div>
+  </div>
+  <div class="relative flex justify-end overflow-x-hidden …">
+    <div data-slot="header:search-bar-container">… the search type picker and the Search box …</div>
+    <div class="flex" data-slot="header:utility-buttons">
+      <button data-slot="header:utility-menu-button" aria-expanded="false">…an icon…</button>
+      … one per button: New, favourites, recent, links, help, your profile …
+    </div>
+    <div class="contents" data-slot="header:app-launcher-slot">…</div>
+  </div>
+</div>
+```
+
+- It's 3.5rem (56 px) tall.
+- **Use `data-slot`, not the classes.** The class names are utility classes that only describe how it looks, so they change easily. The `data-slot` attributes name the parts. `AT.sel.topBar` is `[data-slot="header"]`.
+- The menus and buttons open with `aria-expanded`. Where their drop-downs are attached hasn't been captured yet.
+- The profile button shows your initials and first name. Leave them out of any copy.
+
+**How the dashboard uses it.** `topBarBottom()` returns the header's bottom edge, and `placeDashboard()` starts the dashboard there, so the bar and its menus stay usable. The dashboard's z-index is set just above the page it covers, so the bar's drop-down menus open over it. Full screen and locked monitoring tabs cover the bar on purpose.
+
+On a page without the header, `topBarBottom()` looks for full-width strips at the top of the window instead:
+
+- It checks every element at three points 3 px from the top, not just the one in front, so a transparent layer laid over the page can't hide the bar.
+- Once it finds a strip, it looks again just below it, so a notice above the bar isn't taken for the bar itself.
+
 ## Ticket page
 
 Address: `/Mvc/ServiceDesk/TicketDetail.mvc?workspace=False&ticketId=<internal ID>`. Captured October 2026.

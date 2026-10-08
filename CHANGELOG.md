@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.15.1 (2026-10-08)
+
+### Fixed
+
+- The dashboard could cover Autotask's top bar. It now finds the bar by Autotask's own header, even with a notice above it or something laid over the page, so the bar and its menus stay usable.
+- In a ticket window where a macro ran, the strip along the bottom stayed after the macro had finished. It now goes as soon as the macro is done or stopped, and the result shows in the corner.
+
 ## 0.15.0 (2026-10-08)
 
 ### Added

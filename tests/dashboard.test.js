@@ -351,6 +351,44 @@ test("boot: a Queue monitor menu in Autotask's top bar, built like Autotask's ow
   }
 });
 
+test('boot: the Queue monitor window is put away while the dashboard is open', async () => {
+  const { window, close } = load({ boot: true, now: NOW, storage: DASH_STORAGE });
+  try {
+    const doc = window.document, open = () => doc.documentElement.classList.contains('atqm-dash-open');
+    await sleep(200);
+    assert.ok(!open());
+    doc.getElementById('atqm-dashbtn').click();
+    assert.ok(open());
+    esc(window);
+    assert.equal(doc.getElementById('atqm-dash'), null);
+    assert.ok(!open());
+  } finally {
+    close();
+  }
+});
+
+test("boot: reloaded with the dashboard open, it moves below Autotask's top bar as soon as Autotask builds it", async () => {
+  const url = 'https://ww5.autotask.net/Mvc/Framework/Navigation.mvc/Landing';
+  const { window, close } = load({ boot: true, now: NOW, url, storage: DASH_STORAGE, session: { 'atqm:dash': '/Mvc/Framework/Navigation.mvc/Landing' } });
+  try {
+    const doc = window.document;
+    await sleep(200);
+    const dash = doc.getElementById('atqm-dash');
+    assert.ok(dash, 'reopened');
+    assert.equal(dash.style.top, '', 'no bar yet: the whole window');
+    // Autotask builds its bar a moment later
+    const hdr = doc.createElement('div');
+    hdr.setAttribute('data-slot', 'header');
+    hdr.getBoundingClientRect = () => ({ top: 0, bottom: 56, height: 56, width: window.innerWidth, left: 0, right: window.innerWidth });
+    doc.body.prepend(hdr);
+    await sleep(300);
+    assert.equal(dash.style.top, '56px');
+    assert.ok(hdr.querySelector('#atqm-navbtn'), 'and the Queue monitor menu is in it');
+  } finally {
+    close();
+  }
+});
+
 test("boot: without Autotask's top bar there's no menu, so the window stays even with the setting off", async () => {
   const { window, close } = load({ boot: true, now: NOW, settings: { showWindow: false }, storage: DASH_STORAGE });
   try {

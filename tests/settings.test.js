@@ -46,7 +46,7 @@ test('boot: the cog opens Settings, with the Queue monitor window put away meanw
   }
 });
 
-test("boot: Settings sits below Autotask's top bar like the dashboard, over the dashboard, with a button back to it", async () => {
+test("boot: Settings sits below Autotask's top bar like the dashboard, in its place, with a button back to it", async () => {
   const html = '<!doctype html><body><div data-slot="header" id="hdr"><button type="button">New</button></div>' +
     '<div id="content" style="position:relative;z-index:2"><p id="grid">Tickets</p></div></body>';
   const { window, close } = load({ boot: true, html });
@@ -71,14 +71,14 @@ test("boot: Settings sits below Autotask's top bar like the dashboard, over the 
     assert.equal(dash.style.top, '56px');
     assert.equal(dash.style.zIndex, '3');
 
-    // From the dashboard: over it, and Back to dashboard closes Settings to it
+    // From the dashboard: in its place, and Back to dashboard closes Settings to it
     button(dash, /^Settings$/).click();
     s = doc.getElementById('atqm-settings');
-    assert.equal(s.style.zIndex, '4');
+    assert.equal(doc.getElementById('atqm-dash'), null);
     assert.equal(button(s, /^Dashboard$/), undefined);
     button(s, /^Back to dashboard$/).click();
     assert.equal(doc.getElementById('atqm-settings'), null);
-    assert.equal(doc.getElementById('atqm-dash'), dash);
+    assert.equal(doc.getElementById('atqm-dash').style.top, '56px');
   } finally {
     close();
   }
@@ -205,7 +205,7 @@ test('boot: statuses that need action are chips, with the other statuses in your
   }
 });
 
-test('boot: Settings opens from the dashboard too, and Esc closes Settings first', async () => {
+test('boot: Settings and the dashboard are open one at a time; Esc in Settings goes back to the dashboard it came from', async () => {
   const { window, close } = load({ boot: true, settings: { dashboard: true } });
   try {
     const doc = window.document;
@@ -213,11 +213,42 @@ test('boot: Settings opens from the dashboard too, and Esc closes Settings first
     doc.getElementById('atqm-dashbtn').click();
     button(doc.getElementById('atqm-dash'), /^Settings$/).click();
     assert.ok(doc.getElementById('atqm-settings'));
+    assert.equal(doc.getElementById('atqm-dash'), null, 'the dashboard closes for Settings');
     esc(window);
     assert.equal(doc.getElementById('atqm-settings'), null);
-    assert.ok(doc.getElementById('atqm-dash'), 'dashboard still open');
+    assert.ok(doc.getElementById('atqm-dash'), 'back to the dashboard');
     esc(window);
     assert.equal(doc.getElementById('atqm-dash'), null);
+  } finally {
+    close();
+  }
+});
+
+test("boot: opening the dashboard while Settings is open (from Autotask's top bar) closes Settings, asking about unsaved changes", async () => {
+  const html = '<!doctype html><body><div data-slot="header"><div data-slot="header:navigation-section"></div></div></body>';
+  const { window, close } = load({ boot: true, html, settings: { dashboard: true } });
+  try {
+    const doc = window.document;
+    await sleep(200);
+    const toDashboard = () => {
+      doc.getElementById('atqm-navbtn').click();
+      button(doc.getElementById('atqm-navmenu'), /^Dashboard$/).click();
+    };
+    doc.getElementById('atqm-setbtn').click();
+    // An unsaved change, kept: Settings stays and the dashboard waits
+    type(window, doc.getElementById('atqm-f-refreshMs'), '5');
+    let asked = 0;
+    window.confirm = () => { asked++; return false; };
+    toDashboard();
+    assert.equal(asked, 1);
+    assert.ok(doc.getElementById('atqm-settings'));
+    assert.equal(doc.getElementById('atqm-dash'), null);
+    // Dropped: Settings closes and the dashboard opens, on its own
+    window.confirm = () => true;
+    toDashboard();
+    assert.equal(doc.getElementById('atqm-settings'), null);
+    assert.ok(doc.getElementById('atqm-dash'));
+    assert.ok(!doc.documentElement.classList.contains('atqm-set-open'));
   } finally {
     close();
   }

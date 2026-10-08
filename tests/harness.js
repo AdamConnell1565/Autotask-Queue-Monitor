@@ -19,13 +19,15 @@ const fixture = name => fs.readFileSync(path.join(__dirname, 'fixtures', name), 
  * @param {string} [o.language]  navigator.language (jsdom says en-US)
  * @param {boolean} [o.boot]     run the whole script (widget, timers, scans) instead of stopping at the test hook
  * @param {string} [o.name]      window.name, e.g. the name Quick start gives a tab it opens
+ * @param {object} [o.session]   sessionStorage entries (as strings), e.g. what a page reloaded with the dashboard open has
  */
-function load({ html = BLANK, settings, storage = {}, now, language, boot = false, name, url = 'https://ww5.autotask.net/Mvc/Framework/Navigation.mvc/Landing' } = {}) {
+function load({ html = BLANK, settings, storage = {}, session = {}, now, language, boot = false, name, url = 'https://ww5.autotask.net/Mvc/Framework/Navigation.mvc/Landing' } = {}) {
   const dom = new JSDOM(html, { url, runScripts: 'outside-only', pretendToBeVisual: true });
   const { window } = dom;
   const all = { ...storage };
   if (settings) all['atqm:settings'] = settings;
   for (const [k, v] of Object.entries(all)) window.localStorage.setItem(k, typeof v === 'string' ? v : JSON.stringify(v));
+  for (const [k, v] of Object.entries(session)) window.sessionStorage.setItem(k, v);
   if (now != null) setNow(window, now);
   if (language) Object.defineProperty(window.navigator, 'language', { value: language, configurable: true });
   if (name) window.name = name;

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Autotask Queue Monitor
 // @namespace    autotask
-// @version      0.16.1
+// @version      0.16.2
 // @description  Track any My Workspace & Queues queue (My queue by default) in its own tab, with a live overview on every Autotask page
 // @author       AdamConnell1565
 // @homepageURL  https://github.com/AdamConnell1565/Autotask-Queue-Monitor
@@ -2117,7 +2117,7 @@
   font:13px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif;text-align:left;animation:atqm-set-in .18s ease-out}
 @keyframes atqm-set-in{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
 #atqm-settings *{box-sizing:border-box}
-html.atqm-set-open #atqm{visibility:hidden}
+html.atqm-set-open #atqm,html.atqm-dash-open #atqm{visibility:hidden}
 #atqm.atqm-off{display:none!important}
 #atqm-navbtn{max-width:none}
 .atqm-navlabel{position:relative;min-width:0;text-align:left}
@@ -3397,24 +3397,27 @@ label.set-label{cursor:pointer}
   }
 
   // ---------------------------------------------------------------------------
-  // Settings: a window over the whole page, opened from the cog in the Queue monitor window (or the
-  // dashboard). Changes wait for Save, so a half-typed number never reaches the monitoring tabs.
+  // Settings: a window over the page, opened from the cog in the Queue monitor window, the dashboard or
+  // the Queue monitor menu. Changes wait for Save, so a half-typed number never reaches the monitoring tabs.
   // ---------------------------------------------------------------------------
   const SET_ID = 'atqm-settings';
   let setForm = null;        // the open form: { dirty, save, refresh, refreshQueues }
   let setReturnFocus = null; // where focus goes back to when it closes
+  let setFromDash = false;   // opened from the dashboard (closed meanwhile): closing Settings goes back to it
   const settingsOpen = () => !!document.getElementById(SET_ID);
 
   // Opens the window, or brings it forward; with a setting's key, scrolls to it and points it out. It sits
-  // below Autotask's top bar like the dashboard (see placeBelowBar), and over the dashboard when that's open.
+  // below Autotask's top bar like the dashboard (see placeBelowBar). Settings and the dashboard are open one
+  // at a time: opening Settings closes the dashboard, and closing Settings goes back to it.
   // The Queue monitor window is put away meanwhile: it would float over Settings' own controls.
   function openSettings(focusKey) {
     let d = document.getElementById(SET_ID);
     if (!d) {
       closeMacroWindow(); // it would be left behind Settings
-      // A dashboard in full screen would hide it (only the full-screen page shows)
-      try { if (document.fullscreenElement) document.exitFullscreen(); } catch { /* ignore */ }
       setReturnFocus = document.activeElement;
+      setFromDash = !!document.getElementById('atqm-dash');
+      if (setFromDash) closeDashboard(); // (out of full screen too, which would hide Settings)
+      try { if (document.fullscreenElement) document.exitFullscreen(); } catch { /* ignore */ }
       d = el('div');
       d.id = SET_ID;
       d.tabIndex = -1;
@@ -3445,15 +3448,18 @@ label.set-label{cursor:pointer}
     row.classList.add('flash');
     row.querySelector('input, select')?.focus({ preventScroll: true });
   }
-  // false if you chose to keep your unsaved changes
-  function closeSettings() {
+  // false if you chose to keep your unsaved changes. Opened from the dashboard: back to it (unless back is false)
+  function closeSettings({ back = true } = {}) {
     const d = document.getElementById(SET_ID);
     if (!d) return true;
     if (setForm?.dirty() && !confirm('Close settings without saving your changes?')) return false;
     d.remove();
     document.documentElement.classList.remove('atqm-set-open');
     setForm = null;
-    try { if (setReturnFocus?.isConnected) setReturnFocus.focus(); } catch { /* ignore */ }
+    const toDash = back && setFromDash;
+    setFromDash = false;
+    if (toDash) openDashboard();
+    else try { if (setReturnFocus?.isConnected) setReturnFocus.focus(); } catch { /* ignore */ }
     setReturnFocus = null;
     return true;
   }
@@ -3560,15 +3566,15 @@ label.set-label{cursor:pointer}
     x.setAttribute('aria-label', 'Close settings');
     x.append(icon('x', 18));
     x.onclick = () => closeSettings();
-    // Back to the dashboard: the one Settings was opened over, or opened now (with the Dashboard button setting on)
-    const overDash = !!document.getElementById('atqm-dash');
-    const toDash = btn(overDash ? 'Back to dashboard' : 'Dashboard', '', () => {
-      if (!closeSettings()) return; // kept open, with your unsaved changes
-      if (!document.getElementById('atqm-dash')) openDashboard();
-      else document.getElementById('atqm-dash').focus();
-    }, overDash ? 'Close Settings and go back to the dashboard' : 'Close Settings and open the dashboard');
+    // To the dashboard: back to the one Settings was opened from (closing Settings does that), or opened now
+    // (with the Dashboard button setting on). Unsaved changes are asked about first, and kept if you say so.
+    const fromDash = setFromDash;
+    const toDash = btn(fromDash ? 'Back to dashboard' : 'Dashboard', '', () => {
+      const back = setFromDash;
+      if (closeSettings() && !back) openDashboard();
+    }, fromDash ? 'Close Settings and go back to the dashboard' : 'Close Settings and open the dashboard');
     toDash.prepend(icon('grid', 14));
-    toDash.hidden = !isTop || !(overDash || CONFIG.dashboard);
+    toDash.hidden = !isTop || !(fromDash || CONFIG.dashboard);
     head.append(brand, find, toDash, x);
 
     // Sections down the left, settings on the right
@@ -5079,7 +5085,14 @@ label.set-label{cursor:pointer}
   const DASH_SS = P + 'dash';
   const dashPage = () => location.pathname + location.search;
   const dashOpen = () => { try { return !!CONFIG.dashboard && sessionStorage.getItem(DASH_SS) === dashPage(); } catch { return false; } };
-  function openDashboard() { closeMacroWindow(); try { sessionStorage.setItem(DASH_SS, dashPage()); } catch { /* ignore */ } render(); }
+  // One at a time with Settings: an open Settings closes first (asking about unsaved changes; kept, the
+  // dashboard waits). Not back to a dashboard Settings came from: this one is it.
+  function openDashboard() {
+    if (settingsOpen() && !closeSettings({ back: false })) return;
+    closeMacroWindow();
+    try { sessionStorage.setItem(DASH_SS, dashPage()); } catch { /* ignore */ }
+    render();
+  }
   function closeDashboard() {
     try { sessionStorage.removeItem(DASH_SS); } catch { /* ignore */ }
     try { if (document.fullscreenElement) document.exitFullscreen(); } catch { /* ignore */ }
@@ -5103,11 +5116,14 @@ label.set-label{cursor:pointer}
       closeSettings();
     } else if (document.getElementById('atqm-dash')) closeDashboard();
   }, true);
-  addEventListener('resize', () => {
+  // The dashboard and Settings put in place again: the window changed size, or Autotask's top bar has appeared
+  // (it's built after the page loads, so a dashboard reopened by a reload starts with no bar to go below)
+  function placeOurPages() {
     const d = document.getElementById('atqm-dash'), s = document.getElementById(SET_ID);
     if (d) placeDashboard(d);
     if (s) placeSettings(s);
-  });
+  }
+  addEventListener('resize', placeOurPages);
 
   let dashTable = false;      // deadlines shown as a table instead of the chart
   let dashAllChanges = false; // the longer change history
@@ -5473,9 +5489,9 @@ label.set-label{cursor:pointer}
     }
     return bottom ? Math.round(bottom) : null;
   }
-  // The dashboard and Settings cover the page below Autotask's top bar, so New, search and the menus stay
-  // usable. They sit just above the page they cover (Settings a step higher, over the dashboard), and so under
-  // the bar's drop-down menus. Full screen, and a locked monitoring tab (greyed out, bar and all), get the
+  // The dashboard and Settings (one at a time) cover the page below Autotask's top bar, so New, search and the
+  // menus stay usable. They sit just above the page they cover (Settings a step higher, to be safe), and so
+  // under the bar's drop-down menus. Full screen, and a locked monitoring tab (greyed out, bar and all), get the
   // whole window, over everything.
   function placeBelowBar(box, step, whole = false) {
     const bar = whole || lockActive() ? null : topBarBottom();
@@ -5488,7 +5504,10 @@ label.set-label{cursor:pointer}
 
   function renderDashboard(items) {
     let d = document.getElementById('atqm-dash');
-    if (!isTop || !dashOpen()) { d?.remove(); return; }
+    // The Queue monitor window is put away while it's open, as for Settings
+    const open = isTop && dashOpen();
+    document.documentElement.classList.toggle('atqm-dash-open', open);
+    if (!open) { d?.remove(); return; }
     const opening = !d;
     if (opening) {
       d = el('div');
@@ -6224,7 +6243,26 @@ label.set-label{cursor:pointer}
     if (!document.getElementById('atqm') && wantsWidget()) createWidget();
     renderTicketPill();
     ensureNavMenu(); // back in Autotask's top bar soon after it's redrawn
+    placeOurPages(); // and the dashboard or Settings below it, should it have moved
   }, 3000);
+  // Autotask builds its top bar after the page loads. As soon as it's there, the Queue monitor menu goes in
+  // and a dashboard reopened by a reload moves below it (and again a moment later, once it has its size)
+  if (isTop && !document.querySelector(AT.sel.topBar) && typeof MutationObserver === 'function') {
+    let soon = null;
+    const watch = new MutationObserver(() => {
+      if (soon) return;
+      soon = setTimeout(() => {
+        soon = null;
+        if (!document.querySelector(AT.sel.topBar)) return;
+        watch.disconnect();
+        ensureNavMenu();
+        placeOurPages();
+        setTimeout(placeOurPages, 500);
+      }, 100);
+    });
+    watch.observe(document.documentElement, { childList: true, subtree: true });
+    setTimeout(() => watch.disconnect(), 60000);
+  }
   setTimeout(renderTicketPill, 1500);
   // (No pagehide clean-up here: a tab opened by script can receive a stale pagehide from the blank
   //  page it started as, which would stop the widget ever appearing. Timers end with the page anyway.)

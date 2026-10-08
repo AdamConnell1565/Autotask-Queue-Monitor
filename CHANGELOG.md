@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.16.2 (2026-10-08)
+
+### Changed
+
+- Settings and the dashboard are open one at a time. Opening Settings from the dashboard takes its place, and closing Settings (✕, Esc or **Back to dashboard**) goes back to it. Opening the dashboard with Settings open closes Settings first, asking if something is unsaved.
+- The Queue monitor window is put away while the dashboard is open, as it already was for Settings.
+
+### Fixed
+
+- The dashboard could open underneath Settings (from the Queue monitor menu) and get stuck there.
+- After a reload with the dashboard open, the dashboard covered Autotask's top bar until its next refresh, because Autotask builds the bar after the page loads. It now moves below the bar as soon as the bar appears.
+
 ## 0.16.1 (2026-10-08)
 
 ### Changed

@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.15.4 (2026-10-08)
+
+### Changed
+
+- Settings opens below Autotask's top bar like the dashboard, so New, search and the menus still work. Opened from the dashboard, it sits over it. The Queue monitor window is put away while Settings is open.
+- Settings has a **Back to dashboard** button, or **Dashboard** when it was opened from the cog. It closes Settings (asking first if something is unsaved) and goes to the dashboard.
+
+### Fixed
+
+- Opening Settings from a dashboard in full screen showed nothing, because only the full-screen page was visible. Full screen now ends first.
+
 ## 0.15.3 (2026-10-08)
 
 ### Changed

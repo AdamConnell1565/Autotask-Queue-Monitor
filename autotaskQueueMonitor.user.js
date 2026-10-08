@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Autotask Queue Monitor
 // @namespace    autotask
-// @version      0.15.3
+// @version      0.15.4
 // @description  Track any My Workspace & Queues queue (My queue by default) in its own tab, with a live overview on every Autotask page
 // @author       AdamConnell1565
 // @homepageURL  https://github.com/AdamConnell1565/Autotask-Queue-Monitor
@@ -2113,6 +2113,7 @@
   font:13px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif;text-align:left;animation:atqm-set-in .18s ease-out}
 @keyframes atqm-set-in{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
 #atqm-settings *{box-sizing:border-box}
+html.atqm-set-open #atqm{visibility:hidden}
 #atqm-settings [hidden]{display:none!important}
 #atqm-settings:focus{outline:none}
 #atqm-settings button:focus-visible,#atqm-settings input:focus-visible,#atqm-settings select:focus-visible,
@@ -3382,17 +3383,20 @@ label.set-label{cursor:pointer}
   let setReturnFocus = null; // where focus goes back to when it closes
   const settingsOpen = () => !!document.getElementById(SET_ID);
 
-  // Opens the window, or brings it forward; with a setting's key, scrolls to it and points it out
+  // Opens the window, or brings it forward; with a setting's key, scrolls to it and points it out. It sits
+  // below Autotask's top bar like the dashboard (see placeBelowBar), and over the dashboard when that's open.
+  // The Queue monitor window is put away meanwhile: it would float over Settings' own controls.
   function openSettings(focusKey) {
     let d = document.getElementById(SET_ID);
     if (!d) {
       closeMacroWindow(); // it would be left behind Settings
+      // A dashboard in full screen would hide it (only the full-screen page shows)
+      try { if (document.fullscreenElement) document.exitFullscreen(); } catch { /* ignore */ }
       setReturnFocus = document.activeElement;
       d = el('div');
       d.id = SET_ID;
       d.tabIndex = -1;
       d.setAttribute('role', 'dialog');
-      d.setAttribute('aria-modal', 'true');
       d.setAttribute('aria-labelledby', 'atqm-set-title');
       d.addEventListener('keydown', e => {
         e.stopPropagation(); // typing here isn't for Autotask's own shortcuts
@@ -3407,6 +3411,8 @@ label.set-label{cursor:pointer}
         else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
       });
       document.body.append(d);
+      document.documentElement.classList.add('atqm-set-open');
+      placeSettings(d);
       renderSettings(d);
     }
     const row = focusKey && d.querySelector(`.set-row[data-key="${focusKey}"]`);
@@ -3423,6 +3429,7 @@ label.set-label{cursor:pointer}
     if (!d) return true;
     if (setForm?.dirty() && !confirm('Close settings without saving your changes?')) return false;
     d.remove();
+    document.documentElement.classList.remove('atqm-set-open');
     setForm = null;
     try { if (setReturnFocus?.isConnected) setReturnFocus.focus(); } catch { /* ignore */ }
     setReturnFocus = null;
@@ -3531,7 +3538,16 @@ label.set-label{cursor:pointer}
     x.setAttribute('aria-label', 'Close settings');
     x.append(icon('x', 18));
     x.onclick = () => closeSettings();
-    head.append(brand, find, x);
+    // Back to the dashboard: the one Settings was opened over, or opened now (with the Dashboard button setting on)
+    const overDash = !!document.getElementById('atqm-dash');
+    const toDash = btn(overDash ? 'Back to dashboard' : 'Dashboard', '', () => {
+      if (!closeSettings()) return; // kept open, with your unsaved changes
+      if (!document.getElementById('atqm-dash')) openDashboard();
+      else document.getElementById('atqm-dash').focus();
+    }, overDash ? 'Close Settings and go back to the dashboard' : 'Close Settings and open the dashboard');
+    toDash.prepend(icon('grid', 14));
+    toDash.hidden = !isTop || !(overDash || CONFIG.dashboard);
+    head.append(brand, find, toDash, x);
 
     // Sections down the left, settings on the right
     const body = el('div', 'set-body');
@@ -5060,7 +5076,11 @@ label.set-label{cursor:pointer}
       closeSettings();
     } else if (document.getElementById('atqm-dash')) closeDashboard();
   }, true);
-  addEventListener('resize', () => { const d = document.getElementById('atqm-dash'); if (d) placeDashboard(d); });
+  addEventListener('resize', () => {
+    const d = document.getElementById('atqm-dash'), s = document.getElementById(SET_ID);
+    if (d) placeDashboard(d);
+    if (s) placeSettings(s);
+  });
 
   let dashTable = false;      // deadlines shown as a table instead of the chart
   let dashAllChanges = false; // the longer change history
@@ -5426,15 +5446,18 @@ label.set-label{cursor:pointer}
     }
     return bottom ? Math.round(bottom) : null;
   }
-  // The dashboard covers the page below Autotask's top bar, so New, search and the menus stay usable. It
-  // sits just above the page it covers, and so under the bar's drop-down menus. Full screen, and a locked
-  // monitoring tab (greyed out, bar and all), get the whole window.
-  function placeDashboard(d) {
-    const bar = document.fullscreenElement === d || lockActive() ? null : topBarBottom();
+  // The dashboard and Settings cover the page below Autotask's top bar, so New, search and the menus stay
+  // usable. They sit just above the page they cover (Settings a step higher, over the dashboard), and so under
+  // the bar's drop-down menus. Full screen, and a locked monitoring tab (greyed out, bar and all), get the
+  // whole window, over everything.
+  function placeBelowBar(box, step, whole = false) {
+    const bar = whole || lockActive() ? null : topBarBottom();
     const below = bar ? Math.max(0, ...pageAt(innerWidth / 2, bar + (innerHeight - bar) / 2).slice(0, 5).map(zOf)) : 0;
-    d.style.top = bar ? bar + 'px' : '';
-    d.style.zIndex = bar ? String(below + 1) : '';
+    box.style.top = bar ? bar + 'px' : '';
+    box.style.zIndex = bar ? String(below + step) : '';
   }
+  const placeDashboard = d => placeBelowBar(d, 1, document.fullscreenElement === d);
+  const placeSettings = d => placeBelowBar(d, 2);
 
   function renderDashboard(items) {
     let d = document.getElementById('atqm-dash');

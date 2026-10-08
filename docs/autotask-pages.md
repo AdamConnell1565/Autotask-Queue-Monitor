@@ -67,7 +67,7 @@ The bar across the top of Autotask, on every page. It holds the logo, the Dashbo
 - The menus and buttons open with `aria-expanded`. Where their drop-downs are attached hasn't been captured yet.
 - The profile button shows your initials and first name. Leave them out of any copy.
 
-**How the dashboard uses it.** `topBarBottom()` returns the header's bottom edge, and `placeDashboard()` starts the dashboard there, so the bar and its menus stay usable. The dashboard's z-index is set just above the page it covers, so the bar's drop-down menus open over it. Full screen and locked monitoring tabs cover the bar on purpose.
+**How the dashboard and Settings use it.** `topBarBottom()` returns the header's bottom edge, and `placeBelowBar()` starts the dashboard and Settings there, so the bar and its menus stay usable. Their z-index is set just above the page they cover, Settings one step above the dashboard, so the bar's drop-down menus open over both. Full screen and locked monitoring tabs cover the bar on purpose. While Settings is open, the Queue monitor window (z-index 2147483000) is hidden, since it would float over Settings' own controls.
 
 On a page without the header, `topBarBottom()` looks for full-width strips at the top of the window instead:
 

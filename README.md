@@ -150,7 +150,7 @@ If a queue has more tickets than one page of the grid shows, the window offers *
 
 ## Settings
 
-Press the cog (⚙) at the top of the window, or **Settings** on the dashboard. Settings opens over the whole browser window, with its sections down the left and **Find a setting** at the top. Changes wait until you press **Save changes** (or Ctrl+S); the bar at the bottom counts what's unsaved, and **Discard** puts it back. Esc or ✕ closes it, and asks first if something is unsaved. Settings are shared by every Autotask tab in the browser.
+Press the cog (⚙) at the top of the window, or **Settings** on the dashboard. Like the dashboard, Settings opens over the page below Autotask's own top bar, so New, search and the menus still work. It has its sections down the left and **Find a setting** at the top. **Back to dashboard** (or **Dashboard**, when you opened Settings from the cog) closes Settings and takes you to the dashboard. Changes wait until you press **Save changes** (or Ctrl+S); the bar at the bottom counts what's unsaved, and **Discard** puts it back. Esc or ✕ closes it, and asks first if something is unsaved. Settings are shared by every Autotask tab in the browser.
 
 The sections, and the settings most people change:
 

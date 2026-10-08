@@ -10,7 +10,7 @@ const esc = window => window.document.body.dispatchEvent(new window.KeyboardEven
 const type = (window, input, value) => { input.value = value; input.dispatchEvent(new window.Event('input', { bubbles: true })); };
 const saved = window => JSON.parse(window.localStorage.getItem('atqm:settings'));
 
-test('boot: the cog opens Settings over the whole window; Esc closes it', async () => {
+test('boot: the cog opens Settings, with the Queue monitor window put away meanwhile; Esc closes it', async () => {
   const { window, close } = load({ boot: true, storage: { 'atqm:tab': '"settings"' } }); // the tab Settings had before 0.14
   try {
     const doc = window.document;
@@ -24,7 +24,8 @@ test('boot: the cog opens Settings over the whole window; Esc closes it', async 
     const d = doc.getElementById('atqm-settings');
     assert.ok(d, 'settings window');
     assert.equal(d.getAttribute('role'), 'dialog');
-    assert.equal(d.getAttribute('aria-modal'), 'true');
+    assert.ok(doc.documentElement.classList.contains('atqm-set-open'), 'the Queue monitor window is hidden');
+    assert.equal(d.style.top, '', 'no Autotask top bar on this page: the whole window');
     assert.deepEqual([...d.querySelectorAll('.set-nav button')].map(b => b.textContent), ['Tracked queues', 'Deadlines and statuses',
       'Alerts', 'Service calls', 'Monitoring', 'Window and display', 'Dates and times', 'Backup and help']);
     assert.equal(d.querySelector('.set-nav [aria-current=true]').textContent, 'Tracked queues');
@@ -39,6 +40,45 @@ test('boot: the cog opens Settings over the whole window; Esc closes it', async 
 
     esc(window);
     assert.equal(doc.getElementById('atqm-settings'), null);
+    assert.ok(!doc.documentElement.classList.contains('atqm-set-open'), 'the Queue monitor window is back');
+  } finally {
+    close();
+  }
+});
+
+test("boot: Settings sits below Autotask's top bar like the dashboard, over the dashboard, with a button back to it", async () => {
+  const html = '<!doctype html><body><div data-slot="header" id="hdr"><button type="button">New</button></div>' +
+    '<div id="content" style="position:relative;z-index:2"><p id="grid">Tickets</p></div></body>';
+  const { window, close } = load({ boot: true, html });
+  try {
+    const doc = window.document, W = window.innerWidth;
+    // jsdom has no layout: a 56 px bar, the page below it at z-index 2
+    const at = (el, top, bottom) => { el.getBoundingClientRect = () => ({ top, bottom, height: bottom - top, width: W, left: 0, right: W }); };
+    at(doc.getElementById('hdr'), 0, 56);
+    at(doc.getElementById('content'), 56, 800);
+    doc.elementsFromPoint = (x, y) => (y < 56 ? [doc.getElementById('hdr')] : [doc.getElementById('grid'), doc.getElementById('content')]);
+    await sleep(200);
+
+    // From the cog: below the bar, a step above where the dashboard goes
+    doc.getElementById('atqm-setbtn').click();
+    let s = doc.getElementById('atqm-settings');
+    assert.equal(s.style.top, '56px');
+    assert.equal(s.style.zIndex, '4');
+    // Its Dashboard button opens the dashboard in its place
+    button(s, /^Dashboard$/).click();
+    assert.equal(doc.getElementById('atqm-settings'), null);
+    const dash = doc.getElementById('atqm-dash');
+    assert.equal(dash.style.top, '56px');
+    assert.equal(dash.style.zIndex, '3');
+
+    // From the dashboard: over it, and Back to dashboard closes Settings to it
+    button(dash, /^Settings$/).click();
+    s = doc.getElementById('atqm-settings');
+    assert.equal(s.style.zIndex, '4');
+    assert.equal(button(s, /^Dashboard$/), undefined);
+    button(s, /^Back to dashboard$/).click();
+    assert.equal(doc.getElementById('atqm-settings'), null);
+    assert.equal(doc.getElementById('atqm-dash'), dash);
   } finally {
     close();
   }

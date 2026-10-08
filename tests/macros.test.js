@@ -10,7 +10,7 @@ const plain = v => JSON.parse(JSON.stringify(v));
 const states = api => plain(api.macroJob().items.map(i => i.state));
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const button = (root, re) => [...root.querySelectorAll('button')].find(b => re.test(b.textContent));
-const fast = api => Object.assign(api.MACRO, { settle: 0, pick: 300, retype: 0, saved: 500 });
+const fast = api => Object.assign(api.MACRO, { settle: 0, pick: 300, retype: 0, confirm: 300, saved: 500 });
 
 // The ticket page, built as Autotask builds it (see docs/autotask-pages.md): the title bar, the Edit button,
 // and read-only fields, label then value. A note's Save is on the page too, and isn't the edit page's.
@@ -44,6 +44,66 @@ const offer = (doc, input, names) => input.addEventListener('input', () => {
   drop.innerHTML = names.map(n => `<div class="Item">${n}</div>`).join('');
   for (const item of drop.querySelectorAll('.Item')) item.addEventListener('click', () => { input.value = item.textContent; drop.innerHTML = ''; });
 });
+
+// Autotask's ticket edit page as it's built today: structure only, placeholders throughout (see docs/autotask-pages.md)
+const editorLabel = label => '<div class="EditorLabelContainer1"><div class="LabelContainer1"><div class="Text">' +
+  `<span class="PrimaryText">${label}</span></div><div class="Required Active">*</div><div class="WalkMeIconPlaceholder"></div></div></div>`;
+// A single-item picker (Status, Sub-Issue Type…): what's chosen, a search box, and its list (closed)
+const itemPicker = (id, chosen, options) => `<div class="Size1"><div class="SingleItemSelector2" id="${id}"><div class="ContentContainer"><div class="ValueContainer">` +
+  `<div class="TargetPreview">${chosen}</div><div class="SearchBox"><input type="text"></div><div class="SelectionDisplay">` +
+  `<div class="Item" data-item-type="${chosen ? 'SingleText' : 'Default'}"><div class="Text"><span>${chosen}</span></div></div></div></div>` +
+  '<div class="Triangle"><div class="InlineIcon Carrot"></div></div></div><div class="ContextOverlayContainer" style="display:none">' +
+  '<div class="ContextOverlay SingleItemSelectorDropDownOverlay"><div class="Content"><div class="ItemSet"><div class="ItemList">' +
+  '<div class="Item" data-item-type="Default" data-index="0"><div class="Text"><span></span></div></div>' +
+  options.map((o, i) => `<div class="Item" data-item-type="SingleText" data-index="${i + 1}"><div class="Text"><span>${o}</span></div></div>`).join('') +
+  '</div></div></div></div></div></div></div>';
+// A data picker (Account, Contact…): a search box, the chosen value as a chip, and a list of what's found
+const dataPicker = (id, chosen) => `<div class="BundleContainer"><div class="EditorContainer"><div class="Size1"><div class="SingleDataSelector2" id="${id}">` +
+  '<div class="ContentContainer"><div class="SearchBox"><div class="Placeholder">Type to search...</div><input type="text"></div>' +
+  `<div class="ChipList SingleDataSelection">${chosen ? `<div class="Chip"><div class="Text">${chosen}</div><div class="RemoveButton"></div></div>` : ''}</div></div>` +
+  '<div class="ContextOverlayContainer" style="display:none"><div class="ContextOverlay SingleDataSelectorAutoCompleteOverlay"><div class="Content">' +
+  '<div class="ItemSetContainer"></div></div></div></div></div></div></div></div>';
+const section = (id, title, fields, closed) => '<div class="DetailsSection"><div class="CollapsibleSectionContainer">' +
+  `<div class="HeadingContainer" id="${id}-head"><div class="DetailsSectionHeading Title"><div class="Left"><span class="Text">${title}</span></div></div></div>` +
+  `<div class="ContentContainer" id="${id}"${closed ? ' style="display:none"' : ''}><div class="Content">${fields}</div></div></div></div>`;
+const realEditPage = ({ subIssue = '', workType = 'Remote Support', billingClosed = true } = {}) => '<!doctype html><body>' +
+  '<div class="TitleBarItem Title"><span class="Text">Edit Ticket -</span><span class="SecondaryText">T20261007.0081 - Laptop (Fabrikam Ltd)</span></div>' +
+  '<div class="ToolBar"><div class="Button2" id="save"><div class="Text2">Save</div></div>' +
+  '<div class="Button2" id="saveclose"><div class="Text2">Save &amp; Close</div></div><div class="Button2"><div class="Text2">Cancel</div></div>' +
+  '<div class="FormTemplateSelector"><div class="SingleItemSelector2"><div class="ValueContainer"><div class="SearchBox"><input type="text"></div>' +
+  '<div class="SelectionDisplay"><div class="Item" data-item-type="Default"><div class="Text"><span>Enter Speed Code or Choose Template</span></div></div></div></div></div></div></div>' +
+  '<div class="DetailsSection"><div class="Content">' + editorLabel('Account') + dataPicker('acc', 'Fabrikam Ltd') +
+  editorLabel('Contact') + dataPicker('con', 'Jane Doe') + '</div></div>' +
+  section('info', 'Ticket Information', editorLabel('Sub-Issue Type') + itemPicker('sub', subIssue, ['Hardware', 'Other', 'Software']) +
+    editorLabel('Source') + itemPicker('src', 'Other', ['Email', 'Other', 'Phone'])) +
+  section('billing', 'Billing', editorLabel('Work Type') + itemPicker('work', workType, ['Onsite', 'Remote Support']), billingClosed) +
+  '</body>';
+// How those pickers behave: typing opens the list (a data picker's with what it finds), clicking a line chooses
+// it (takes: false, a click that doesn't), and a closed section opens from its heading
+function autotaskPickers(doc, { accounts = ['Northwind Ltd'], takes = true } = {}) {
+  const choose = (picker, overlay, input, html) => item => item.addEventListener('click', () => {
+    if (takes) picker.querySelector('.SelectionDisplay, .ChipList').innerHTML = html(item.textContent);
+    overlay.style.display = 'none';
+    input.value = '';
+  });
+  for (const p of doc.querySelectorAll('.SingleItemSelector2[id]')) {
+    const input = p.querySelector('.SearchBox input'), overlay = p.querySelector('.ContextOverlayContainer');
+    input.addEventListener('input', () => { overlay.style.display = input.value ? '' : 'none'; });
+    overlay.querySelectorAll('.Item').forEach(choose(p, overlay, input, t => `<div class="Item" data-item-type="SingleText"><div class="Text"><span>${t}</span></div></div>`));
+  }
+  for (const p of doc.querySelectorAll('.SingleDataSelector2')) {
+    const input = p.querySelector('.SearchBox input'), overlay = p.querySelector('.ContextOverlayContainer'), list = p.querySelector('.ItemSetContainer');
+    input.addEventListener('input', () => {
+      const found = accounts.filter(a => input.value && a.toLowerCase().includes(input.value.toLowerCase()));
+      list.innerHTML = found.map(a => `<div class="Item" data-item-type="SingleText"><div class="Text"><span>${a}</span></div></div>`).join('');
+      overlay.style.display = found.length ? '' : 'none';
+      list.querySelectorAll('.Item').forEach(choose(p, overlay, input, t => `<div class="Chip"><div class="Text">${t}</div></div>`));
+    });
+  }
+  for (const head of doc.querySelectorAll('.HeadingContainer')) {
+    head.addEventListener('click', () => { doc.getElementById(head.id.replace(/-head$/, '')).style.display = ''; });
+  }
+}
 
 // A job part-way through, as the macro tab finds it
 const job = (state, more = {}, fill = {}) => ({
@@ -315,6 +375,100 @@ test('change account: a type the ticket page shows is kept, even where the edit 
   assert.deepEqual(states(off.api), ['check', 'waiting']);
   assert.equal(off.api.macroJob().items[0].note, 'Saved, but Sub-Issue Type shows nothing instead of Laptop');
   off.close();
+});
+
+test("change account on Autotask's edit page as it's built: the account's chip, a type from its own list, a closed section, Save & Close", async () => {
+  const { api, window, close } = load({ now: NOW, html: realEditPage(), storage: job('edit', {}, { subIssue: 'Other', workType: 'Onsite' }) });
+  window.sessionStorage.setItem('atqm:macro', 'job1'); // an Edit window opened from the macro tab carries the job
+  fast(api);
+  const doc = window.document, shown = id => doc.querySelector(`#${id} .SelectionDisplay`).textContent;
+  autotaskPickers(doc);
+  let saved = '';
+  for (const id of ['save', 'saveclose']) doc.getElementById(id).addEventListener('click', () => { saved = id; doc.getElementById(id).remove(); });
+  await api.macroWork();
+  assert.equal(doc.querySelector('#acc .Chip').textContent, 'Northwind Ltd');
+  assert.equal(shown('sub'), 'Other', 'from its own list');
+  assert.equal(shown('src'), 'Other', "Source, showing the same word, isn't touched");
+  assert.equal(doc.getElementById('billing').style.display, '', 'Billing opened to find Work Type');
+  assert.equal(shown('work'), 'Remote Support', 'kept: it has one');
+  assert.equal(doc.querySelector('.FormTemplateSelector input').value, '', 'the speed code box is never used');
+  const item = plain(api.macroJob().items[0]);
+  assert.deepEqual([item.state, item.filled, item.kept, item.chosen], ['verify', ['Sub-Issue Type'], ['Work Type'], 'Northwind Ltd']);
+  assert.equal(saved, 'saveclose', 'Save & Close, so an Edit window of its own closes');
+  close();
+
+  // An empty Work Type in the closed section is filled in; in the macro tab itself, plain Save
+  const tab = load({ now: NOW, name: 'atqm_macro', html: realEditPage({ subIssue: 'Hardware', workType: '' }), storage: job('edit', {}, { subIssue: 'Other', workType: 'Onsite' }) });
+  fast(tab.api);
+  const d2 = tab.window.document;
+  autotaskPickers(d2);
+  let saved2 = '';
+  for (const id of ['save', 'saveclose']) d2.getElementById(id).addEventListener('click', () => { saved2 = id; d2.getElementById(id).remove(); });
+  await tab.api.macroWork();
+  assert.equal(d2.querySelector('#work .SelectionDisplay').textContent, 'Onsite');
+  assert.equal(d2.querySelector('#sub .SelectionDisplay').textContent, 'Hardware');
+  assert.deepEqual(plain([tab.api.macroJob().items[0].filled, tab.api.macroJob().items[0].kept]), [['Work Type'], ['Sub-Issue Type']]);
+  assert.equal(saved2, 'save');
+  tab.close();
+});
+
+test("change account: a pick the field doesn't take fails the ticket, unsaved", async () => {
+  const { api, window, close } = load({ now: NOW, name: 'atqm_macro', html: realEditPage(), storage: job('edit') });
+  fast(api);
+  const doc = window.document;
+  autotaskPickers(doc, { takes: false });
+  let saves = 0;
+  doc.getElementById('save').addEventListener('click', () => saves++);
+  await api.macroWork();
+  assert.deepEqual(states(api), ['failed', 'waiting']);
+  assert.equal(api.macroJob().items[0].note, 'Picked "Northwind Ltd", but the Account field didn\'t take it');
+  assert.equal(saves, 0);
+  close();
+});
+
+test('change account: a ticket already on the account is still edited for a type it has empty, its account left alone', async () => {
+  // On the ticket page: already on it, no Work Type
+  const open = load({ now: NOW, name: 'atqm_macro', html: ticketPage(A, 'Northwind Ltd', { workType: '' }), storage: job('open', {}, { workType: 'Onsite' }) });
+  fast(open.api);
+  let edits = 0;
+  open.window.document.getElementById('edit').addEventListener('click', () => edits++);
+  await open.api.macroWork();
+  const item = plain(open.api.macroJob().items[0]);
+  assert.deepEqual([item.state, item.keepAccount, item.had, edits], ['edit', true, { workType: '' }, 1]);
+  open.close();
+
+  // On the edit page: the account isn't typed into, the Work Type is filled in
+  const edit = load({ now: NOW, name: 'atqm_macro', html: realEditPage({ workType: '', billingClosed: false }), storage: job('edit', item, { workType: 'Onsite' }) });
+  fast(edit.api);
+  const doc = edit.window.document;
+  autotaskPickers(doc);
+  let typed = 0;
+  doc.querySelector('#acc input').addEventListener('input', () => typed++);
+  doc.getElementById('save').addEventListener('click', () => doc.getElementById('save').remove());
+  await edit.api.macroWork();
+  assert.equal(typed, 0);
+  assert.equal(doc.querySelector('#work .SelectionDisplay').textContent, 'Onsite');
+  assert.deepEqual(states(edit.api), ['verify', 'waiting']);
+  edit.close();
+
+  // Already on it with nothing to fill in: skipped, as before
+  const skip = load({ now: NOW, name: 'atqm_macro', html: ticketPage(A, 'Northwind Ltd'), storage: job('open', {}, { workType: 'Onsite' }) });
+  fast(skip.api);
+  await skip.api.macroWork();
+  assert.deepEqual(states(skip.api), ['skipped', 'waiting']);
+  skip.close();
+});
+
+test("change account: when the browser blocks Autotask's Edit window, the ticket fails straight away and says why", async () => {
+  const { api, window, close } = load({ now: NOW, name: 'atqm_macro', html: ticketPage(A, 'Fabrikam Ltd'), storage: job('open') });
+  fast(api);
+  window.open = () => null; // pop-ups blocked
+  window.document.getElementById('edit').addEventListener('click', () => window.open('https://ww5.autotask.net/edit', '_blank'));
+  await api.macroWork();
+  assert.deepEqual(states(api), ['failed', 'waiting']);
+  assert.match(api.macroJob().items[0].note, /blocked the Edit window\. Allow pop-ups for autotask\.net/);
+  assert.equal(api.get('atqm:popups', {}).state, 'blocked');
+  close();
 });
 
 test("change account: when Autotask's list doesn't load, it clears the box and types again, 3 times in all", async () => {

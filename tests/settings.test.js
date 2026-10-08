@@ -224,6 +224,25 @@ test('boot: Settings and the dashboard are open one at a time; Esc in Settings g
   }
 });
 
+test('boot: a switch turned from the Queue monitor menu while Settings has unsaved changes stays turned when you Save', async () => {
+  const html = '<!doctype html><body><div data-slot="header"><div data-slot="header:navigation-section"></div></div></body>';
+  const { window, close } = load({ boot: true, html });
+  try {
+    const doc = window.document;
+    await sleep(200);
+    doc.getElementById('atqm-setbtn').click();
+    type(window, doc.getElementById('atqm-f-refreshMs'), '5');
+    doc.getElementById('atqm-navbtn').click();
+    button(doc.getElementById('atqm-navmenu'), /^Hide Macros button on ticket pop-ups$/).click();
+    assert.equal(doc.getElementById('atqm-f-ticketMacroButton').checked, false, 'the row shows it');
+    button(doc.getElementById('atqm-settings'), /^Save changes$/).click();
+    assert.equal(saved(window).ticketMacroButton, false);
+    assert.equal(saved(window).refreshMs, 5 * 60000);
+  } finally {
+    close();
+  }
+});
+
 test("boot: opening the dashboard while Settings is open (from Autotask's top bar) closes Settings, asking about unsaved changes", async () => {
   const html = '<!doctype html><body><div data-slot="header"><div data-slot="header:navigation-section"></div></div></body>';
   const { window, close } = load({ boot: true, html, settings: { dashboard: true } });

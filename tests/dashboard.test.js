@@ -357,6 +357,27 @@ test("boot: a Queue monitor menu in Autotask's top bar, built like Autotask's ow
   }
 });
 
+test('boot: service call reminders show on the dashboard too, with Dismiss', async () => {
+  const calls = { key: 'calls', nav: 'Service Calls', section: 'My Workspace', mode: 'calls' };
+  const { window, close } = load({ boot: true, now: NOW, settings: { serviceCalls: true }, storage: {
+    ...DASH_STORAGE,
+    'atqm:queues': [...DASH_STORAGE['atqm:queues'], calls],
+    'atqm:snap:q:calls': { 501: { start: NOW + 5 * MIN, end: NOW + 65 * MIN, account: 'Contoso Ltd', description: 'Server check', status: 'New' } },
+  } });
+  try {
+    const doc = window.document;
+    await sleep(200);
+    doc.getElementById('atqm-dashbtn').click();
+    const reminders = () => doc.querySelector('#atqm-dash .dash-rem');
+    assert.match(reminders().textContent, /Service call in 5m/);
+    assert.match(reminders().textContent, /Contoso Ltd/);
+    button(reminders(), /^Dismiss$/).click();
+    assert.equal(reminders(), null);
+  } finally {
+    close();
+  }
+});
+
 test('boot: the Queue monitor window is put away while the dashboard is open', async () => {
   const { window, close } = load({ boot: true, now: NOW, storage: DASH_STORAGE });
   try {

@@ -193,26 +193,119 @@ Without the guards, the walk up from a label container can reach a level that al
 
 ### What Change account does on this page
 
-- **Opening the ticket.** It waits for the page to settle, then reads the Account field. If the ticket is already on the target account, it skips the ticket. Otherwise it reads Sub-Issue Type and Work Type, so that one the ticket already has is never written over (even if the edit page appears to show nothing there), then presses Edit.
+- **Opening the ticket.** It waits for the page to settle, then reads the Account field, Sub-Issue Type and Work Type. A type the ticket already has is never written over, even if the edit page appears to show nothing there.
+  - **Already on the target account:** if a type it was given is empty on the ticket, it still edits the ticket for that type and leaves the account alone. Otherwise it skips the ticket.
+  - **Otherwise:** it presses Edit. If Autotask opens the edit page in a window of its own and the browser blocks it, the ticket fails straight away with "allow pop-ups" (`pressEdit()` watches `window.open` for 5 seconds).
 - **After saving.** The ticket counts as done once the Account field shows the new account and each type it filled in shows what it picked. If a type shows something else, the ticket is marked **Check it**.
 
 ## Ticket edit page
 
-**Not captured yet.** The script's assumptions come from two sources: an older script that worked (it set a speed code and saved), and the label markup on the ticket page.
+Captured October 2026. The title bar reads `Edit Ticket -` followed by the ticket number, so `openTicketId()` (which wants "Ticket") doesn't take it for the ticket page. The body has the class `EntityEdit` (the ticket page's is `EntityDetail`). Whether Edit opens the page in the same tab or in a window of its own still isn't known. The macro handles both, because a window opened from the macro tab inherits the job through sessionStorage.
 
-- **Speed code box**: `.FormTemplateSelector input`. Typing in it filters a list. The macro never types here (`AT.sel.formTemplate` excludes it), because a speed code sets fields over whatever is already in them.
-- **Drop-down choices**: `.Item`, or `[role="option"]`. The macro clicks one to pick it. Autotask sometimes doesn't load the list after typing. So when the name hasn't come up within `MACRO.pick` (3 s), `chooseOption()` clears the box, waits `MACRO.retype` (0.5 s) and types it again, `MACRO.tries` (3) times in all.
-- **Save**: a `.Button2` with the `.Text2` "Save", or "Save & Close".
-- **Fields**: a label names each field ("Account", "Sub-Issue Type", "Work Type"), probably with the same `.LabelContainer1 > .Text > .PrimaryText` markup as the ticket page, followed by a text box the script types into. `findField()` first uses a `<label>`'s `for` attribute when it has one. Otherwise it takes the nearest text box after the label, at most 4 levels up, subject to the guards above.
-- **Where Edit opens**: in the same tab, or in a window of its own, isn't known. The macro handles both, because a window opened from the macro tab inherits the job through sessionStorage.
+### Toolbar
 
-When you capture this page, check:
+All `.Button2 > .Text2`, as on the ticket page:
 
-- the label markup for Account, Sub-Issue Type and Work Type
-- the box itself: is it an `<input>`? is it `readonly`? does a chosen value show in the box, or beside it?
-- the drop-down list's markup, and where it's attached: inside the field, or at the end of `<body>`
-- how errors and required fields show
-- whether Save, Save & Close, or both are there
+- **Save**, **Save & Close** and **Cancel**.
+- **Save & ...**, a drop-down whose hidden menu holds Save & Enter Time, Save & Add Note, Save & Create New and Save & Assign to Taskfire.
+- **Notify Taskfire**, usually disabled.
+
+The macro presses **Save & Close**, which closes an edit window of its own (plain Save would leave one open for every ticket). In the macro tab itself it presses plain **Save**, because Save & Close might shut the macro tab. Both texts are matched exactly, so the Save & ... menu's buttons are never pressed.
+
+### Speed code box
+
+It sits at the right of the toolbar: `.FormTemplateSelector > .SingleItemSelector2`, a single-item picker (below) whose list has recent, personal, department and company speed codes under `.GroupHeader`s. The macro never uses it (`AT.sel.formTemplate` is excluded everywhere), because a speed code sets fields over whatever is already in them.
+
+### Fields
+
+Every field is a label followed by its editor, side by side in the section's `.Content`:
+
+```html
+<div class="EditorLabelContainer1">
+  <div class="LabelContainer1"><div class="Text"><span class="PrimaryText">Sub-Issue Type</span></div>
+    <div class="Required Active">*</div><div class="WalkMeIconPlaceholder"></div></div>
+</div>
+<div class="Size1">… the editor …</div>
+```
+
+- A required field's asterisk has `Required Active`. A field that isn't required has no `Required` element at all (Contact, Location).
+- Account's editor is wrapped in `.BundleContainer > .EditorContainer`, with icon buttons beside it (open tickets for the account, new).
+- `findField()` takes `.EditorLabelContainer1` as the label (its text is "Sub-Issue Type*") and finds the editor's search box after it. The editor is the label's next sibling, which `findField()` returns as `editor`.
+- The sections (`.DetailsSection`) match the ticket page's: the top one with no heading (Account, Contact, Status, Priority), then Ticket Information, Assignment and Billing.
+  - Collapsible ones are `.CollapsibleSectionContainer`, with a `.HeadingContainer`.
+  - Autotask remembers which you've closed. A field in a closed section is hidden, so `findFieldOpening()` presses the section's heading to open it first.
+- The capture was cut off in Assignment, so Billing (with Work Type) hasn't been seen. Work Type is presumably a single-item picker like Sub-Issue Type.
+
+### The two kinds of picker
+
+**Single-item picker** (`.SingleItemSelector2`): Status, Priority, Issue Type, Sub-Issue Type, Source, Queue, and the speed code box.
+
+```html
+<div class="SingleItemSelector2">
+  <div class="ContentContainer">
+    <div class="ValueContainer">
+      <div class="TargetPreview">Other</div>
+      <div class="SearchBox"><input type="text"></div>
+      <div class="SelectionDisplay">
+        <div class="Item" data-item-type="SingleText"><div class="Text"><span>Other</span></div></div>
+      </div>
+    </div>
+    <div class="Triangle"><div class="InlineIcon Carrot"></div></div>
+  </div>
+  <div class="ContextOverlayContainer">
+    <div class="ContextOverlay SingleItemSelectorDropDownOverlay"><div class="Content"><div class="ItemSet"><div class="ItemList">
+      <div class="Item" data-item-type="Default" data-index="0"><div class="Text"><span></span></div></div>
+      <div class="Item" data-item-type="SingleText" data-index="1"><div class="Text"><span>Hardware</span></div></div>
+      …
+    </div></div></div></div>
+  </div>
+</div>
+```
+
+- **What's chosen** shows twice: as text in `.TargetPreview`, and as an `.Item` in `.SelectionDisplay`.
+  - `data-item-type="Default"` with empty text means nothing is chosen. That's how `fieldShows()` tells an empty field.
+  - The chosen `.Item` uses the same class as the choices in the list. `pickOptions()` therefore never picks inside `.SelectionDisplay`: another field showing "Other" isn't a choice.
+- **The list** is in the picker's own `.ContextOverlayContainer`. Its first line is always the empty `Default` item. The chosen line has `data-is-selected="true"`, and the keyboard's line `data-is-targeted="true"`. Status and Priority lines (`data-item-type="IconSingleText"`) also have a coloured icon before the text.
+- **Typing in the search box** narrows the list (assumed). The macro picks from the field's own list first (`pickOptions(name, scope)`), and from any open list only when the field has none.
+
+**Data picker** (`.SingleDataSelector2`): Account, Contact, Location.
+
+```html
+<div class="SingleDataSelector2">
+  <div class="ContentContainer">
+    <div class="SearchBox"><div class="Placeholder">Type to search...</div><input type="text"></div>
+    <div class="ChipList SingleDataSelection">
+      <div class="Chip"><div class="Text">Contoso Ltd</div><div class="RemoveButton"><div class="RemoveIcon"></div></div></div>
+    </div>
+  </div>
+  <div class="Button2 EditorButton2 IconOnly2 ButtonIcon2">… opens a full selector …</div>
+  <div class="ContextOverlayContainer"><div class="ContextOverlay SingleDataSelectorDropDownOverlay">… "or open selector" …</div></div>
+  <div class="ContextOverlayContainer"><div class="ContextOverlay SingleDataSelectorAutoCompleteOverlay">
+    <div class="Content"><div class="LoadingIndicator"></div><div class="ItemSetContainer"></div></div>
+  </div></div>
+</div>
+```
+
+- **What's chosen** is the `.Chip` in `.ChipList`. There's none when the field is empty, and the "Type to search..." placeholder isn't a value.
+- **Typing in the search box** fills `.ItemSetContainer` with what Autotask finds, after a moment. The markup of those lines hasn't been captured. The macro assumes `.Item`s and matches their text, or the text of one of their parts.
+- **Contact's list** uses `data-item-type="PersonName"` lines with the first and last names in two `.Text` children.
+
+**After a pick**, `chooseOption()` waits up to `MACRO.confirm` (3 s) for the field to show it:
+
+- a data picker's chip, or a single-item picker's selection
+- for a plain box, its text
+
+If the field doesn't show it, the ticket fails unsaved.
+
+**When the list doesn't load**, which Autotask sometimes does after typing: if the name hasn't come up within `MACRO.pick` (3 s), the macro clears the box, waits `MACRO.retype` (0.5 s) and types it again, `MACRO.tries` (3) times in all.
+
+### Other editors
+
+- **Due Date**: `.DateAndTimeEditor` with a `.DateBox2` and a `.TimeBox2`, each a plain `<input type="text">` holding the date or time as you'd type it.
+
+### Validation
+
+`.ValidationSummary > .FormValidation.Valid` on a page with no errors. The error markup hasn't been captured yet. `AT.sel.formError` assumes `.Invalid` and the like, and the macro reports the first two messages it finds as "Not saved: …".
 
 ## Capturing a page safely
 

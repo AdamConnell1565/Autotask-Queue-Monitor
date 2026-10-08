@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.17.0 (2026-10-08)
+
+### Added
+
+- **Service call reminders on the dashboard**, at the top, with **Dismiss**. The Queue monitor window, where they also show, is put away while the dashboard is open.
+
+### Changed
+
+- **Change account**, checked against Autotask's real edit page:
+  - **Picking:** it picks only from the field's own list, never from another field showing the same word. For example, Source showing "Other" no longer stands in for Sub-Issue Type's "Other".
+  - **Checking a pick took:** it waits for the field to show what was picked (the account's chip, a type's selection). If the field doesn't take it, the ticket fails unsaved.
+  - **Empty fields:** it tells an empty dropdown field by Autotask's own markers. An empty type shows a blank line, and an empty account has no chip, so "Type to search..." isn't taken for a value.
+  - **Closed sections:** a field in a section you've closed, like Billing, gets its section opened.
+  - **Saving:** it presses **Save & Close**, which closes an Edit window of its own (plain **Save** in the macro tab).
+- A ticket already on the target account is now edited when one of the given types is empty on it, to fill that in with the account left alone. With nothing to fill, it's still skipped.
+
+### Fixed
+
+- When the browser blocked Autotask's Edit window, the macro waited 2 minutes and reported the ticket as stuck. It now fails it straight away and says to allow pop-ups for autotask.net.
+- Turning a switch from the Queue monitor menu while Settings had unsaved changes was undone when you then pressed Save.
+
 ## 0.16.3 (2026-10-08)
 
 ### Added

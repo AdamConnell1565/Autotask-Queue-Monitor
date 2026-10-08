@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Autotask Queue Monitor
 // @namespace    autotask
-// @version      0.16.3
+// @version      0.17.0
 // @description  Track any My Workspace & Queues queue (My queue by default) in its own tab, with a live overview on every Autotask page
 // @author       AdamConnell1565
 // @homepageURL  https://github.com/AdamConnell1565/Autotask-Queue-Monitor
@@ -68,6 +68,15 @@
       textInput: 'input:not([type]), input[type="text"], input[type="search"]',
       formTemplate: '.FormTemplateSelector',   // the speed code box: never one of the fields a macro fills in
       pickItem: '.Item, [role="option"]',      // choices in a drop-down list
+      // What one of the edit page's pickers shows as chosen (not a choice in its list): a single-item picker
+      // (Status, Sub-Issue Type…) its .SelectionDisplay .Item (data-item-type="Default" for none); a data
+      // picker (Account, Contact…) a .Chip in its .ChipList, none when it's empty
+      pickerChosen: '.SelectionDisplay .Item',
+      pickerChips: '.ChipList',
+      pickerChip: '.Chip',
+      pickerShown: '.SelectionDisplay, .ChipList',
+      section: '.CollapsibleSectionContainer', // a section of fields you can close (Ticket Information, Billing…)
+      sectionHead: '.HeadingContainer',
       dialog: '[role="dialog"], [role="alertdialog"], .Dialog, .DialogBox, .MessageBox, .Modal',
       dialogButton: '.Button2, button',
       formError: '[role="alert"], .ErrorMessage, .ValidationMessage, .Error, .Invalid',
@@ -1993,6 +2002,9 @@
 .dash-main{flex:1;min-height:0;overflow:auto;padding:24px 32px 48px;overscroll-behavior:contain}
 .dash-inner{max-width:1760px;margin:0 auto;display:flex;flex-direction:column;gap:16px}
 .dash-note{display:flex;align-items:center;gap:10px;background:#2e2a1f;border:1px solid #4a3f22;border-radius:10px;padding:10px 14px;color:#e3b341}
+.dash-rem{display:flex;flex-direction:column;gap:8px}
+.dash-rem .atqm-rem{padding:10px 14px;border-radius:10px;font-size:14px}
+.dash-rem .atqm-rem-top button{padding:4px 14px}
 .dash-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px}
 .dash-kpi{background:#1e1f22;border:1px solid #2c2f35;border-radius:12px;padding:14px 16px;min-width:0}
 .dash-kpi .l{display:flex;align-items:center;gap:10px;color:#c9d1d9;font-weight:500}
@@ -3924,6 +3936,9 @@ label.set-label{cursor:pointer}
         update();
       },
       refreshQueues: () => { drawHero(); drawQueues(); },
+      // One setting changed elsewhere (the Queue monitor menu) while you may be part-way through others:
+      // just its row, so Save keeps it rather than putting the old value back
+      sync: key => { if (controls[key]) { controls[key].write(CONFIG[key]); update(); } },
     };
 
     drawQueues();
@@ -4078,9 +4093,9 @@ label.set-label{cursor:pointer}
   const MACRO_WIN = 'atqm_macro'; // the macro tab's window name (names starting 'atqm-' are Quick start's)
   const MACRO_SS = P + 'macro';   // the job id, in the macro tab's sessionStorage and so in any window Autotask opens from it
   // ms: let a page settle; wait for a drop-down list to offer what was typed (each try; tries in all, the box
-  // cleared and retype later typed again between them); wait for Save to finish; give up on a stuck step;
-  // reload the ticket if it doesn't show the new account by then
-  const MACRO = { settle: 1500, pick: 3000, tries: 3, retype: 500, saved: 12000, stage: 120000, verify: 30000 };
+  // cleared and retype later typed again between them); wait for the field to show what was picked; wait for
+  // Save to finish; give up on a stuck step; reload the ticket if it doesn't show the new account by then
+  const MACRO = { settle: 1500, pick: 3000, tries: 3, retype: 500, confirm: 3000, saved: 12000, stage: 120000, verify: 30000 };
   const MACRO_ACTIVE = new Set(['open', 'edit', 'verify']);
   const MACRO_WORDS = {
     waiting: 'Waiting', open: 'Opening', edit: 'Editing', verify: 'Saving', done: 'Done',
@@ -4234,6 +4249,27 @@ label.set-label{cursor:pointer}
   const stuckNote = it => (it.state === 'open' ? "The ticket page didn't open, or had no Edit button"
     : "Stuck on the edit page (if Edit opens a window of its own, allow pop-ups for autotask.net)");
 
+  // Press Edit; onBlocked() if Autotask opens the edit page in a window of its own and the browser blocks it
+  // (a click made by the script doesn't count as yours, so pop-ups need allowing for autotask.net). Autotask
+  // may open it a moment after the click, so window.open is watched for a few seconds.
+  function pressEdit(btn, onBlocked) {
+    const real = W.open;
+    let done = false;
+    const restore = () => {
+      if (done) return;
+      done = true;
+      try { if (W.open === watch) W.open = real; } catch { /* ignore */ }
+    };
+    function watch(...args) {
+      const win = real.apply(this, args);
+      if (!win) { restore(); onBlocked(); }
+      return win;
+    }
+    try { W.open = watch; } catch { /* can't watch it: just press */ }
+    press(btn);
+    setTimeout(restore, 5000);
+  }
+
   // The macro tab: do the current ticket's next step on whichever page Autotask is showing
   async function macroWork() {
     if (macroBusy) return;
@@ -4267,15 +4303,20 @@ label.set-label{cursor:pointer}
         } else {
           await sleep(MACRO.settle); // let the account show before judging it
           if (macroItemState(item.id, jid) !== 'open') return; // stopped, or given up on, meanwhile
-          if (accountShown(job.account)) {
+          // The types the ticket has now, read off its page before editing: one it has is left alone, whatever
+          // the edit page shows ('' empty; null: this page doesn't show that field)
+          const had = {};
+          for (const key of Object.keys(job.fill || {})) if (FILL_FIELDS[key]) had[key] = ticketField(FILL_FIELDS[key].re);
+          // Already on the account: edited only to fill in a type it hasn't got, the account left as it is
+          const onIt = accountShown(job.account);
+          if (onIt && !Object.values(had).some(v => v === '')) {
             patchMacroItem(item.id, { state: 'skipped', note: `Already on ${job.account}` }, 'open', jid);
           } else {
-            // The types the ticket has now, read off its page before editing: one it has is left alone,
-            // whatever the edit page shows (null: this page doesn't show that field)
-            const had = {};
-            for (const key of Object.keys(job.fill || {})) if (FILL_FIELDS[key]) had[key] = ticketField(FILL_FIELDS[key].re);
-            patchMacroItem(item.id, { state: 'edit', at: Date.now(), had }, 'open', jid);
-            press(findButton(AT.text.editButton));
+            patchMacroItem(item.id, { state: 'edit', at: Date.now(), had, ...(onIt ? { keepAccount: true } : {}) }, 'open', jid);
+            pressEdit(findButton(AT.text.editButton), () => {
+              notePopups('blocked');
+              patchMacroItem(item.id, { state: 'failed', note: 'Your browser blocked the Edit window. Allow pop-ups for autotask.net and run it again.' }, 'edit', jid);
+            });
           }
         }
       }
@@ -4294,9 +4335,10 @@ label.set-label{cursor:pointer}
     const fail = (note, state = 'failed') => patchMacroItem(item.id, { state, note }, step, job.id);
     const before = new Set(dialogs()); // message boxes already on the page aren't questions for us
     await sleep(MACRO.settle);
-    const input = accountField();
-    if (!input) return fail("Couldn't find the Account field on the edit page");
-    const pick = await chooseOption(input, job.account, ACCOUNT_FIELD);
+    const acc = findField(AT.text.accountLabel);
+    if (!acc) return fail("Couldn't find the Account field on the edit page");
+    // A ticket already on the account is only here for its types: its account is left as it is
+    const pick = item.keepAccount ? { text: job.account } : await chooseOption(acc, job.account, ACCOUNT_FIELD);
     if (pick.note) return fail(pick.note);
     await sleep(MACRO.settle);
     const asked = answerDialog(before);
@@ -4308,11 +4350,11 @@ label.set-label{cursor:pointer}
       const f = FILL_FIELDS[key];
       if (!f || !value) continue;
       if (item.had?.[key]) { kept.push(f.label); continue; }
-      const fld = findField(f.re);
+      const fld = await findFieldOpening(f.re);
       if (!fld) return fail(`Couldn't find the ${f.label} field on the edit page`);
       if (fieldShows(fld)) { kept.push(f.label); continue; }
       if (fld.input.disabled) return fail(`${f.label} is greyed out on the edit page, so it couldn't be filled in`);
-      const got = await chooseOption(fld.input, value, f);
+      const got = await chooseOption(fld, value, f);
       if (got.note) return fail(got.note);
       filled.push(f.label);
       picks[key] = got.text;
@@ -4320,7 +4362,9 @@ label.set-label{cursor:pointer}
       const q = answerDialog(before);
       if (q) return fail(q);
     }
-    const save = AT.text.saveButtons.map(findButton).find(Boolean);
+    // Save & Close: it closes an edit window of its own (plain Save would leave one open for every ticket).
+    // But plain Save in the macro tab itself, which Save & Close might shut.
+    const save = (macroTabName() === MACRO_WIN ? ['Save', 'Save & Close'] : ['Save & Close', 'Save']).map(findButton).find(Boolean);
     if (!save) return fail("Couldn't find Save on the edit page");
     if (macroItemState(item.id, job.id) !== 'edit') return; // stopped, or given up on, meanwhile
     patchMacroItem(item.id, { state: 'verify', at: Date.now(), chosen: pick.text, filled, kept, picks }, 'edit', job.id);
@@ -4420,14 +4464,42 @@ label.set-label{cursor:pointer}
   }
   const fieldInput = re => findField(re)?.input || null;
   const accountField = () => fieldInput(AT.text.accountLabel);
-  // A field shows something: typed in its box, or shown around it (a selector's choice beside an empty
-  // search box). Only what's on screen counts, not a hidden list, nor the field's own name.
+  // findField, opening a closed section first when that's where the field is (Autotask remembers the
+  // sections you've closed, Billing with Work Type say)
+  async function findFieldOpening(re) {
+    const fld = findField(re);
+    if (fld) return fld;
+    const label = [...document.querySelectorAll(AT.sel.fieldLabel)]
+      .find(l => l.childElementCount <= 1 && re.test(clean(l.textContent)) && notOurs(l) && !l.closest(AT.sel.detailField));
+    const head = label && !visible(label) ? label.closest(AT.sel.section)?.querySelector(AT.sel.sectionHead) : null;
+    if (!head) return null;
+    press(head, true);
+    return await waitSteps(() => findField(re), 2000);
+  }
+  // A field shows something. Autotask's pickers say what they hold: a single-item picker its selection (its
+  // "Default" item is none), a data picker a chip (its "Type to search..." isn't a value). Otherwise: typed in
+  // its box, or shown around it. Only what's on screen counts, not a hidden list, nor the field's own name.
   function fieldShows(f) {
     if (clean(f.input.value)) return true;
+    const chosen = f.area.querySelector(AT.sel.pickerChosen);
+    if (chosen) return chosen.dataset.itemType !== 'Default' && !!clean(chosen.textContent);
+    const chips = f.area.querySelector(AT.sel.pickerChips);
+    if (chips) return !!chips.querySelector(AT.sel.pickerChip);
     const shown = e => clean(e.innerText ?? e.textContent);
     let text = shown(f.area);
     if (f.area.contains(f.label)) text = text.replace(shown(f.label), '');
     return /[^\s*:]/.test(text);
+  }
+  // The field holds this now: its chip or selection says so (loosely: a list's line can carry more than the
+  // chip shows), or for a plain box, its text
+  function fieldHas(f, text) {
+    const want = clean(text).toLowerCase();
+    const like = s => { s = clean(s).toLowerCase(); return !!s && (s === want || want.includes(s) || s.includes(want)); };
+    const chosen = f.area.querySelector(AT.sel.pickerChosen);
+    if (chosen) return like(chosen.textContent);
+    const chips = f.area.querySelector(AT.sel.pickerChips);
+    if (chips) return [...chips.querySelectorAll(AT.sel.pickerChip)].some(c => like(c.textContent));
+    return like(f.input.value);
   }
   const macroEditPage = () => !!AT.text.saveButtons.map(findButton).find(Boolean) && !!accountField();
 
@@ -4441,11 +4513,16 @@ label.set-label{cursor:pointer}
     }
   }
   // Choices in the open drop-down list for this name: the one that is exactly it (exact), else the only one
-  // with a part that is (another column beside it), else the only one containing it
-  function pickOptions(name) {
+  // with a part that is (another column beside it), else the only one containing it. The field's own list
+  // when it has one open (scope: its part of the page), else any open list. Never what a picker shows as
+  // chosen (another field showing "Other" isn't a choice), nor a list's empty "Default" line.
+  function pickOptions(name, scope) {
     const want = clean(name).toLowerCase();
     const text = o => clean(o.textContent).toLowerCase();
-    const opts = [...document.querySelectorAll(AT.sel.pickItem)].filter(o => notOurs(o) && !o.closest(AT.sel.formTemplate) && visible(o));
+    const ok = o => notOurs(o) && !o.closest(AT.sel.formTemplate) && !o.closest(AT.sel.pickerShown) &&
+      o.dataset?.itemType !== 'Default' && visible(o);
+    const own = scope ? [...scope.querySelectorAll(AT.sel.pickItem)].filter(ok) : [];
+    const opts = own.length ? own : [...document.querySelectorAll(AT.sel.pickItem)].filter(ok);
     const exact = opts.find(o => text(o) === want);
     if (exact) return { pick: exact, exact: true };
     const part = opts.filter(o => [...o.children].some(c => text(c) === want));
@@ -4458,8 +4535,10 @@ label.set-label{cursor:pointer}
   // name typed again MACRO.retype later, MACRO.tries times in all. (Not when the list came with several that
   // match: typing again wouldn't change that.) A choice that only contains the name has to still be the only
   // one a moment later, so a list still filling in, or one left over from before, doesn't get it picked.
-  // f: ACCOUNT_FIELD or a FILL_FIELDS entry
-  async function chooseOption(input, name, f) {
+  // Picked, the field has to show it (looked up again: Autotask may redraw it).
+  // fld: findField's; f: ACCOUNT_FIELD or a FILL_FIELDS entry
+  async function chooseOption(fld, name, f) {
+    const input = fld.input;
     let found = { many: 0 };
     for (let n = 1; n <= MACRO.tries; n++) {
       if (n > 1) {
@@ -4471,7 +4550,7 @@ label.set-label{cursor:pointer}
       typeInto(input, name);
       let last = null;
       const pick = await waitSteps(() => {
-        found = pickOptions(name);
+        found = pickOptions(name, fld.area);
         const sure = found.exact || (found.pick && found.pick === last);
         last = found.pick || null;
         return sure ? found.pick : null;
@@ -4479,7 +4558,8 @@ label.set-label{cursor:pointer}
       if (pick) {
         const text = clean(pick.textContent);
         press(pick, true);
-        return { text };
+        if (await waitSteps(() => fieldHas(findField(f.re) || fld, text), MACRO.confirm)) return { text };
+        return { note: `Picked "${text}", but the ${f.label} field didn't take it` };
       }
       if (found.many > 1) break;
     }
@@ -5556,6 +5636,10 @@ label.set-label{cursor:pointer}
       note.append(icon('alert', 15), el('span', null, text));
       inner.append(note);
     }
+    // Service call reminders, with Dismiss, as in the Queue monitor window (which is put away meanwhile)
+    const reminders = el('div', 'dash-rem');
+    renderReminders(reminders);
+    if (reminders.childElementCount) inner.append(reminders);
 
     // The numbers, each with its icon (tinted red or amber when it needs you)
     const kpis = el('div', 'dash-kpis');
@@ -5705,7 +5789,7 @@ label.set-label{cursor:pointer}
   function toggleSetting(key) {
     if (!set(K.settings, { ...get(K.settings, {}), [key]: !CONFIG[key] })) return;
     loadSettings();
-    setForm?.refresh();
+    setForm?.sync(key);
     render();
     renderTicketPill();
   }

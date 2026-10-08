@@ -92,7 +92,11 @@ Moves tickets to another account. **Change to** is the account to move them to. 
 
 Autotask sometimes doesn't load its list for what was typed. If the name hasn't come up after 3 seconds, the macro clears the box, waits half a second and types it again, 3 times in all, before it gives up on that ticket.
 
-On each ticket it reads the Account field. A ticket already on that account is skipped without being edited. Otherwise it presses **Edit**, types the account into the Account field and picks it from Autotask's list, does the same for the types where they're empty, and presses **Save**. Then it checks the ticket shows the new account and the types it filled in.
+On each ticket it reads the Account field. A ticket already on that account is only edited if it has one of the given types empty; then only that type is filled in. With nothing to fill, it's skipped.
+
+Otherwise it presses **Edit**, types the account into the Account field and picks it from Autotask's list, and does the same for the types where they're empty. It checks each field shows what it picked, opening a closed section (like Billing) to reach a field if need be. Then it presses **Save & Close** (plain **Save** in the macro tab) and checks the ticket shows the new account and the types it filled in.
+
+If Autotask opens Edit in a window of its own and your browser blocks it, the ticket fails straight away and says to allow pop-ups for autotask.net.
 
 Each ticket ends up **Done** (with which types were filled in, and which it kept because the ticket had one), **Already on it** (skipped), **Failed** (with why: the account or type wasn't offered, several matched, a field wasn't on the edit page or was greyed out, Autotask wanted another field before saving, or it asked a question) or **Check it** (saved, but the change couldn't be confirmed). **Stop** halts it straight away and closes the macro tab (the ticket it was on is marked **Check it**). At the end, **Try the _n_ again** reruns the tickets that didn't get done, and **Done** clears the list. A message box with only OK is acknowledged; any other question is left unanswered and that ticket isn't saved.
 
@@ -111,6 +115,7 @@ Both choices are saved, so every Autotask tab follows them. They're also in Sett
 
 The ⛶ button at the top of the window opens a dashboard over the page, below Autotask's own top bar so **New**, search and the menus still work (turn off **Dashboard button** in Settings to remove it), for keeping SLAs and the tickets without one in view at the same time:
 
+- **Service call reminders** at the top, with **Dismiss**, as in the Queue monitor window (which is put away while the dashboard is open).
 - **The numbers:** overdue, due in the next hour, waiting for a first response (and how many are past your response target), changed since you looked, tickets in your queues, and your next service call.
 - **Next up** as a table: one line per ticket with when, status, priority, queue, title and deadline.
 - **Every ticket in My queue** (and any other queue tracked for all changes) in a table under it: those that need action first, most urgent at the top, then those in a status that needs nothing yet. Each row has the status, priority, title, next deadline (when any ticket has one) and age, and a **Seen** button when it has changed.

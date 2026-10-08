@@ -354,11 +354,11 @@ If the field doesn't show it, the ticket fails unsaved.
 ```js
 setTimeout(() => {
   const open = [...document.querySelectorAll('.ContextOverlay')].filter(o => o.getClientRects().length && o.querySelector('.Item'));
-  copy(open.map(o => o.outerHTML).join('\n\n') || 'No list was open');
-  console.log(`Copied ${open.length} open list(s)`);
+  window.atqmList = open.map(o => o.outerHTML).join('\n\n');
+  console.log(`Kept ${open.length} open list(s). Now click in this console and run: copy(atqmList)`);
 }, 6000);
 ```
 
-Within 6 seconds, click back into the page and open the list (type into the box, or click its arrow). After 6 seconds, whatever list is open is copied to the clipboard, ready to paste.
+Within 6 seconds, click back into the page and open the list (type into the box, or click its arrow). After 6 seconds, whatever list is open is kept in `atqmList`. Then click into the console and run `copy(atqmList)` to put it on the clipboard. Two steps, because Chrome's `copy()` only works while DevTools has the focus, and during the 6 seconds the page has it.
 
 `tests/macros.test.js` builds its ticket page this way, from the markup above.

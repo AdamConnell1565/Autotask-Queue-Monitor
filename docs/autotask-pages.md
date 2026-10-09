@@ -249,7 +249,15 @@ The macro only ever presses plain **Save** (`AT.text.saveButton`), then checks t
 
 ### Speed code box
 
-It sits at the right of the toolbar: `.FormTemplateSelector > .SingleItemSelector2`, a single-item picker (below) whose list has recent, personal, department and company speed codes under `.GroupHeader`s. The macro never uses it (`AT.sel.formTemplate` is excluded everywhere), because a speed code sets fields over whatever is already in them.
+It sits at the right of the toolbar: `.FormTemplateSelector > .SingleItemSelector2`, a single-item picker (below) whose list has recent, personal, department and company speed codes under `.GroupHeader`s. Its empty selection reads "Enter Speed Code or Choose Template".
+
+Change account never uses it, because a speed code sets fields over whatever is already in them. `AT.sel.formTemplate` is excluded from `findField()` and from `pickOptions()`, so no other field's typing or picking can land in it. Only a built macro's **Speed code** block uses it:
+
+- `speedCodeBox()` finds the box and its search box, as `findField()` would give a field, marked `template`.
+- `chooseOption()` types the code and picks from the box's own list (`pickOptions(name, scope, true)`). A heading (`AT.sel.pickHeader`, `data-item-type="GroupHeader"`) is never a choice.
+- **Not captured yet:** what one of the list's lines looks like. The script accepts a line that is the code, has a part that is the code, or starts with the code and then a separator ("PWR - Password reset"). Failing those, it takes the only line containing it. With several, it doesn't guess.
+- **Not captured yet:** what the box shows after a pick. The pick counts as taken once the list closes (or the box shows it), since the template applies to the other fields rather than staying in the box.
+- **Not captured yet:** whether applying a template ever asks something (replace what's there?) or reloads the edit page. A question with buttons other than OK fails the ticket unsaved with Autotask's words, and so does the edit page loading again part-way through a block (see `customEdit()`). Either note says what to capture.
 
 ### Fields
 
@@ -380,6 +388,7 @@ If the field doesn't show it, the ticket fails unsaved.
 
 - **Due Date**: `.DateAndTimeEditor` with a `.DateBox2` and a `.TimeBox2`, each a plain `<input type="text">` holding the date or time as you'd type it.
 - **Numbers and free text** (Estimated Hours, Purchase Order Number): a plain `<input type="text">` with the class `DecimalBox2` or `TextBox2`, straight in its size box with no picker around it. `fieldShows()` reads its value.
+- A built macro's **Set a field** types into these (`AT.sel.plainBox`) rather than waiting for a list, and fires `change` and blurs the box. It counts as taken when the box keeps the text, or the same number ("2" kept as "2.00").
 
 ### Validation
 
@@ -399,6 +408,16 @@ If the field doesn't show it, the ticket fails unsaved.
 
   `Single` is for one error. With several errors it's presumably `Multiple`, with a count and the arrows (`ChevronContainer`) to step through them.
 - **What the macro reports:** "Not saved: Required: Account", made from the summary's message and other messages it finds (`AT.sel.formError`, two at most) and the fields marked `Invalid`, by their labels. With no message, it says "Check Account".
+
+## What built macros do on these pages
+
+Macros made in the Macro builder are lists of blocks (`BLOCKS` in the script). `stepPages()` says which page each step runs on: Only if on the ticket page, Speed code and Set a field on the edit page, and Wait with the step before it. The job keeps a step pointer per ticket (`item.step`), so a ticket can go ticket page → edit page → ticket page → edit page as its steps need.
+
+- **Fields by name.** A block names a field as you'd read it ("Sub-Issue Type"). `fieldSpec()` turns that into a label pattern like `AT.text`'s, allowing the trailing `*` and a space or hyphen either way. The names the builder offers are `AT.text.ticketFields`.
+- **Only if** reads the field on the ticket page with `ticketField()`: its value container's text, so a colour band's (Status, Priority) is its text. A field the page doesn't show fails the ticket rather than guessing.
+- **Before Edit**, it reads each "only if it's empty" field off the ticket page, as Change account does with the types. If every step for the edit page would leave its field alone, it doesn't press Edit at all.
+- **On the edit page**, Set a field uses `findFieldOpening()` (so a closed section is opened) and `chooseOption()`, or types into a plain box. Then `saveEdit()` presses plain Save, as Change account does.
+- **After Save**, the ticket page it lands back on is checked: each field it picked should show it there. A page from before the save (Autotask edited the ticket in a window of its own) is older than the save (`PAGE_T0`), so it's left for the driving page to load again, as Change account's is.
 
 ## Capturing a page safely
 

@@ -75,7 +75,7 @@ A ticket in any other status rests: it stays visible (in the dashboard's ticket 
 
 ## Macros
 
-The **Macros** tab, on the right of the window, does repetitive jobs on tickets for you. Each macro is a square. Click one to open its window: fill in what it asks for, choose which tickets to run it on, and press **Run**. Nothing runs until you press **Run**, and Esc or **Cancel** closes the window. A macro that asks for nothing can also run straight from its square with a double-click (a single click only opens its window).
+The **Macros** tab, on the right of the window, does repetitive jobs on tickets for you: **Change account**, which is built in, and any you build yourself in the [Macro builder](#macro-builder). Each macro is a square. Click one to open its window: fill in what it asks for, choose which tickets to run it on, and press **Run**. Nothing runs until you press **Run**, and Esc or **Cancel** closes the window. A macro that asks for nothing can also run straight from its square with a double-click (a single click only opens its window).
 
 Ticket pop-up windows don't show the Queue monitor window (unless you turn off **Hide in ticket pop-up windows**), so they get a small **Macros** button in the bottom right corner instead, with the same squares, for that ticket.
 
@@ -99,6 +99,36 @@ Otherwise it presses **Edit**, types the account into the Account field and pick
 If Autotask opens Edit in a window of its own and your browser blocks it, the ticket fails straight away and says to allow pop-ups for autotask.net.
 
 Each ticket ends up **Done** (with which types were filled in, and which it kept because the ticket had one), **Already on it** (skipped), **Failed** (with why: the account or type wasn't offered, several matched, a field wasn't on the edit page or was greyed out, Autotask wanted another field before saving, or it asked a question) or **Check it** (saved, but the change couldn't be confirmed). **Stop** halts it straight away and closes the macro tab (the ticket it was on is marked **Check it**). At the end, **Try the _n_ again** reruns the tickets that didn't get done, and **Done** clears the list. A message box with only OK is acknowledged; any other question is left unanswered and that ticket isn't saved.
+
+### Macro builder
+
+Build macros of your own out of blocks. Open the **Macro builder** from any of these:
+
+- **+ New macro**, the last square in the Macros tab and behind a ticket pop-up's Macros button.
+- **Edit**, at the top of the window of a macro you built.
+- **Settings → Macros**, which lists your macros with **Edit** and **Delete**, and has **New macro**.
+
+Give the macro a name (what its square says) and, if you like, a line on what it does. The blocks are on the left, grouped by the page they work on. Drag one into **Steps**, or click it (or press Enter on it) to add it at the end. Drag a step by its handle (⠿) to move it, or use its arrows. Drag it back onto the blocks, or press ×, to take it out. Steps run top to bottom on each ticket. Nothing is kept until **Save macro** (or Ctrl+S); Esc or **Cancel** asks first if you've changed something.
+
+| Block | Page | What it does |
+| --- | --- | --- |
+| **Only if** | The ticket's page | Carries on only if a field matches: it **is** one of some values (separate them with commas), **isn't** any of them, **is empty** or **is filled in**. Otherwise the ticket is **Skipped**, with what the field showed. |
+| **Speed code** | The edit page | Types the speed code into the edit page's speed code box and picks it from Autotask's list, so its template fills in the ticket. It sets whatever its template sets, over what's already there. |
+| **Set a field** | The edit page | Picks a value for a field, named as Autotask labels it (Status, Priority, Queue, Work Type…), from the field's own list. A plain box such as Purchase Order Number is typed into. Tick **Only if it's empty** to leave a field that has something in it alone. |
+| **Wait** | Either | Waits 1 to 60 seconds, for Autotask to catch up (after a speed code, say). It goes with the step before it. |
+
+You don't add Edit or Save yourself. The macro opens the ticket, presses **Edit** before the first step for the edit page and plain **Save** (never Save & Close) after the last of them, and the list of steps shows where. So *Only if Status is New, Speed code PWR, Set Status to In Progress* checks the ticket, edits it once and saves once. A step for the ticket's page after edit-page steps runs on the ticket once it's saved. A macro needs at least one step that changes the ticket (Speed code or Set a field).
+
+**Ask each time.** Tick it on a step's value, and the macro's window asks for that value whenever you run it, starting on what you put in the builder. A macro that asks for nothing runs from its square on a double-click, like any other.
+
+Your macros run like Change account: on **This ticket** or **Ticked in this queue**, with the same progress list, **Stop**, **Try again** and **Done**. As well as Done, Failed and Check it, a ticket can end up:
+
+- **Skipped**: an Only if didn't match, or every field it would fill in already had something (it isn't edited at all then).
+- **Check it**: saved, but a field it set shows something else on the ticket afterwards.
+
+It fails a ticket, unsaved, when Autotask doesn't offer the speed code or value (or offers several that match), a field isn't on the page or is greyed out, Autotask asks a question (a box with only OK is acknowledged), or the edit page loads again part-way through.
+
+Macros you build are kept in this browser with your settings, and **Export** and **Import** (Settings → Backup and help) take them along.
 
 ## Queue monitor menu
 
@@ -177,7 +207,8 @@ The sections, and the settings most people change:
 - **Monitoring**: **Refresh queues every**, **Monitor all queues from one tab** (see [One tab for all queues](#one-tab-for-all-queues)) and **Lock monitoring tabs**.
 - **Window and display**: **Dashboard button** (adds the ⛶ button that opens the dashboard), **Queue monitor window** and **Macros button on ticket pop-ups** (show or hide them, as the Queue monitor menu does), and how the window looks.
 - **Dates and times**: **Date format in Autotask** (detected from your queues; set it if the window shows the wrong dates) and **Autotask time zone** (set it if the time zone in your Autotask profile differs from your PC's; the window warns you when due times look hours out).
-- **Backup and help**: **Export** / **Import** move your settings and tracked queues to another browser or PC. **Diagnostics** and **Reset to defaults** are here too.
+- **Macros**: the macros you've built, with **Edit** and **Delete**, and **New macro**, which open the [Macro builder](#macro-builder). These are kept as soon as the builder saves them, not with Save changes.
+- **Backup and help**: **Export** / **Import** move your settings, tracked queues and macros to another browser or PC. **Diagnostics** and **Reset to defaults** are here too.
 
 ## Limitations
 
@@ -189,7 +220,7 @@ The sections, and the settings most people change:
 
 ## Privacy
 
-To compare scans, the monitor keeps the ticket numbers, titles, account names, statuses and due times of the queues you track in your browser's storage for autotask.net. It sends nothing outside Autotask. **Clear** in the window removes the change history. **Diagnostics** and **Export** never include ticket titles or account names.
+To compare scans, the monitor keeps the ticket numbers, titles, account names, statuses and due times of the queues you track in your browser's storage for autotask.net. It sends nothing outside Autotask. **Clear** in the window removes the change history. **Diagnostics** and **Export** never include ticket titles or account names from your queues. Export does include the macros you've built, with whatever you typed into their steps (an account name in a Set a field step, say).
 
 ## Troubleshooting
 

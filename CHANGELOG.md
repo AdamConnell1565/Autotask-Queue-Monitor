@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.18.0 (2026-10-09)
+
+### Added
+
+- **Macro builder**: build macros of your own out of blocks, and run them like Change account, on this ticket or the tickets ticked in a queue. Drag blocks into a list of steps (or click them in), drag a step by its handle or use its arrows to move it, and drag it back out or press × to take it out. The blocks:
+  - **Speed code**: types a speed code into the edit page's speed code box and picks it, so its template fills in the ticket.
+  - **Set a field**: picks a value for any field on the edit page from its own list (a plain box is typed into), optionally only where the field is empty.
+  - **Only if**: carries on only if a field on the ticket's page is, or isn't, one of some values, or is empty or filled in. Otherwise the ticket is skipped.
+  - **Wait**: a pause of up to a minute.
+- The macro presses Edit and plain Save for you, around the steps for the edit page, and the builder shows where. A step's value can be **asked each time**, in the macro's window when you run it.
+- The builder opens from **+ New macro** in the Macros tab and behind a ticket pop-up's Macros button, from **Edit** in a macro's window, and from the new **Macros** section in Settings, which lists your macros with Edit and Delete.
+- **Export** and **Import** include your macros. A file exported before this version leaves your macros as they are.
+
+### Fixed
+
+- On a locked monitoring tab, typing in a macro's window was swallowed along with keys meant for the page.
+
 ## 0.17.3 (2026-10-08)
 
 ### Fixed

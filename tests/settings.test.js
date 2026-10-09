@@ -27,7 +27,7 @@ test('boot: the cog opens Settings, with the Queue monitor window put away meanw
     assert.ok(doc.documentElement.classList.contains('atqm-set-open'), 'the Queue monitor window is hidden');
     assert.equal(d.style.top, '', 'no Autotask top bar on this page: the whole window');
     assert.deepEqual([...d.querySelectorAll('.set-nav button')].map(b => b.textContent), ['Tracked queues', 'Deadlines and statuses',
-      'Alerts', 'Service calls', 'Monitoring', 'Window and display', 'Dates and times', 'Backup and help']);
+      'Alerts', 'Service calls', 'Monitoring', 'Window and display', 'Dates and times', 'Macros', 'Backup and help']);
     assert.equal(d.querySelector('.set-nav [aria-current=true]').textContent, 'Tracked queues');
     for (const key of ['refreshMs', 'callRefreshMs', 'actionStatuses', 'timeZone', 'sound', 'dashboard']) assert.ok(d.querySelector('#atqm-f-' + key), key);
 

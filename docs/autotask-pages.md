@@ -30,10 +30,7 @@ In Autotask's new layout, an outer page holds the top bar and side panels. Autot
 - **Two copies of the script.** It runs in both pages. The Queue monitor window, with its Macros tab, is in the outer page. The copy in the frame reads and clicks the page there: the queue grid, the ticket, the edit page.
 - **The frame reports what it shows.** `reportPage()` sends the outer page a `page` message. It says which queue the frame shows (if it's one of My Workspace's), whether it shows a list of tickets, which tickets are ticked, and which ticket it shows. That's how the Macros tab in the outer page can see your ticks and the open ticket. `pageInfo()` in the outer page uses the report while it's less than 25 seconds old.
 - **Lists that aren't queues.** A dashboard widget's drill-down (`/Mvc/ServiceDesk/TicketGridWidgetDrilldown.mvc/PrimaryStandardDrilldown?…`) is a ticket grid without the queue menu. A macro can change the tickets you tick there, but the list isn't monitored.
-- **How a ticked row is marked** in these grids hasn't been captured yet. The script accepts any of these in the row:
-  - a checked `<input type="checkbox">`
-  - Autotask's own `.Checkbox2 .Checked` (the kind on the ticket page)
-  - `[role="checkbox"][aria-checked="true"]`
+- **Ticked rows** are marked by the grid's own drawn tick box ([Ticket grids](#ticket-grids)), which the frame reads and reports.
 - **Third-party scripts.** The outer page loads feedback and guidance tools. One of them puts the signed-in user's details in `window.dataLayer`. Never copy those script blocks into a fixture or into this file.
 
 ## Ticket grids

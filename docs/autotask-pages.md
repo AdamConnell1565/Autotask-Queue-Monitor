@@ -142,6 +142,28 @@ Element IDs (`z` followed by 32 hex characters) change on every page load, so ne
 - The left of the toolbar has Edit, Accept, Forward, Tools ▾ and Complete. The right has Knowledge Base ▾, Transfer to Co-managing User, Livelinks ▾ and Print View.
 - A drop-down button (`.DropDownButton2.Combined`) keeps its menu in the page, hidden: `.ContextOverlayContainer > .ContextOverlay` holds more `.Button2`s. For example, Tools holds Copy, Merge into Another Ticket and Account Service Details. They stay hidden until the menu opens, and `visible()` keeps `findButton` off them.
 
+### Activity toolbar
+
+Above the activity area, a toolbar of its own, built the same way. Captured October 2026.
+
+```html
+<div class="ToolBar">
+  <div class="ToolBarItem Left ButtonGroupStart"><div data-tabbing-system="1" data-alpha-id="z…">
+    <div class="Button2 ButtonIcon2 NormalBackground" id="z…" tabindex="0">
+      <div class="Spacer"></div><div class="Icon2"><div class="StandardButtonIcon Time"></div></div>
+      <div class="Text2">New Time Entry</div><div class="Spacer"></div>
+    </div>
+  </div></div>
+  <div class="ToolBarItem Left">… New Note (StandardButtonIcon Note) …</div>
+  <div class="ToolBarItem Left ButtonGroupEnd">… New Attachment (StandardButtonIcon Attachment) …</div>
+  <div class="ButtonGroupDivider"></div>
+  <div class="ToolBarItem Left ButtonGroupStart ButtonGroupEnd LockedWidth">… Refresh: IconOnly2, an empty .Text2 …</div>
+</div>
+```
+
+- A built macro's **New time entry** presses New Time Entry with `findButton()` (the first of `AT.text.newTimeButtons`).
+- New Note opens a note: not captured, and no block uses it yet.
+
 ### Read-only fields
 
 The ticket's fields are in the left-hand column (the Details tab of `.SecondaryContainer`). Every field is built the same way:
@@ -245,19 +267,45 @@ All `.Button2 > .Text2`, as on the ticket page:
 - **Save & ...**, a drop-down whose hidden menu holds Save & Enter Time, Save & Add Note, Save & Create New and Save & Assign to Taskfire.
 - **Notify Taskfire**, usually disabled.
 
-The macro only ever presses plain **Save** (`AT.text.saveButton`), then checks the ticket page it lands back on. The text is matched exactly, so neither Save & Close nor the Save & ... menu's buttons are pressed. `AT.text.saveButtons` (both) is only for recognising the edit page.
+Change account, and a built macro's **Save ticket**, only ever press plain **Save** (`AT.text.saveButton`), then check the ticket page they land back on. The text is matched exactly, so neither Save & Close nor the Save & ... menu's buttons are pressed. `AT.text.saveButtons` (both) is only for recognising the edit page.
+
+A built macro's **Save ticket & enter time** presses **Save & Enter Time** (`AT.text.saveAndTime`) from the Save & ... menu. `menuButton()` finds the hidden button in a `.ContextOverlayContainer` (`AT.sel.menu`), presses the visible part of its `.DropDownButton2` (`AT.sel.dropButton`, `AT.sel.menuOpener`) to open the menu, and waits for the button to show. **Not captured yet:** the menu's own markup, so which part opens it is a guess (its button, or something with Arrow in its class).
 
 ### Speed code box
 
 It sits at the right of the toolbar: `.FormTemplateSelector > .SingleItemSelector2`, a single-item picker (below) whose list has recent, personal, department and company speed codes under `.GroupHeader`s. Its empty selection reads "Enter Speed Code or Choose Template".
 
-Change account never uses it, because a speed code sets fields over whatever is already in them. `AT.sel.formTemplate` is excluded from `findField()` and from `pickOptions()`, so no other field's typing or picking can land in it. Only a built macro's **Speed code** block uses it:
+Change account never uses it, because a speed code sets fields over whatever is already in them. `AT.sel.formTemplate` is excluded from `findField()` and from `pickOptions()`, so no other field's typing or picking can land in it. Only a built macro's **Ticket speed code** block uses it (and **Time entry speed code**, the same way, in a time entry):
 
 - `speedCodeBox()` finds the box and its search box, as `findField()` would give a field, marked `template`.
-- `chooseOption()` types the code and picks from the box's own list (`pickOptions(name, scope, true)`). A heading (`AT.sel.pickHeader`, `data-item-type="GroupHeader"`) is never a choice.
-- **Not captured yet:** what one of the list's lines looks like. The script accepts a line that is the code, has a part that is the code, or starts with the code and then a separator ("PWR - Password reset"). Failing those, it takes the only line containing it. With several, it doesn't guess.
+- `chooseOption()` types the code and picks from the box's own list (`pickOptions(name, scope, true)`).
+
+**Its list**, captured October 2026 from a time entry's (same widget). Codes and names here are placeholders:
+
+```html
+<div class="ContextOverlayContainer"><div class="ContextOverlay SingleItemSelectorDropDownOverlay"><div class="Content">
+  <div class="ItemSet"><div class="ItemList">
+    <div class="Item" data-item-type="Default" data-index="0" data-is-targeted="true" data-is-selected="true">
+      <div class="Text"><span>Enter Speed Code or Choose Template</span></div></div>
+    <div class="GroupHeader" data-item-type="GroupHeader"><div class="HeaderText">Recently Used</div></div>
+    <div class="Item" data-item-type="SingleText" data-index="1"><div class="Text"><span>PWR-100 - Password reset</span></div></div>
+    <div class="GroupHeader" data-item-type="GroupHeader"><div class="HeaderText">Personal</div></div>
+    …
+    <div class="GroupHeader" data-item-type="GroupHeader"><div class="HeaderText">Department</div></div>
+    <div class="Item" data-item-type="SingleText" data-index="7"><div class="Text"><span>PWR-100 - Password reset</span></div></div>
+    …
+    <div class="GroupHeader" data-item-type="GroupHeader"><div class="HeaderText">Company</div></div>
+    …
+  </div></div>
+</div></div></div>
+```
+
+- **Each line is "code - template name"** (a speed code such as `PWR-100`, then ` - `, then the name). The script takes a line that is the code, has a part that is the code, or starts with the code and then a separator. Failing those, it takes the only line containing it. With several, it doesn't guess. Typing the code itself is the reliable way: `PWR-10` doesn't take `PWR-100`.
+- **Headings** are `.GroupHeader`s, not `.Item`s, so they're never picked. (`AT.sel.pickHeader` also keeps off a heading built as an `.Item`.) Its groups are Recently Used, Personal, Department and Company.
+- **The same speed code can be under two headings** (Recently Used and Department, say). For the speed code box only, lines with the same text count as one choice. Elsewhere two lines the same are two choices (two accounts with the same name), and the script doesn't guess between them.
+- The first line, `data-item-type="Default"`, is the empty choice, showing "Enter Speed Code or Choose Template". It's never picked.
 - **Not captured yet:** what the box shows after a pick. The pick counts as taken once the list closes (or the box shows it), since the template applies to the other fields rather than staying in the box.
-- **Not captured yet:** whether applying a template ever asks something (replace what's there?) or reloads the edit page. A question with buttons other than OK fails the ticket unsaved with Autotask's words, and so does the edit page loading again part-way through a block (see `customEdit()`). Either note says what to capture.
+- **Not captured yet:** whether applying a template ever asks something (replace what's there?) or reloads the edit page. A question with buttons other than OK fails the ticket unsaved with Autotask's words, and so does the page loading again part-way through a block (see `runBuilt()`). Either note says what to capture.
 
 ### Fields
 
@@ -386,9 +434,9 @@ If the field doesn't show it, the ticket fails unsaved.
 
 ### Other editors
 
-- **Due Date**: `.DateAndTimeEditor` with a `.DateBox2` and a `.TimeBox2`, each a plain `<input type="text">` holding the date or time as you'd type it.
+- **Due Date**: `.DateAndTimeEditor` with a `.DateBox2` and a `.TimeBox2`, each a plain `<input type="text">` holding the date or time as you'd type it. On a time entry, `DateBox2` and `TimeBox2` are `<div>`s around the box, with a calendar or clock button beside it (see [Time entry](#time-entry)), so `AT.sel.plainBox` takes a box inside them too.
 - **Numbers and free text** (Estimated Hours, Purchase Order Number): a plain `<input type="text">` with the class `DecimalBox2` or `TextBox2`, straight in its size box with no picker around it. `fieldShows()` reads its value.
-- A built macro's **Set a field** types into these (`AT.sel.plainBox`) rather than waiting for a list, and fires `change` and blurs the box. It counts as taken when the box keeps the text, or the same number ("2" kept as "2.00").
+- A built macro's **Set a ticket field** (and Hours worked, and Set a time entry field) types into these (`AT.sel.plainBox`) rather than waiting for a list, and fires `change` and blurs the box. It counts as taken when the box keeps the text, or the same number ("2" kept as "2.00").
 
 ### Validation
 
@@ -409,15 +457,101 @@ If the field doesn't show it, the ticket fails unsaved.
   `Single` is for one error. With several errors it's presumably `Multiple`, with a count and the arrows (`ChevronContainer`) to step through them.
 - **What the macro reports:** "Not saved: Required: Account", made from the summary's message and other messages it finds (`AT.sel.formError`, two at most) and the fields marked `Invalid`, by their labels. With no message, it says "Check Account".
 
+## Time entry
+
+New Time Entry (the ticket page's [activity toolbar](#activity-toolbar)) opens it as a **dialog**, not a page. Captured October 2026, down to Start Time.
+
+```html
+<div class="VerticalContainer">
+  <div class="Header">
+    <div class="TitleBar1">
+      <div class="Title"><span class="Text">New Ticket Time Entry</span></div>
+      <div class="DialogTitleBarButton"><div class="DialogTitleBarIcon Help"></div></div>
+      … PopOut, Minimize …
+      <div class="DialogTitleBarButton"><div class="DialogTitleBarIcon Close"></div></div>
+    </div>
+    <div class="ValidationSummary">… as the edit page's …</div>
+    <div class="ToolBar">
+      <div class="ToolBarItem Left ButtonGroupStart ButtonGroupEnd">… a .Button2: StandardButtonIcon Save, .Text2 "Save &amp; Close" …</div>
+      … "Save &amp; New" (SaveAndNew), "Save &amp; Forward/Modify" (SaveAndForward) …
+      <div class="ToolBarItem FormTemplateSelector Right"><div class="FormTemplateSelector"><div class="SingleItemSelector2">…</div></div>
+        … and a search button (StandardButtonIcon Search) …</div>
+    </div>
+  </div>
+  <div class="Body">
+    <div class="MessageBarContainer Active">… the account's alert, if it has one …</div>
+    <div class="IdentificationContainer ReadOnly">
+      <div class="EntityTypeIcon TicketTimeEntry"></div>
+      <div class="Left">
+        <div class="IdentificationTextContainer"><div class="IdentificationText">T20260101.0001</div> … copy buttons …</div>
+        <div class="Title" title="…"><div class="Text">Printer not working (Contoso Ltd)</div></div>
+      </div>
+      <div class="Right"><div class="StopwatchContainer"><div class="StopwatchTime">00:00:34</div> … Start/Pause, Clear …</div></div>
+    </div>
+    <div class="Normal Section"><div class="CollapsibleSectionContainer">
+      <div class="HeadingContainer">… <span class="PrimaryText">Ticket Status</span> …</div>
+      <div class="ContentContainer"><div class="Content">… the sections' fields …</div></div>
+    </div></div>
+    … Billing, Time Entry Details …
+  </div>
+</div>
+```
+
+- **The title** is in `.TitleBar1 .Title .Text` (`AT.sel.formTitle`), the same as the Column Chooser's, and reads "New Ticket Time Entry" (`AT.text.timeTitle`).
+- **No Cancel button.** Its toolbar has Save & Close, Save & New and Save & Forward/Modify. It closes with the ✕ in its title bar (`.DialogTitleBarButton` around `.DialogTitleBarIcon.Close`, `AT.sel.dialogTitleButton` and `dialogClose`). That's what **Cancel time entry** presses (`timeEntryClose()`).
+- **Save time entry** presses Save & Close (the first of `AT.text.timeSaveButtons`).
+- **The ticket it's for** is in `.IdentificationContainer .IdentificationText` (`AT.sel.formTicket`). `timeEntryPage()` doesn't take a time entry showing another ticket's number for this ticket's.
+- **The account alert** (`.MessageBarContainer`) is your own team's text about the customer: never copy it into a fixture or into this file.
+- **The speed code box** is the same `.FormTemplateSelector` as the edit page's, with its list (see [Speed code box](#speed-code-box)).
+
+**Its sections**, each a `.CollapsibleSectionContainer` with fields built as the edit page's (`.EditorLabelContainer1` and its editor):
+
+| Section | Field | Editor |
+|---|---|---|
+| Ticket Status | Status | single-item picker. The ticket's status, as it is when the time entry is saved. Its lines are `IconSingleText`, a coloured icon before the text. Beside it: "Status as of … Get current Status" (a link). |
+| Billing | Role | single-item picker (with the empty `Default` line) |
+| | Work Type | data picker (its chip; its full list; typing searches) |
+| | Non-Billable | `.Checkbox2 > .TabIndexHack.Checked Disabled`, set by the work type |
+| | Contract | data picker |
+| | Service/Bundle | single-item picker, `Disabled`, with empty `.GroupHeader.NoItems` headings ("Services", "Service Bundles") |
+| Time Entry Details | (a timeline) | `.TimeEntryTimelineShell`: the week's days as buttons, and the day's time entries drawn in 15-minute blocks. Nothing to fill in. |
+| | Date | `<div class="DateBox2"><input type="text" value="01/01/2026"> … a calendar button …</div>`: the class is on the `<div>`, not the box |
+| | Start Time | `<div class="TimeBox2"><input type="text" value="09:00"> … a clock button …</div>` |
+
+**Not captured yet** (the capture stopped after Start Time):
+
+- End Time, Hours Worked, and Summary Notes and Internal Notes. Hours worked finds its field by `AT.text.hoursLabel`. **Summary notes** and **Internal notes** find a `<textarea>` or a box you type in (`contenteditable`) after their label (`AT.text.summaryLabel`, `internalLabel`, `findTextBox()`). A rich text editor in a frame of its own wouldn't be found, and the block says so.
+- **Where the dialog is**: laid over the ticket page in the same page, or in a frame of its own. The script handles both:
+  - **In the same page.** The ticket page counts as the time entry while the dialog shows (`pageKind()` looks for the time entry first). New time entry is through once it does, and Save time entry once Save & Close has gone.
+  - **In a frame.** The copy of the script there does the time entry's steps (it knows the ticket from the macro tab's name). The ticket page waits, then loads again to carry on.
+- What Save & New and Save & Forward/Modify do. No block presses them.
+
 ## What built macros do on these pages
 
-Macros made in the Macro builder are lists of blocks (`BLOCKS` in the script). `stepPages()` says which page each step runs on: Only if on the ticket page, Speed code and Set a field on the edit page, and Wait with the step before it. The job keeps a step pointer per ticket (`item.step`), so a ticket can go ticket page → edit page → ticket page → edit page as its steps need.
+Macros made in the Macro builder are lists of blocks (`BLOCKS` in the script). Each block works on one page (`PAGES`: the ticket page, the edit page, a time entry), and some lead to another (Enter edit mode, Save ticket, Save ticket & enter time, New time entry, Save time entry). `macroFlow()` follows them from the ticket page, so it knows which page each step runs on. The builder won't save a macro with a step on the wrong page, or one ending anywhere but the ticket page. `ROUTES` holds the blocks that get from one page to another, which the builder offers as the fix.
 
-- **Fields by name.** A block names a field as you'd read it ("Sub-Issue Type"). `fieldSpec()` turns that into a label pattern like `AT.text`'s, allowing the trailing `*` and a space or hyphen either way. The names the builder offers are `AT.text.ticketFields`.
+The job keeps a step pointer per ticket (`item.step`). `runBuilt()` does the steps for whichever page is showing (`pageKind()`), so a ticket can go ticket page → edit page → time entry → ticket page as its steps need.
+
+- **Leading to another page.** Where the ticket is up to (the next step, and `navAt`, when the button was pressed) is kept before the button is pressed, so the page it leads to carries on from there. `leadAway()` then waits:
+  - for the page to go (a new page load) or the button to disappear (a page redrawn in place);
+  - or for the page it leads to to show in this one (the time entry's dialog laid over the ticket page, its New Time Entry button still showing);
+  - or for a window of its own to open. Then this page is from before `navAt` (`PAGE_T0` is when each page loaded), so it waits. Once that window has had time to finish (`MACRO.stale`), the ticket page loads again to carry on.
+  - If the page is still there after `MACRO.saved` and Autotask says why (a question, a marked field), the ticket fails. Otherwise it's left to load; one that never comes is given up on as stuck after `MACRO.stage`.
+- **Part-way.** While a step is under way its number is kept (`item.doing`). A page that loads again with one set fails the ticket rather than doing that step again, which could go round for ever.
+- **Fields by name.** A block names a field as you'd read it ("Sub-Issue Type"). `fieldSpec()` turns that into a label pattern like `AT.text`'s, allowing the trailing `*` and a space or hyphen either way. The names the builder offers are `AT.text.ticketFields` and `AT.text.timeFields`.
 - **Only if** reads the field on the ticket page with `ticketField()`: its value container's text, so a colour band's (Status, Priority) is its text. A field the page doesn't show fails the ticket rather than guessing.
-- **Before Edit**, it reads each "only if it's empty" field off the ticket page, as Change account does with the types. If every step for the edit page would leave its field alone, it doesn't press Edit at all.
-- **On the edit page**, Set a field uses `findFieldOpening()` (so a closed section is opened) and `chooseOption()`, or types into a plain box. Then `saveEdit()` presses plain Save, as Change account does.
-- **After Save**, the ticket page it lands back on is checked: each field it picked should show it there. A page from before the save (Autotask edited the ticket in a window of its own) is older than the save (`PAGE_T0`), so it's left for the driving page to load again, as Change account's is.
+- **Enter edit mode** first reads each "only if it's empty" ticket field of the edit steps after it off the ticket page, as Change account does with the types.
+- **On the edit page**, Set a ticket field uses `findFieldOpening()` (so a closed section is opened) and `chooseOption()`, or types into a plain box (`AT.sel.plainBox`).
+- **After Save ticket**, the ticket page it lands back on is checked: each field it picked should show it there, or the ticket is marked Check it.
+- **Quick note** uses the ticket page's Quick note (`AT.sel.quickNote`): it types into the `<textarea>`, picks the note type from the `<select>` by its text, waits for Save to lose `Disabled2` (`AT.sel.disabledButton`), presses it, and counts it saved once the box empties.
+
+## Macro tabs
+
+A macro run on ticked tickets opens each ticket in a tab of its own, up to `CONFIG.macroTabs` at once.
+
+- **Names.** Each tab is named `atqm_macro:` and its ticket number (`MACRO_WIN`). That's how its copy of the script knows which ticket is its own (`myItem()`). It also notes the job and the ticket in sessionStorage (`MACRO_SS`, `MACRO_ITEM_SS`), which any window Autotask opens from it inherits.
+- **Driving.** The page you started it from drives it (`macroStep()`). It opens tabs for waiting tickets while fewer than that many are under way, and closes a tab once its ticket is finished with. If the browser won't open another tab (pop-ups not allowed for autotask.net), the next ticket goes in a finished ticket's tab instead: renamed for it and sent to its page.
+- **Closing.** A macro tab whose ticket is finished with closes itself after `MACRO.linger`, unless it has been renamed for another ticket by then. That's for when the driving page has gone.
 
 ## Capturing a page safely
 
@@ -444,4 +578,4 @@ setTimeout(() => {
 
 Within 6 seconds, click back into the page and open the list (type into the box, or click its arrow). After 6 seconds, whatever list is open is kept in `atqmList`. Then click into the console and run `copy(atqmList)` to put it on the clipboard. Two steps, because Chrome's `copy()` only works while DevTools has the focus, and during the 6 seconds the page has it.
 
-`tests/macros.test.js` builds its ticket page this way, from the markup above.
+`tests/pages.js` builds the ticket page and its edit page this way, from the markup above, for the macro tests.

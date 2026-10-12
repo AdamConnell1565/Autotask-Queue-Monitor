@@ -12,117 +12,8 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 const button = (root, re) => [...root.querySelectorAll('button')].find(b => re.test(b.textContent));
 const fast = api => Object.assign(api.MACRO, { settle: 0, pick: 300, retype: 0, confirm: 300, saved: 500 });
 
-// The ticket page, built as Autotask builds it (see docs/autotask-pages.md): the title bar, the Edit button,
-// and read-only fields, label then value. A note's Save is on the page too, and isn't the edit page's.
-const field = (label, value) => '<div class="ReadOnlyData QuickEditEnabled"><div class="ReadOnlyLabelContainer"><div class="LabelContainer1">' +
-  `<div class="Text ClickEnabled"><span class="PrimaryText">${label}</span></div><div class="Required">*</div><div class="WalkMeIconPlaceholder"></div></div></div>` +
-  `<div class="ReadOnlyValueContainer"><div class="Value">${value}</div></div></div>`;
-const linkTo = text => `<div class="LinkButtonWrapper2"><div class="LinkButton2" tabindex="0"><div class="Text2">${text}</div></div></div>`;
-// status: a Status field too, as a colour band (none unless given)
-const ticketPage = (id, account, { contact = 'Jo Bloggs', subIssue = 'Other', workType = 'Remote Support', status } = {}) => '<!doctype html><body>' +
-  `<div class="TitleBarItem Title"><span class="Text">Ticket </span><span class="SecondaryText">- ${id} - Laptop</span></div>` +
-  '<div class="ToolBar"><div class="Button2 ButtonIcon2 NormalBackground" id="edit" tabindex="0"><div class="Spacer"></div>' +
-  '<div class="Icon2"><div class="StandardButtonIcon Edit"></div></div><div class="Text2">Edit</div><div class="Spacer"></div></div></div>' +
-  '<div class="ReadOnlyDetailsContainer">' + field('Account', linkTo(account)) + field('Contact', linkTo(contact)) +
-  (status ? field('Status', `<div class="ColorBand ColorSwatch Color3"><div class="Right"><div class="Text ColorSample">${status}</div></div></div>`) : '') +
-  field('Issue Type', 'Support') + field('Sub-Issue Type', subIssue) + field('Work Type', workType) + '</div>' +
-  '<div class="QuickNote"><textarea placeholder="Add a note..."></textarea><div class="Button2 Disabled2" tabindex="0"><div class="Text2">Save</div></div></div>' +
-  '<input type="text" placeholder="Search..."></body>';
-const editPage = '<!doctype html><body>' +
-  '<div class="FormTemplateSelector"><input type="text"></div>' +
-  '<div class="Field"><div class="Label"><label>Account</label></div><div class="Value"><input type="text" id="acc" value="Fabrikam Ltd"></div></div>' +
-  '<div class="Field"><div class="Label"><label>Contact</label></div><div class="Value"><input type="text"></div></div>' +
-  '<div id="drop"></div>' +
-  '<div class="Button2" id="save"><span class="Text2">Save</span></div></body>';
+const { field, linkTo, ticketPage, editPage, typesPage, offer, editorLabel, itemPicker, dataPicker, WORK_TYPES, section, realEditPage, autotaskPickers } = require('./pages');
 
-// The edit page with a Sub-Issue Type and a Work Type, as given
-const typesPage = (subIssue, workType) => editPage.replace('<div id="drop">',
-  `<div class="Field"><div class="Label"><span>Sub-Issue Type</span></div><div class="Value"><input type="text" id="sub" value="${subIssue}"></div></div>` +
-  `<div class="Field"><div class="Label"><span>Work Type</span></div><div class="Value"><input type="text" id="work" value="${workType}"></div></div>` +
-  '<div id="drop">');
-// Autotask's drop-down list: typing in the box lists these, and clicking one puts it in the box
-const offer = (doc, input, names) => input.addEventListener('input', () => {
-  const drop = doc.getElementById('drop');
-  drop.innerHTML = names.map(n => `<div class="Item">${n}</div>`).join('');
-  for (const item of drop.querySelectorAll('.Item')) item.addEventListener('click', () => { input.value = item.textContent; drop.innerHTML = ''; });
-});
-
-// Autotask's ticket edit page as it's built today: structure only, placeholders throughout (see docs/autotask-pages.md)
-const editorLabel = label => '<div class="EditorLabelContainer1"><div class="LabelContainer1"><div class="Text">' +
-  `<span class="PrimaryText">${label}</span></div><div class="Required Active">*</div><div class="WalkMeIconPlaceholder"></div></div></div>`;
-// A single-item picker (Status, Sub-Issue Type…): what's chosen, a search box, and its list (closed)
-const itemPicker = (id, chosen, options) => `<div class="Size1"><div class="SingleItemSelector2" id="${id}"><div class="ContentContainer"><div class="ValueContainer">` +
-  `<div class="TargetPreview">${chosen}</div><div class="SearchBox"><input type="text"></div><div class="SelectionDisplay">` +
-  `<div class="Item" data-item-type="${chosen ? 'SingleText' : 'Default'}"><div class="Text"><span>${chosen}</span></div></div></div></div>` +
-  '<div class="Triangle"><div class="InlineIcon Carrot"></div></div></div><div class="ContextOverlayContainer" style="display:none">' +
-  '<div class="ContextOverlay SingleItemSelectorDropDownOverlay"><div class="Content"><div class="ItemSet"><div class="ItemList">' +
-  '<div class="Item" data-item-type="Default" data-index="0"><div class="Text"><span></span></div></div>' +
-  options.map((o, i) => `<div class="Item" data-item-type="SingleText" data-index="${i + 1}"><div class="Text"><span>${o}</span></div></div>`).join('') +
-  '</div></div></div></div></div></div></div>';
-// A data picker (Account, Contact, Work Type…): a search box, the chosen value as a chip, its full list (closed;
-// Work Type's has every work type), and a list of what typing finds. Account and Contact sit in a .BundleContainer.
-const dataPicker = (id, chosen, { all = [], bundle = true } = {}) => (bundle ? '<div class="BundleContainer"><div class="EditorContainer">' : '') +
-  `<div class="Size1"><div class="SingleDataSelector2" id="${id}">` +
-  '<div class="ContentContainer"><div class="SearchBox"><div class="Placeholder">Type to search...</div><input type="text"></div>' +
-  `<div class="ChipList SingleDataSelection">${chosen ? `<div class="Chip"><div class="Text">${chosen}</div><div class="RemoveButton"></div></div>` : ''}</div></div>` +
-  '<div class="ContextOverlayContainer" style="display:none"><div class="ContextOverlay SingleDataSelectorDropDownOverlay"><div class="Content"><div class="ItemSet"><div class="ItemList">' +
-  all.map((o, i) => `<div class="Item" data-item-type="SingleText" data-index="${i}"><div class="Text"><span>${o}</span></div></div>`).join('') + '</div></div></div></div></div>' +
-  '<div class="ContextOverlayContainer" style="display:none"><div class="ContextOverlay SingleDataSelectorAutoCompleteOverlay"><div class="Content">' +
-  '<div class="ItemSetContainer"></div></div></div></div></div></div>' + (bundle ? '</div></div>' : '');
-const WORK_TYPES = ['Meeting', 'Onsite Support', 'Remote Support', 'Server Support Billable (On Site)'];
-const section = (id, title, fields, closed) => '<div class="DetailsSection"><div class="CollapsibleSectionContainer">' +
-  `<div class="HeadingContainer" id="${id}-head"><div class="DetailsSectionHeading Title"><div class="Left"><span class="Text">${title}</span></div></div></div>` +
-  `<div class="ContentContainer" id="${id}"${closed ? ' style="display:none"' : ''}><div class="Content">${fields}</div></div></div></div>`;
-const realEditPage = ({ subIssue = '', workType = 'Remote Support', billingClosed = true } = {}) => '<!doctype html><body>' +
-  '<div class="TitleBarItem Title"><span class="Text">Edit Ticket -</span><span class="SecondaryText">T20261007.0081 - Laptop (Fabrikam Ltd)</span></div>' +
-  '<div class="ValidationSummary"><div class="FormValidation Valid"><div class="ErrorContent"><div class="TextContainer">' +
-  '<span class="Count"></span><span class="Message"></span></div></div></div></div>' +
-  '<div class="ToolBar"><div class="Button2" id="save"><div class="Text2">Save</div></div>' +
-  '<div class="Button2" id="saveclose"><div class="Text2">Save &amp; Close</div></div><div class="Button2"><div class="Text2">Cancel</div></div>' +
-  '<div class="FormTemplateSelector"><div class="SingleItemSelector2"><div class="ValueContainer"><div class="SearchBox"><input type="text"></div>' +
-  '<div class="SelectionDisplay"><div class="Item" data-item-type="Default"><div class="Text"><span>Enter Speed Code or Choose Template</span></div></div></div></div></div></div></div>' +
-  '<div class="DetailsSection"><div class="Content">' + editorLabel('Account') + dataPicker('acc', 'Fabrikam Ltd') +
-  editorLabel('Contact') + dataPicker('con', 'Jane Doe') + '</div></div>' +
-  section('info', 'Ticket Information', editorLabel('Sub-Issue Type') + itemPicker('sub', subIssue, ['Hardware', 'Other', 'Software']) +
-    editorLabel('Source') + itemPicker('src', 'Other', ['Email', 'Other', 'Phone'])) +
-  section('billing', 'Billing', editorLabel('Work Type') + dataPicker('work', workType, { all: WORK_TYPES, bundle: false }), billingClosed) +
-  '</body>';
-// How those pickers behave: typing opens the list (a data picker's with what it finds, from found by its id),
-// clicking a line chooses it (takes: false, a click that doesn't), and a closed section opens from its heading
-function autotaskPickers(doc, { found: lists = { acc: ['Northwind Ltd'], work: WORK_TYPES }, takes = true } = {}) {
-  const choose = (picker, overlay, input, html) => item => item.addEventListener('click', () => {
-    if (takes) picker.querySelector('.SelectionDisplay, .ChipList').innerHTML = html(item.textContent);
-    overlay.style.display = 'none';
-    input.value = '';
-  });
-  for (const p of doc.querySelectorAll('.SingleItemSelector2[id]')) {
-    const input = p.querySelector('.SearchBox input'), overlay = p.querySelector('.ContextOverlayContainer');
-    input.addEventListener('input', () => { overlay.style.display = input.value ? '' : 'none'; });
-    overlay.querySelectorAll('.Item').forEach(choose(p, overlay, input, t => `<div class="Item" data-item-type="SingleText"><div class="Text"><span>${t}</span></div></div>`));
-  }
-  // A data picker's search, as Autotask shows it: the overlay goes Active, .ItemSetContainer stays empty and the
-  // results are a new .ItemSet after it, the typed part of each name in <mark>
-  for (const p of doc.querySelectorAll('.SingleDataSelector2')) {
-    const input = p.querySelector('.SearchBox input'), empty = p.querySelector('.ItemSetContainer');
-    const overlay = empty.closest('.ContextOverlayContainer'), panel = overlay.querySelector('.ContextOverlay');
-    input.addEventListener('input', () => {
-      const typed = input.value.toLowerCase();
-      const found = (lists[p.id] || []).filter(a => typed && a.toLowerCase().includes(typed));
-      overlay.querySelector('.ItemSet')?.remove();
-      const marked = a => { const i = a.toLowerCase().indexOf(typed); return `${a.slice(0, i)}<mark>${a.slice(i, i + typed.length)}</mark>${a.slice(i + typed.length)}`; };
-      if (found.length) {
-        empty.insertAdjacentHTML('afterend', '<div class="ItemSet"><div class="ItemList">' + found.map((a, i) =>
-          `<div class="Item" data-item-type="SingleText" data-index="${i}" data-is-targeted="${i === 0}"><div class="Text"><span>${marked(a)}</span></div></div>`).join('') + '</div></div>');
-      }
-      overlay.style.display = found.length ? '' : 'none';
-      panel.classList.toggle('Active', found.length > 0);
-      overlay.querySelectorAll('.ItemSet .Item').forEach(choose(p, overlay, input, t => `<div class="Chip"><div class="Text">${t}</div></div>`));
-    });
-  }
-  for (const head of doc.querySelectorAll('.HeadingContainer')) {
-    head.addEventListener('click', () => { doc.getElementById(head.id.replace(/-head$/, '')).style.display = ''; });
-  }
-}
 
 // A job part-way through, as the macro tab finds it
 const job = (state, more = {}, fill = {}) => ({
@@ -130,37 +21,83 @@ const job = (state, more = {}, fill = {}) => ({
     items: [{ id: A, tid: '111', state, at: NOW, note: '', ...more }, { id: B, tid: null, state: 'waiting', note: '' }] },
 });
 
-test('change account: the tab that starts it opens each ticket in turn and moves on as they finish', () => {
-  const { api, window, close } = load({ now: NOW, storage: { 'atqm:snap:my-open-tickets': { [A]: { tid: '111', status: 'New' } } } });
-  const shown = [];
-  const tab = { closed: false, location: { set href(u) { shown.push(u); } }, close() { this.closed = true; } };
-  window.open = (url, name) => { shown.push(url); assert.equal(name, 'atqm_macro'); return tab; };
+const C = 'T20261007.0083';
+// A tab the page opens: where it was sent, and whether it has been closed
+function fakeTab(url, name) {
+  const tab = { url, name, closed: false, close() { tab.closed = true; } };
+  tab.location = { set href(u) { tab.url = u; } };
+  return tab;
+}
 
-  api.startMacro([{ id: A }, { id: B }], ' Northwind Ltd ');
+test("change account: each ticked ticket gets a tab of its own, up to the setting at once; a finished one's tab closes and the next starts", () => {
+  const { api, window, close } = load({ now: NOW, settings: { macroTabs: 2 }, storage: { 'atqm:snap:my-open-tickets': { [A]: { tid: '111', status: 'New' } } } });
+  const tabs = [];
+  window.open = (url, name) => { const t = fakeTab(url, name); tabs.push(t); return t; };
+
+  api.startMacro([{ id: A }, { id: B }, { id: C }], ' Northwind Ltd ');
   assert.equal(api.macroJob().account, 'Northwind Ltd');
-  assert.deepEqual(states(api), ['open', 'waiting']);
-  assert.match(shown[0], /TicketDetail\.mvc\?workspace=False&ticketId=111$/); // the ticket's own page when its ID is known
+  assert.deepEqual(states(api), ['open', 'open', 'waiting'], 'two at once');
+  assert.deepEqual(tabs.map(t => t.name), ['atqm_macro:' + A, 'atqm_macro:' + B], 'each tab named for its ticket');
+  assert.match(tabs[0].url, /TicketDetail\.mvc\?workspace=False&ticketId=111$/); // the ticket's own page when its ID is known
+  assert.match(tabs[1].url, /ExecuteCommand\.aspx\?Code=OpenTicketDetail&TicketNumber=T20261007\.0082$/);
 
-  // The macro tab reports the first one done: on to the next, in the same tab
+  // The first one's tab reports it done: that tab closes, and the third ticket starts in a new one
+  api.patchMacroItem(A, { state: 'done' });
+  api.macroStep();
+  assert.deepEqual(states(api), ['done', 'open', 'open']);
+  assert.ok(tabs[0].closed);
+  assert.equal(tabs[2].name, 'atqm_macro:' + C);
+
+  // A ticket stuck on a step is given up after two minutes; with nothing left, every tab closes
+  setNow(window, NOW + 60000);
+  api.macroStep();
+  assert.deepEqual(states(api), ['done', 'open', 'open']);
+  api.patchMacroItem(C, { state: 'done' });
+  setNow(window, NOW + 121000);
+  api.macroStep();
+  assert.deepEqual(states(api), ['done', 'failed', 'done']);
+  assert.equal(api.macroJob().items[1].note, "The ticket page didn't open, or had no Edit button");
+  assert.ok(api.macroJob().finished);
+  assert.ok(tabs.every(t => t.closed));
+  // The macro tab getting there late doesn't bring it back
+  api.patchMacroItem(B, { state: 'edit' }, 'open');
+  assert.deepEqual(states(api), ['done', 'failed', 'done']);
+  close();
+});
+
+test("change account: when the browser won't open more tabs, it does fewer at once, and the next ticket goes in a finished one's tab", () => {
+  const { api, window, close } = load({ now: NOW, settings: { macroTabs: 3 } });
+  const tabs = [];
+  window.open = (url, name) => { if (tabs.length) return null; const t = fakeTab(url, name); tabs.push(t); return t; }; // only the first, from your click
+  api.startMacro([{ id: A }, { id: B }], 'Northwind Ltd');
+  assert.deepEqual(states(api), ['open', 'waiting']);
+  assert.equal(api.macroJob().limited, true);
+  assert.equal(api.get('atqm:popups', {}).state, 'blocked');
   api.patchMacroItem(A, { state: 'done' });
   api.macroStep();
   assert.deepEqual(states(api), ['done', 'open']);
-  assert.match(shown[1], /ExecuteCommand\.aspx\?Code=OpenTicketDetail&TicketNumber=T20261007\.0082$/);
-
-  // A ticket stuck on a step is given up after two minutes; with nothing left, the macro tab closes
-  setNow(window, NOW + 60000);
-  api.macroStep();
-  assert.deepEqual(states(api), ['done', 'open']);
-  setNow(window, NOW + 121000);
-  api.macroStep();
-  assert.deepEqual(states(api), ['done', 'failed']);
-  assert.equal(api.macroJob().items[1].note, "The ticket page didn't open, or had no Edit button");
-  assert.ok(api.macroJob().finished);
-  assert.ok(tab.closed);
-  // The macro tab getting there late doesn't bring it back
-  api.patchMacroItem(B, { state: 'edit' }, 'open');
-  assert.deepEqual(states(api), ['done', 'failed']);
+  assert.equal(tabs.length, 1);
+  assert.deepEqual([tabs[0].name, tabs[0].closed], ['atqm_macro:' + B, false], 'renamed for its new ticket, and kept');
+  assert.match(tabs[0].url, /TicketNumber=T20261007\.0082$/);
   close();
+});
+
+test('a macro tab whose ticket is finished with closes itself, unless the driving page gives it the next ticket first', async () => {
+  const run = async (done, rename) => {
+    const env = load({ now: NOW, name: 'atqm_macro:' + A, html: ticketPage(A, 'Northwind Ltd'), storage: job(done ? 'done' : 'edit') });
+    Object.assign(env.api.MACRO, { linger: 50 });
+    let closed = false;
+    env.window.close = () => { closed = true; };
+    await env.api.macroWork();
+    if (rename) env.window.name = 'atqm_macro:' + B; // the driving page gave it B
+    await sleep(100);
+    const out = closed; // (before the test's own close, which closes it too)
+    env.close();
+    return out;
+  };
+  assert.equal(await run(true), true);
+  assert.equal(await run(false), false, 'still under way');
+  assert.equal(await run(true, true), false, 'given the next ticket');
 });
 
 test('change account: when the browser blocks the macro tab, it stops and says so', () => {
@@ -182,7 +119,7 @@ test('change account: on the ticket page the macro tab presses Edit, or skips a 
   assert.deepEqual(states(one.api), ['edit', 'waiting']);
   assert.equal(edits, 1);
   // It says what it's doing, across the bottom of the tab
-  assert.match(one.window.document.getElementById('atqm-macrobar').textContent, /changing the account on T20261007\.0081 to Northwind Ltd \(1 of 2\)/);
+  assert.match(one.window.document.getElementById('atqm-macrobar').textContent, /changing the account on T20261007\.0081 to Northwind Ltd \(ticket 1 of 2\)\. Leave this tab alone\. It closes when this ticket is done\./);
   one.close();
 
   const two = load({ now: NOW, name: 'atqm_macro', html: ticketPage(A, 'Northwind Ltd'), storage: job('open') });
@@ -786,7 +723,7 @@ test('boot: in a queue, the Macros tab (on the right) is a grid; Change account 
     assert.match(way(/Ticked in this queue/).textContent, /1 ticked in Open Tickets/);
     assert.ok(way(/Ticked in this queue/).querySelector('input').checked);
     assert.equal(run.disabled, false);
-    assert.match(win.textContent, /Each ticket opens in a separate tab/);
+    assert.match(win.textContent, /Each ticket opens in a tab of its own, up to 5 at once, and its tab closes when it's done/);
     sel.value = 'Contoso';
     sel.dispatchEvent(new window.Event('change', { bubbles: true }));
     // Another Work Type, and the Sub-Issue Type cleared to leave it alone
@@ -819,7 +756,7 @@ test('boot: in a queue, the Macros tab (on the right) is a grid; Change account 
     await sleep(450);
     assert.equal(doc.getElementById('atqm-mcwin'), null, 'it closes a moment later');
     assert.equal(opened.length, 1);
-    assert.equal(opened[0].name, 'atqm_macro');
+    assert.equal(opened[0].name, 'atqm_macro:T20261001.0002');
     assert.match(opened[0].url, /TicketDetail\.mvc\?workspace=False&ticketId=1002$/);
     const job = JSON.parse(window.localStorage.getItem('atqm:macro'));
     assert.deepEqual(job.items.map(i => [i.id, i.state]), [['T20261001.0002', 'open']]);
@@ -987,221 +924,5 @@ test('a macro that asks for nothing runs from its square on a double-click; one 
   assert.deepEqual(ran, [[{ id: A }]]);
   assert.match(doc.getElementById('atqm-mcwin').textContent, /Another macro is running/);
   assert.ok(button(doc.getElementById('atqm-mcwin'), /^Run$/).disabled);
-  close();
-});
-
-// ---- Macros you build (the Macro builder): their blocks, run on Autotask's pages ----
-
-// A job for a macro you built, part-way through, as the macro tab finds it
-const customJob = (state, steps, more = {}) => ({
-  'atqm:macro': { id: 'job8', kind: 'custom', macro: 'm1', name: 'Password reset', steps, by: 'elsewhere', ts: NOW,
-    items: [{ id: A, tid: '111', state, at: NOW, note: '', ...more }, { id: B, tid: null, state: 'waiting', note: '' }] },
-});
-const statusIs = value => ({ type: 'onlyIf', field: 'Status', op: 'is', value });
-const PWR = { type: 'speedCode', code: 'PWR' };
-// The edit page with the speed code box's list (closed): a heading, then a line per speed code, its code and its
-// template's name. And a Status, and a Purchase Order Number (a plain box, no list).
-const SPEED_CODES = [['PWR', 'Password reset'], ['PWRX', 'Password reset (external)'], ['NEWU', 'New user']];
-const speedCodePage = opts => realEditPage(opts)
-  .replace('Choose Template</span></div></div></div></div>', 'Choose Template</span></div></div></div></div>' +
-    '<div class="ContextOverlayContainer" id="codes" style="display:none"><div class="ContextOverlay SingleItemSelectorDropDownOverlay"><div class="Content">' +
-    '<div class="ItemSet"><div class="ItemList"><div class="Item" data-item-type="Default" data-index="0"><div class="Text"><span></span></div></div>' +
-    '<div class="Item GroupHeader" data-item-type="GroupHeader"><div class="HeaderText">Company</div></div>' +
-    SPEED_CODES.map(([c, n], i) => `<div class="Item" data-item-type="SingleText" data-index="${i + 1}"><div class="Text"><span>${c} - ${n}</span></div></div>`).join('') +
-    '</div></div></div></div></div>')
-  .replace(editorLabel('Contact') + dataPicker('con', 'Jane Doe'), editorLabel('Contact') + dataPicker('con', 'Jane Doe') +
-    editorLabel('Status') + itemPicker('status', 'New', ['New', 'In Progress', 'Complete']) +
-    editorLabel('Purchase Order Number') + '<div class="Size1"><input type="text" class="TextBox2" maxlength="50" id="po"></div>');
-// How the speed code box behaves: typing opens its list; picking a line closes it and applies its template (apply).
-// Returns what was typed into it.
-function speedCodes(doc, apply = () => {}) {
-  const input = doc.querySelector('.FormTemplateSelector input'), list = doc.getElementById('codes'), typed = [];
-  input.addEventListener('input', () => { if (input.value) typed.push(input.value); list.style.display = input.value ? '' : 'none'; });
-  for (const item of list.querySelectorAll('.Item[data-item-type=SingleText]')) {
-    item.addEventListener('click', () => { list.style.display = 'none'; input.value = ''; apply(item.textContent); });
-  }
-  return typed;
-}
-
-test('a macro you build: on the ticket page its Only if is checked, then Edit is pressed for the blocks on the edit page', async () => {
-  const run = async (opts, steps = [statusIs('New, In Progress'), PWR]) => {
-    const env = load({ now: NOW, name: 'atqm_macro', html: ticketPage(A, 'Fabrikam Ltd', opts), storage: customJob('open', steps) });
-    fast(env.api);
-    let edits = 0;
-    env.window.document.getElementById('edit').addEventListener('click', () => edits++);
-    await env.api.macroWork();
-    const out = { item: plain(env.api.macroJob().items[0]), edits, bar: env.window.document.getElementById('atqm-macrobar')?.textContent };
-    env.close();
-    return out;
-  };
-  let r = await run({ status: 'In Progress' });
-  assert.deepEqual([r.item.state, r.item.step, r.edits], ['edit', 1, 1]);
-  assert.match(r.bar, /running Password reset on T20261007\.0081 \(1 of 2\)/);
-  r = await run({ status: 'Waiting Customer' });
-  assert.deepEqual([r.item.state, r.item.note, r.edits], ['skipped', 'Status is Waiting Customer', 0]);
-  r = await run({ status: 'Complete' }, [{ type: 'onlyIf', field: 'Status', op: 'not', value: 'Complete, Cancelled' }, PWR]);
-  assert.deepEqual([r.item.state, r.edits], ['skipped', 0]);
-  r = await run({ status: 'New' }, [{ type: 'onlyIf', field: 'Work Type', op: 'empty', value: '' }, PWR]);
-  assert.deepEqual([r.item.state, r.item.note], ['skipped', 'Work Type is Remote Support']);
-  // No Status on this ticket's page: it can't be checked, so the ticket fails rather than being changed
-  r = await run({});
-  assert.deepEqual([r.item.state, r.item.note, r.edits], ['failed', "Couldn't find the Status field on the ticket's page", 0]);
-});
-
-test("a macro you build: a field only filled in where it's empty is read off the ticket first; with nothing to do, it isn't edited", async () => {
-  const steps = [{ type: 'setField', field: 'Work Type', value: 'Onsite', empty: true }];
-  const has = load({ now: NOW, name: 'atqm_macro', html: ticketPage(A, 'Fabrikam Ltd'), storage: customJob('open', steps) });
-  fast(has.api);
-  let edits = 0;
-  has.window.document.getElementById('edit').addEventListener('click', () => edits++);
-  await has.api.macroWork();
-  const item = plain(has.api.macroJob().items[0]);
-  assert.deepEqual([item.state, item.note, edits], ['skipped', 'Nothing to change: it has Work Type', 0]);
-  has.close();
-
-  const none = load({ now: NOW, name: 'atqm_macro', html: ticketPage(A, 'Fabrikam Ltd', { workType: '' }), storage: customJob('open', steps) });
-  fast(none.api);
-  await none.api.macroWork();
-  const it = plain(none.api.macroJob().items[0]);
-  assert.deepEqual([it.state, it.step, it.had], ['edit', 0, { 0: '' }]);
-  none.close();
-});
-
-test('a macro you build, on the edit page: a speed code picked from the speed code box, fields set, then plain Save', async () => {
-  const steps = [PWR, { type: 'setField', field: 'Status', value: 'In Progress' }, { type: 'setField', field: 'Purchase Order Number', value: 'PO-1' },
-    { type: 'setField', field: 'Work Type', value: 'Onsite', empty: true }];
-  const { api, window, close } = load({ now: NOW, name: 'atqm_macro', html: speedCodePage(), storage: customJob('edit', steps, { step: 0 }) });
-  fast(api);
-  const doc = window.document;
-  autotaskPickers(doc);
-  // Its template fills in a Sub-Issue Type
-  const applied = [];
-  const typed = speedCodes(doc, line => {
-    applied.push(line);
-    doc.querySelector('#sub .SelectionDisplay').innerHTML = '<div class="Item" data-item-type="SingleText"><div class="Text"><span>Hardware</span></div></div>';
-  });
-  let saved = '';
-  for (const id of ['save', 'saveclose']) doc.getElementById(id).addEventListener('click', () => { saved = id; doc.getElementById(id).remove(); });
-  await api.macroWork();
-  assert.deepEqual(typed, ['PWR']);
-  assert.deepEqual(applied, ['PWR - Password reset'], "the line for that code, not PWRX's");
-  assert.equal(doc.querySelector('#status .SelectionDisplay').textContent, 'In Progress', 'from its own list');
-  assert.equal(doc.getElementById('po').value, 'PO-1', 'typed into the plain box');
-  assert.equal(doc.querySelector('#work .Chip').textContent, 'Remote Support', 'kept: it has one');
-  assert.equal(saved, 'save', 'plain Save: Save & Close would go on to close the ticket');
-  const item = plain(api.macroJob().items[0]);
-  assert.deepEqual([item.state, item.step, item.did, item.kept, item.picks],
-    ['verify', 4, ['Speed code PWR', 'Status: In Progress', 'Purchase Order Number: PO-1'], ['Work Type'], { 1: 'In Progress', 2: 'PO-1' }]);
-  close();
-});
-
-test("a macro you build: a speed code Autotask doesn't offer, or a question after picking it, fails the ticket unsaved", async () => {
-  const run = async (code, apply) => {
-    const env = load({ now: NOW, name: 'atqm_macro', html: speedCodePage(), storage: customJob('edit', [{ type: 'speedCode', code }], { step: 0 }) });
-    fast(env.api);
-    const doc = env.window.document;
-    speedCodes(doc, () => apply?.(doc));
-    let saves = 0;
-    doc.getElementById('save').addEventListener('click', () => saves++);
-    await env.api.macroWork();
-    const out = { ...plain(env.api.macroJob().items[0]), saves };
-    env.close();
-    return out;
-  };
-  let r = await run('XYZ');
-  assert.deepEqual([r.state, r.note, r.saves], ['failed', 'Autotask didn\'t offer a speed code called "XYZ" (tried 3 times)', 0]);
-  r = await run('PWR', doc => doc.body.insertAdjacentHTML('beforeend', '<div class="Dialog" role="dialog">Replace the values already on the ticket?' +
-    '<div class="Button2"><div class="Text2">Yes</div></div><div class="Button2"><div class="Text2">No</div></div></div>'));
-  assert.deepEqual([r.state, r.saves], ['failed', 0]);
-  assert.match(r.note, /^Autotask asked "Replace the values already on the ticket\?/);
-  // Without the speed code box (a page built another way): says so
-  const bare = load({ now: NOW, name: 'atqm_macro', html: realEditPage().replace(/<div class="FormTemplateSelector">/, '<div class="Other">'),
-    storage: customJob('edit', [PWR], { step: 0 }) });
-  fast(bare.api);
-  await bare.api.macroWork();
-  assert.equal(bare.api.macroJob().items[0].note, "Couldn't find the speed code box on the edit page");
-  bare.close();
-  // The edit page loaded again while a block was under way: not done again (it could go round for ever), not saved
-  const again = load({ now: NOW, name: 'atqm_macro', html: speedCodePage(), storage: customJob('edit', [PWR], { step: 0, doing: 0 }) });
-  fast(again.api);
-  const typed = speedCodes(again.window.document);
-  await again.api.macroWork();
-  assert.deepEqual(plain([again.api.macroJob().items[0].state, again.api.macroJob().items[0].note, typed]),
-    ['failed', "The edit page loaded again part-way through step 1, so the ticket wasn't saved", []]);
-  again.close();
-});
-
-test("a macro you build, after Save: the ticket's page is checked for the fields it set, then the blocks after it carry on", async () => {
-  const steps = [{ type: 'setField', field: 'Sub-Issue Type', value: 'Hardware' }, statusIs('New'), PWR];
-  const after = (opts, item, s = steps) => {
-    const env = load({ now: NOW, name: 'atqm_macro', html: ticketPage(A, 'Fabrikam Ltd', opts), storage: customJob('verify', s, item) });
-    fast(env.api);
-    env.edits = 0;
-    env.window.document.getElementById('edit').addEventListener('click', () => env.edits++);
-    return env;
-  };
-  // Saved, and the ticket shows it: on to the Only if, and Edit again for the speed code
-  const on = after({ subIssue: 'Hardware', status: 'New' }, { step: 1, picks: { 0: 'Hardware' }, did: ['Sub-Issue Type: Hardware'] });
-  await on.api.macroWork();
-  const item = plain(on.api.macroJob().items[0]);
-  assert.deepEqual([item.state, item.step, item.did, on.edits], ['edit', 2, ['Sub-Issue Type: Hardware'], 1]);
-  on.close();
-  // It shows something else: Check it
-  const off = after({ subIssue: 'Other', status: 'New' }, { step: 1, picks: { 0: 'Hardware' } });
-  await off.api.macroWork();
-  assert.deepEqual(plain([off.api.macroJob().items[0].state, off.api.macroJob().items[0].note]),
-    ['check', 'Saved, but Sub-Issue Type shows "Other" instead of Hardware']);
-  off.close();
-  // Its last block done: done
-  const done = after({}, { step: 1, did: ['Speed code PWR'] }, [PWR]);
-  await done.api.macroWork();
-  assert.deepEqual(plain([done.api.macroJob().items[0].state, done.edits]), ['done', 0]);
-  done.close();
-  // A page from before Save (Autotask edited it in a window of its own): left for the driving page to load again
-  const old = after({}, { step: 1, at: NOW + 5000 }, [PWR]);
-  await old.api.macroWork();
-  assert.equal(old.api.macroJob().items[0].state, 'verify');
-  old.close();
-});
-
-test('a macro you build runs from its square: its window asks for what it asks each time, and the job carries its blocks', async () => {
-  const { api, window, close } = load({ now: NOW, html: ticketPage(A, 'Fabrikam Ltd', { status: 'New' }) });
-  fast(api);
-  api.saveMacroDefs([{ id: 'm1', name: 'Password reset', blocks: [statusIs('New'), { ...PWR, ask: true }, { type: 'setField', field: 'Status', value: 'In Progress' }] }]);
-  const doc = window.document;
-  let edits = 0;
-  doc.getElementById('edit').addEventListener('click', () => edits++);
-  api.renderTicketPill();
-  const pill = doc.getElementById('atqm-tkpill');
-  button(pill, /^Macros$/).click();
-  pill.querySelector('[data-macro="c:m1"]').click();
-  const win = doc.getElementById('atqm-mcwin');
-  assert.deepEqual([...win.querySelectorAll('.mcw-steps li')].map(li => li.textContent),
-    ['Only if Status is New', 'Speed code (asked each time)', 'Set Status to In Progress']);
-  const code = doc.getElementById('atqm-mc-b1');
-  assert.equal(win.querySelector('label[for=atqm-mc-b1]').textContent, 'Speed code');
-  assert.equal(code.value, 'PWR', 'starts on what the macro has');
-  const typeIn = v => { code.value = v; code.dispatchEvent(new window.Event('input', { bubbles: true })); };
-  typeIn('');
-  assert.ok(button(win, /^Run$/).disabled);
-  assert.match(win.textContent, /Fill in Speed code\./);
-  typeIn(' NEWU ');
-  button(win, /^Run$/).click();
-  await sleep(50);
-  const job = plain(api.macroJob());
-  assert.deepEqual([job.kind, job.name, job.here, job.steps], ['custom', 'Password reset', true,
-    [statusIs('New'), { type: 'speedCode', code: 'NEWU' }, { type: 'setField', field: 'Status', value: 'In Progress', empty: false }]]);
-  assert.deepEqual([job.items[0].state, job.items[0].step, edits], ['edit', 1, 1], 'checked, then Edit, right here');
-  assert.deepEqual(plain(api.get('atqm:macro:codes', [])), ['NEWU'], 'offered next time');
-
-  // Done: the corner says what it did
-  api.patchMacroItem(A, { state: 'done', did: ['Speed code NEWU', 'Status: In Progress'] });
-  api.renderTicketPill();
-  assert.match(doc.getElementById('atqm-tkpill').textContent, /Password reset: Speed code NEWU · Status: In Progress/);
-  // Try again runs the same blocks, values and all
-  api.patchMacroItem(A, { state: 'failed' });
-  api.retryMacro(api.macroJob());
-  assert.deepEqual(plain(api.macroJob().steps), job.steps);
-  assert.equal(api.macroJob().kind, 'custom');
   close();
 });

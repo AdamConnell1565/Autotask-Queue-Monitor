@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.19.0 (2026-10-09)
+
+### Added
+
+- **Two kinds of macro** in the Macro builder: **Queue selection** runs on the tickets ticked in a queue, **On page** runs on the ticket in the page, right there. A ticket pop-up's Macros button shows the on page ones.
+- **Ticked tickets in tabs of their own, several at once**: each ticket opens in its own tab, up to **Tickets at once** (Settings → Macros, 5 to start with). When a ticket is done its tab closes and the next ticket starts. This is for Change account too. More than one at once needs pop-ups allowed for autotask.net; without that it does one at a time and says so.
+- **Granular blocks**, with the pages they work on:
+  - On the ticket's page: Only if, **Enter edit mode**, **New time entry**, **Quick note**.
+  - In edit mode: **Ticket speed code**, **Set a ticket field**, **Save ticket**, **Save ticket & enter time** (the edit page's Save & Enter Time), **Cancel edit**.
+  - In a time entry: **Time entry speed code**, **Hours worked**, **Summary notes**, **Internal notes**, **Set a time entry field**, **Save time entry**, **Cancel time entry**.
+  - Anywhere: Wait.
+- The builder follows the pages the blocks lead to and draws a line where the macro moves to another page. A block where it can't work, or a macro that would end unsaved, is marked, with a button that puts in what's missing.
+- The progress list shows the step each ticket is on.
+
+### Changed
+
+- Edit and Save are no longer done for you: they're the Enter edit mode and Save ticket blocks. Macros built in 0.18 get them put in where they were done before, and become queue selection macros.
+
+### Checked against Autotask
+
+- From captures of the ticket page's activity toolbar and a time entry:
+  - New Time Entry opens the time entry as a dialog over the ticket's page, titled "New Ticket Time Entry". The macro carries on in it.
+  - It has no Cancel button, so Cancel time entry presses its ✕.
+  - Its Date and Start Time are typed into.
+  - A time entry showing another ticket's number isn't taken for this ticket's.
+  - A speed code listed under two of the list's headings (Recently Used and Department, say) counts as one.
+- Not yet: the time entry's Hours Worked, Summary Notes and Internal Notes. Those blocks find their boxes by label and fail the ticket with a note if they're built differently.
+
 ## 0.18.0 (2026-10-09)
 
 ### Added

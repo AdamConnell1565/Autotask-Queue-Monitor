@@ -82,7 +82,9 @@ Ticket pop-up windows don't show the Queue monitor window (unless you turn off *
 Where a macro can run depends on the page:
 
 - **This ticket**, when the page shows a ticket: it runs right there, in that page.
-- **Ticked in this queue**, when the page shows a queue: tick the tickets in Autotask's grid (you can do this with the window open), and they're done one at a time in a tab of its own. Keep the tab you started it from open; the macro tab works fastest left in front, and closes itself at the end.
+- **Ticked in this queue**, when the page shows a queue: tick the tickets in Autotask's grid (you can do this with the window open). Each ticket opens in a tab of its own, up to 5 at once (**Tickets at once**, in Settings → Macros). When a ticket is done its tab closes and the next ticket starts in its place. Keep the tab you started it from open until it finishes.
+
+More than one tab at once needs pop-ups allowed for autotask.net, because the browser only lets the script open one tab per click otherwise. Without that it does one ticket at a time, each in the tab the last one finished in, and says so.
 
 ### Change account
 
@@ -98,7 +100,7 @@ Otherwise it presses **Edit**, types the account into the Account field and pick
 
 If Autotask opens Edit in a window of its own and your browser blocks it, the ticket fails straight away and says to allow pop-ups for autotask.net.
 
-Each ticket ends up **Done** (with which types were filled in, and which it kept because the ticket had one), **Already on it** (skipped), **Failed** (with why: the account or type wasn't offered, several matched, a field wasn't on the edit page or was greyed out, Autotask wanted another field before saving, or it asked a question) or **Check it** (saved, but the change couldn't be confirmed). **Stop** halts it straight away and closes the macro tab (the ticket it was on is marked **Check it**). At the end, **Try the _n_ again** reruns the tickets that didn't get done, and **Done** clears the list. A message box with only OK is acknowledged; any other question is left unanswered and that ticket isn't saved.
+Each ticket ends up **Done** (with which types were filled in, and which it kept because the ticket had one), **Already on it** (skipped), **Failed** (with why: the account or type wasn't offered, several matched, a field wasn't on the edit page or was greyed out, Autotask wanted another field before saving, or it asked a question) or **Check it** (saved, but the change couldn't be confirmed). **Stop** halts it straight away and closes the macro tabs (the tickets they were on are marked **Check it**). At the end, **Try the _n_ again** reruns the tickets that didn't get done, and **Done** clears the list. A message box with only OK is acknowledged; any other question is left unanswered and that ticket isn't saved.
 
 ### Macro builder
 
@@ -108,27 +110,61 @@ Build macros of your own out of blocks. Open the **Macro builder** from any of t
 - **Edit**, at the top of the window of a macro you built.
 - **Settings → Macros**, which lists your macros with **Edit** and **Delete**, and has **New macro**.
 
-Give the macro a name (what its square says) and, if you like, a line on what it does. The blocks are on the left, grouped by the page they work on. Drag one into **Steps**, or click it (or press Enter on it) to add it at the end. Drag a step by its handle (⠿) to move it, or use its arrows. Drag it back onto the blocks, or press ×, to take it out. Steps run top to bottom on each ticket. Nothing is kept until **Save macro** (or Ctrl+S); Esc or **Cancel** asks first if you've changed something.
+Give the macro a name (what its square says) and, if you like, a line on what it does. Then choose what it **Runs on**:
 
-| Block | Page | What it does |
-| --- | --- | --- |
-| **Only if** | The ticket's page | Carries on only if a field matches: it **is** one of some values (separate them with commas), **isn't** any of them, **is empty** or **is filled in**. Otherwise the ticket is **Skipped**, with what the field showed. |
-| **Speed code** | The edit page | Types the speed code into the edit page's speed code box and picks it from Autotask's list, so its template fills in the ticket. It sets whatever its template sets, over what's already there. |
-| **Set a field** | The edit page | Picks a value for a field, named as Autotask labels it (Status, Priority, Queue, Work Type…), from the field's own list. A plain box such as Purchase Order Number is typed into. Tick **Only if it's empty** to leave a field that has something in it alone. |
-| **Wait** | Either | Waits 1 to 60 seconds, for Autotask to catch up (after a speed code, say). It goes with the step before it. |
+- **Queue selection**: the tickets you've ticked in a queue (or any list of tickets). Each opens in a tab of its own, up to **Tickets at once** (5 to start with) at a time, and its tab closes when that ticket is done.
+- **On page**: the ticket in the page you run it from, right there. These are the ones behind a ticket pop-up's Macros button.
 
-You don't add Edit or Save yourself. The macro opens the ticket, presses **Edit** before the first step for the edit page and plain **Save** (never Save & Close) after the last of them, and the list of steps shows where. So *Only if Status is New, Speed code PWR, Set Status to In Progress* checks the ticket, edits it once and saves once. A step for the ticket's page after edit-page steps runs on the ticket once it's saved. A macro needs at least one step that changes the ticket (Speed code or Set a field).
+The blocks are on the left, grouped by where they work. Drag one into **Steps**, or click it (or press Enter on it) to add it at the end. Drag a step by its handle (⠿) to move it, or use its arrows. Drag it back onto the blocks, or press ×, to take it out. Steps run top to bottom on each ticket. Nothing is kept until **Save macro** (or Ctrl+S); Esc or **Cancel** asks first if you've changed something.
+
+**On the ticket's page**
+
+| Block | What it does |
+| --- | --- |
+| **Only if** | Carries on only if a field matches: it **is** one of some values (separate them with commas), **isn't** any of them, **is empty** or **is filled in**. Otherwise the ticket is **Skipped**, with what the field showed. |
+| **Enter edit mode** | Presses **Edit**. Then the macro is in edit mode. |
+| **New time entry** | Opens a new time entry from the ticket's page. Then the macro is in a time entry. |
+| **Quick note** | Writes a note in the ticket page's Quick note box, picks its note type if you name one, and saves it. |
+
+**In edit mode**
+
+| Block | What it does |
+| --- | --- |
+| **Ticket speed code** | Types the speed code into the edit page's speed code box and picks it from Autotask's list, so its template fills in the ticket. It sets whatever its template sets, over what's already there. |
+| **Set a ticket field** | Picks a value for a field, named as Autotask labels it (Status, Priority, Queue, Work Type…), from the field's own list. A plain box such as Purchase Order Number is typed into. Tick **Only if it's empty** to leave a field that has something in it alone (checked on the ticket's page before Edit, and on the edit page). |
+| **Save ticket** | Leaves edit mode, saving: plain **Save**, never Save & Close (which goes on to close the ticket). Back on the ticket's page, it checks the fields you set show what was picked. |
+| **Save ticket & enter time** | The edit page's **Save & Enter Time** (from its Save & ... menu): saves the ticket and opens a new time entry. |
+| **Cancel edit** | Leaves edit mode without saving. |
+
+**In a time entry**
+
+| Block | What it does |
+| --- | --- |
+| **Time entry speed code** | Types the speed code into the time entry's speed code box and picks it, so its template fills in the time entry. |
+| **Hours worked** | Fills in Hours Worked. |
+| **Summary notes** / **Internal notes** | Writes in that box, in place of what's there or after it. |
+| **Set a time entry field** | Picks a value for any other field of the time entry (Status, which sets the ticket's when the time entry is saved; Role; Work Type…), or types it in a plain box (Date, Start Time). |
+| **Save time entry** | Saves the time entry (its **Save & Close**), back to the ticket's page. |
+| **Cancel time entry** | Closes the time entry without saving it (its ✕: it has no Cancel button). |
+
+**Anywhere**: **Wait** pauses 1 to 60 seconds, for Autotask to catch up (after a speed code, say).
+
+The builder follows the pages the blocks lead to, shows where each step runs, and draws a line wherever the macro moves to another page. A block put where it can't work, such as a ticket speed code with no **Enter edit mode** before it, is marked, with a button that puts in what's missing. So is a macro that would end in edit mode or a time entry, unsaved. It can't be saved until it makes sense, and it needs at least one step that changes the ticket (a save, or a quick note).
+
+For example, *Only if Status is New, Enter edit mode, Ticket speed code PWR, Set Status to In Progress, Save ticket & enter time, Time entry speed code T30, Save time entry* checks the ticket, edits it, saves it, logs the time and is done.
 
 **Ask each time.** Tick it on a step's value, and the macro's window asks for that value whenever you run it, starting on what you put in the builder. A macro that asks for nothing runs from its square on a double-click, like any other.
 
-Your macros run like Change account: on **This ticket** or **Ticked in this queue**, with the same progress list, **Stop**, **Try again** and **Done**. As well as Done, Failed and Check it, a ticket can end up:
+Your macros show the same progress list as Change account, with the step each ticket is on, and **Stop**, **Try again** and **Done**. As well as Done and Failed, a ticket can end up:
 
-- **Skipped**: an Only if didn't match, or every field it would fill in already had something (it isn't edited at all then).
+- **Skipped**: an Only if didn't match.
 - **Check it**: saved, but a field it set shows something else on the ticket afterwards.
 
-It fails a ticket, unsaved, when Autotask doesn't offer the speed code or value (or offers several that match), a field isn't on the page or is greyed out, Autotask asks a question (a box with only OK is acknowledged), or the edit page loads again part-way through.
+It fails a ticket when Autotask doesn't offer the speed code or value (or offers several that match), a field or button isn't on the page or is greyed out, Autotask asks a question (a box with only OK is acknowledged), Autotask says why it won't save, or a page loads again part-way through a step. Whatever was saved before that stays saved.
 
-Macros you build are kept in this browser with your settings, and **Export** and **Import** (Settings → Backup and help) take them along.
+**Not all checked against Autotask yet:** the time entry (a dialog over the ticket's page) has been captured down to its Start Time, but not its Hours Worked, Summary Notes or Internal Notes (see [docs/autotask-pages.md](docs/autotask-pages.md#time-entry)). Those blocks find their boxes by label and fail the ticket with a note if the time entry is built differently. Try a new macro on one ticket first.
+
+Macros you build are kept in this browser with your settings, and **Export** and **Import** (Settings → Backup and help) take them along. Macros built in 0.18, which pressed Edit and Save by themselves, get Enter edit mode and Save ticket put in, and become queue selection macros.
 
 ## Queue monitor menu
 
@@ -207,7 +243,7 @@ The sections, and the settings most people change:
 - **Monitoring**: **Refresh queues every**, **Monitor all queues from one tab** (see [One tab for all queues](#one-tab-for-all-queues)) and **Lock monitoring tabs**.
 - **Window and display**: **Dashboard button** (adds the ⛶ button that opens the dashboard), **Queue monitor window** and **Macros button on ticket pop-ups** (show or hide them, as the Queue monitor menu does), and how the window looks.
 - **Dates and times**: **Date format in Autotask** (detected from your queues; set it if the window shows the wrong dates) and **Autotask time zone** (set it if the time zone in your Autotask profile differs from your PC's; the window warns you when due times look hours out).
-- **Macros**: the macros you've built, with **Edit** and **Delete**, and **New macro**, which open the [Macro builder](#macro-builder). These are kept as soon as the builder saves them, not with Save changes.
+- **Macros**: the macros you've built, with **Edit** and **Delete**, and **New macro**, which open the [Macro builder](#macro-builder). These are kept as soon as the builder saves them, not with Save changes. **Tickets at once** (5 to start with) is how many ticked tickets a macro does at a time, each in a tab of its own.
 - **Backup and help**: **Export** / **Import** move your settings, tracked queues and macros to another browser or PC. **Diagnostics** and **Reset to defaults** are here too.
 
 ## Limitations
@@ -220,7 +256,7 @@ The sections, and the settings most people change:
 
 ## Privacy
 
-To compare scans, the monitor keeps the ticket numbers, titles, account names, statuses and due times of the queues you track in your browser's storage for autotask.net. It sends nothing outside Autotask. **Clear** in the window removes the change history. **Diagnostics** and **Export** never include ticket titles or account names from your queues. Export does include the macros you've built, with whatever you typed into their steps (an account name in a Set a field step, say).
+To compare scans, the monitor keeps the ticket numbers, titles, account names, statuses and due times of the queues you track in your browser's storage for autotask.net. It sends nothing outside Autotask. **Clear** in the window removes the change history. **Diagnostics** and **Export** never include ticket titles or account names from your queues. Export does include the macros you've built, with whatever you typed into their steps (an account name in a Set a ticket field step, say).
 
 ## Troubleshooting
 
@@ -243,7 +279,7 @@ Written for Tampermonkey on current Chrome, Edge and Firefox. The script needs n
 - `npm install`, then `npm test` (Node 20 or later) and `npm run check` (syntax check).
 - Everything specific to Autotask's pages (CSS selectors, button names, column names, page addresses) is in the `AT` section at the top of the script. [docs/autotask-pages.md](docs/autotask-pages.md) describes the pages those selectors match, such as the ticket page's fields and buttons.
 - Tests load the script into [jsdom](https://github.com/jsdom/jsdom) through a test hook that stops before the script starts its widget and timers (`tests/harness.js`). `tests/boot.test.js` runs the whole script.
-- The sample pages in `tests/fixtures` are written by hand to match the `AT` selectors. To add a real Autotask page, save it from the browser and replace every ticket title, account name, person's name and ticket number before committing it (see [Capturing a page safely](docs/autotask-pages.md#capturing-a-page-safely)). Never commit personal information.
+- The sample pages in `tests/fixtures`, and the ticket and edit pages `tests/pages.js` builds for the macro tests, are written by hand to match the `AT` selectors. To add a real Autotask page, save it from the browser and replace every ticket title, account name, person's name and ticket number before committing it (see [Capturing a page safely](docs/autotask-pages.md#capturing-a-page-safely)). Never commit personal information.
 - For a release, raise `@version` in the script header (Tampermonkey only updates when it goes up) and `version` in `package.json`, and add a [CHANGELOG](CHANGELOG.md) entry.
 
 ## License

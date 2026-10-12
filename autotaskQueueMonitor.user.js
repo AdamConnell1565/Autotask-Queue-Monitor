@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Autotask Queue Monitor
 // @namespace    autotask
-// @version      0.18.0
+// @version      0.19.0
 // @description  Track any My Workspace & Queues queue (My queue by default) in its own tab, with a live overview on every Autotask page
 // @author       AdamConnell1565
 // @homepageURL  https://github.com/AdamConnell1565/Autotask-Queue-Monitor
@@ -52,6 +52,7 @@
       chooserMoveRight: '.StandardButtonIcon.MoveRight',
       chooserSave: '.StandardButtonIcon.Save',
       dialogClose: '.DialogTitleBarIcon.Close',
+      dialogTitleButton: '.DialogTitleBarButton', // around a dialog's title bar icons (Help, Pop out, Minimise, Close)
       topBar: '[data-slot="header"]',          // Autotask's bar across the top (logo, menus, search, New): the dashboard sits below it
       topBarNav: '[data-slot="header:navigation-section"]', // its menus (Dashboards, My, Calendar): the Queue monitor menu goes after them
       topBarMenu: '[data-slot="header:navigation-menu-button"]', // one of those menus' buttons, copied for the Queue monitor menu's
@@ -66,8 +67,9 @@
       accountLink: '.LinkButton2 .Text2',      // a page without those: its account is one of these links
       fieldLabel: 'label, span, div',          // the edit page's field names ("Account", "Work Type")
       textInput: 'input:not([type]), input[type="text"], input[type="search"]',
-      // A plain box with no list to pick from (Purchase Order Number, Estimated Hours, Due Date): typed into
-      plainBox: 'input.TextBox2, input.DecimalBox2, input.DateBox2, input.TimeBox2',
+      // A plain box with no list to pick from (Purchase Order Number, Estimated Hours; a time entry's Date and Start Time,
+      // whose class is on a <div> around the box): typed into
+      plainBox: 'input.TextBox2, input.DecimalBox2, input.DateBox2, input.TimeBox2, .TextBox2 input, .DecimalBox2 input, .DateBox2 input, .TimeBox2 input',
       // The speed code box: only a macro's Speed code block types in it, never as one of the fields a macro fills in
       formTemplate: '.FormTemplateSelector',
       pickItem: '.Item, [role="option"]',      // choices in a drop-down list
@@ -81,6 +83,17 @@
       pickerShown: '.SelectionDisplay, .ChipList',
       section: '.CollapsibleSectionContainer', // a section of fields you can close (Ticket Information, Billing…)
       sectionHead: '.HeadingContainer',
+      // A drop-down button (the edit page's Save & ..., Tools) and its menu, hidden in the page until it's opened;
+      // what to press to open it
+      dropButton: '.DropDownButton2',
+      menu: '.ContextOverlayContainer',
+      menuOpener: '.Button2, [class*="Arrow"], .Triangle',
+      disabledButton: '.Disabled2',
+      quickNote: '.QuickNote',                 // the ticket page's Quick note: a <textarea>, a note type <select>, Save and Cancel
+      // A dialog's title ("New Ticket Time Entry", "Column Chooser"): <div class="TitleBar1"><div class="Title"><span class="Text">
+      formTitle: '.TitleBar1 .Title',
+      formTicket: '.IdentificationContainer .IdentificationText', // the ticket number a time entry is for
+      textBox: 'textarea, [contenteditable="true"]', // a box for notes (a time entry's Summary Notes)
       dialog: '[role="dialog"], [role="alertdialog"], .Dialog, .DialogBox, .MessageBox, .Modal',
       dialogButton: '.Button2, button',
       formError: '[role="alert"], .ErrorMessage, .ValidationMessage, .Error, .ValidationSummary .Message', // what's wrong, in words
@@ -106,12 +119,23 @@
       editButton: 'Edit',
       saveButtons: ['Save', 'Save & Close'],   // the edit page has these (how it's recognised)
       saveButton: 'Save',                      // saves and goes back to the ticket, in the same tab (Save & Close goes on to close the ticket)
+      saveAndTime: 'Save & Enter Time',        // in the edit page's Save & ... menu: saves, then a new time entry
+      cancelButton: 'Cancel',
+      // The ticket page's activity toolbar has New Time Entry (and New Note, New Attachment); the others are fallbacks
+      newTimeButtons: ['New Time Entry', 'Time Entry', 'Add Time Entry', 'New Time'],
+      timeTitle: /^(new\s+|edit\s+)?(ticket\s+)?time\s*entry\b/i, // "New Ticket Time Entry"
+      timeSaveButtons: ['Save & Close', 'Save'], // a time entry's Save & Close saves it and goes back to the ticket (also: Save & New, Save & Forward/Modify)
+      hoursLabel: /^hours\s*worked\s*\*?:?$/i,
+      summaryLabel: /^summary\s*notes?\s*\*?:?$/i,
+      internalLabel: /^internal\s*notes?\s*\*?:?$/i,
       accountLabel: /^account\s*\*?:?$/i,
       subIssueLabel: /^sub[\s-]*issue\s*type\s*\*?:?$/i,
       workTypeLabel: /^work\s*type\s*\*?:?$/i,
       // Fields of the ticket's page and its edit page, offered when you name one in the Macro builder
       ticketFields: ['Status', 'Priority', 'Queue', 'Issue Type', 'Sub-Issue Type', 'Source', 'Work Type', 'Account', 'Contact',
         'Contract', 'Line of Business', 'Purchase Order Number', 'Estimated Hours'],
+      // and a time entry's (its Status is the ticket's, set when the time entry is saved)
+      timeFields: ['Status', 'Role', 'Work Type', 'Contract', 'Date', 'Start Time', 'End Time', 'Hours Worked'],
       dialogOk: /^(ok|close)$/i,               // a message box with only this button is just acknowledged
       statuses: [                              // fallback only, if no Status column header is found
         'New', 'In Progress', 'Waiting Customer', 'Waiting Materials', 'Waiting Vendor',
@@ -202,6 +226,7 @@
     dashboard: true,              // a button that opens the full-window dashboard
     showWindow: true,             // the Queue monitor window (hidden only where the Queue monitor menu in Autotask's top bar can bring it back)
     ticketMacroButton: true,      // the Macros button in the corner of ticket pop-ups
+    macroTabs: 5,                 // macros on ticked tickets: tickets done at once, each in a tab of its own
     notify: true,
     sound: true,
     hideInPopups: true,
@@ -2103,6 +2128,9 @@
 .mcw-edit:hover{border-color:#4ea1ff}
 .mcw-steps{margin:6px 0 0;padding-left:18px;color:#c9d1d9}
 .mcw-steps li{margin-top:1px}
+.mc-sq .mc-kind{font-size:10px;color:#c4a5ff;text-transform:uppercase;letter-spacing:.04em}
+.mcw-kind{color:#c4a5ff;font-size:11.5px;margin-bottom:2px}
+textarea.mc-text{resize:vertical;min-height:54px}
 #atqm-mcwin{position:fixed;z-index:2147483002;width:320px;max-width:calc(100vw - 16px);max-height:calc(100vh - 16px);overflow:auto;
   background:#1e1f22;color:#e6e6e6;border:1px solid #3b4a5e;border-top:3px solid #4ea1ff;border-radius:6px;padding:8px 12px 12px;
   font:12px/1.45 system-ui,Segoe UI,sans-serif;box-shadow:0 8px 24px rgba(0,0,0,.5)}
@@ -2206,7 +2234,7 @@ a.atqm-navitem{text-decoration:none}
 .set-sec-h p{margin:1px 0 0;color:#9aa4b2;font-size:12.5px}
 .set-card{background:#1e1f22;border:1px solid #2c2f35;border-radius:12px;overflow:hidden}
 .set-row{display:flex;align-items:center;gap:20px;padding:14px 18px;border-top:1px solid #272a2f;transition:background-color .2s}
-.set-card > .set-row:first-child,.set-card > [hidden] + .set-row{border-top:0}
+.set-card > .set-row:first-child,.set-card > [hidden] + .set-row,.set-group > .set-row:first-child{border-top:0}
 .set-row.wide{flex-direction:column;align-items:stretch;gap:10px}
 .set-row.changed{background:#1b2533;box-shadow:inset 3px 0 #4ea1ff}
 .set-row.flash{animation:atqm-set-flash 1.8s ease-out}
@@ -2309,6 +2337,12 @@ label.set-label{cursor:pointer}
 #atqm-mb input[type=text],#atqm-mb input[type=number],#atqm-mb select{width:100%;min-width:0;height:30px;margin:0;padding:0 8px;
   background:#15161a;color:#e6e6e6;border:1px solid #3a3d44;border-radius:6px;font:inherit;font-weight:400;box-shadow:none}
 #atqm-mb input[type=checkbox]{margin:0;accent-color:#4ea1ff}
+#atqm-mb textarea{width:100%;min-height:58px;margin:0;padding:6px 8px;background:#15161a;color:#e6e6e6;border:1px solid #3a3d44;
+  border-radius:6px;font:inherit;font-weight:400;resize:vertical}
+#atqm-mb textarea:focus{border-color:#4ea1ff;box-shadow:0 0 0 3px #4ea1ff40;outline:none}
+.mb-kind{flex:1 1 100%;display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px}
+.mb-klbl{color:#c9d1d9;font-size:12px;font-weight:600}
+.mb-kind .mb-sub{flex:1 1 260px}
 #atqm-mb input:focus,#atqm-mb select:focus{border-color:#4ea1ff;box-shadow:0 0 0 3px #4ea1ff40;outline:none}
 #atqm-mb select option{background:#1e1f22;color:#e6e6e6}
 #atqm-mb button:focus-visible{outline:2px solid #4ea1ff;outline-offset:1px}
@@ -2317,7 +2351,17 @@ label.set-label{cursor:pointer}
 .mb-pal.bin{background:#2a1d1f;box-shadow:inset 0 0 0 2px #e5484d}
 .mb-h{font-weight:600;color:#e6e6e6}
 .mb-grp{margin:14px 0 2px;color:#9aa4b2;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.04em}
-.pg-ticket{--mb-c:#3fb950}.pg-edit{--mb-c:#4ea1ff}.pg-any{--mb-c:#9aa4b2}
+.pg-ticket{--mb-c:#3fb950}.pg-edit{--mb-c:#4ea1ff}.pg-time{--mb-c:#e3b341}.pg-any{--mb-c:#9aa4b2}
+.mb-blk .mb-to{display:block;margin-top:3px;color:var(--mb-c);font-size:11px;font-style:normal}
+.mb-auto.pg-ticket,.mb-auto.pg-edit,.mb-auto.pg-time{color:var(--mb-c)}
+.mb-step.bad,.mb-end.bad{border-color:#e5484d;border-left-color:#e5484d}
+.mb-end{list-style:none;border:1px solid;border-radius:8px}
+.mb-bad{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;margin:0 10px 10px 36px;padding:6px 8px;border-radius:6px;
+  background:#2a1d1f;color:#ff9b9e;font-size:12px}
+.mb-end .mb-bad{margin:8px}
+.mb-bad button{background:#3a2a2c;color:#ffd1d3;border:1px solid #5a3a3c;border-radius:5px;padding:2px 10px;cursor:pointer;font:inherit}
+.mb-bad button:hover{background:#4a3033}
+.mb-f.mb-w{flex:1 1 100%}
 .mb-blk{display:block;width:100%;margin-top:6px;padding:7px 9px;background:#24262b;color:#e6e6e6;border:1px solid #33363c;
   border-left:3px solid var(--mb-c);border-radius:6px;cursor:grab;user-select:none}
 .mb-blk:hover{background:#2b2f36;border-color:#4a4e57;border-left-color:var(--mb-c)}
@@ -3453,6 +3497,12 @@ label.set-label{cursor:pointer}
         options: [['', `Same as this PC${PC_ZONE ? ` (${PC_ZONE})` : ''}`], ...ZONES.map(z => [z, z])] }
       : { key: 'timeZone', label: 'Autotask time zone', type: 'text', hint: ZONE_HINT + ' Leave empty for the same as this PC.',
         sanitize: v => (clean(v) && validZone(clean(v)) ? clean(v) : '') },
+    // Its macros, with New macro, go above this (see renderSettings)
+    { group: 'Macros', id: 'macros', icon: 'layers',
+      desc: "Your own macros, built from blocks such as speed codes. They're squares in the Macros tab, and behind a ticket pop-up's Macros button." },
+    { key: 'macroTabs', label: 'Tickets at once', type: 'number', min: 1, max: 10, step: 1,
+      hint: 'A macro run on the tickets ticked in a queue opens each ticket in a tab of its own, this many at a time. When one is done ' +
+        'its tab closes and the next ticket starts. More than 1 needs pop-ups allowed for autotask.net.' },
   ];
 
   // A setting value made safe to use: the right type, within range, and one of the options
@@ -3912,17 +3962,20 @@ label.set-label{cursor:pointer}
         flash(CONFIG.notify || CONFIG.sound ? 'Test alert sent.' : 'Sound and notifications are both off.');
       })));
 
-    // Macros: the ones you've built, each with Edit and Delete, the built-in ones, and New macro. Edit and New macro
-    // open the Macro builder over Settings; what it saves is kept straight away, not with Save changes.
-    const mCard = section('macros', 'Macros', 'layers',
-      "Your own macros, built from blocks such as speed codes. They're squares in the Macros tab, and behind a ticket pop-up's Macros button.");
+    // Macros: the ones you've built, each with Edit and Delete, the built-in ones, and New macro, above the section's
+    // settings. Edit and New macro open the Macro builder over Settings; what it saves is kept straight away, not
+    // with Save changes.
+    const mCard = el('div', 'set-group');
+    cards.macros.prepend(mCard);
     function drawMacros() {
       mCard.replaceChildren();
       for (const d of macroDefs()) {
         const row = el('div', 'set-row');
         row.dataset.find = `${d.name} ${d.about} macro`.toLowerCase();
         const text = el('div', 'set-text');
-        text.append(el('div', 'set-label', d.name), el('div', 'set-hint', d.about || d.blocks.map(blockSummary).join(', then ')));
+        const label = el('div', 'set-label', d.name);
+        label.append(el('span', 'set-where', d.scope === 'page' ? 'On page' : 'Queue selection'));
+        text.append(label, el('div', 'set-hint', d.about || d.blocks.map(blockSummary).join(', then ')));
         const ctl = el('div', 'set-ctl');
         const edit = btn('Edit', '', () => openBuilder(d.id, { back: edit }), `Change ${d.name} in the Macro builder`);
         edit.dataset.mbBack = 'edit:' + d.id;
@@ -3950,8 +4003,8 @@ label.set-label{cursor:pointer}
       const add = btn('New macro', 'primary', () => openBuilder(null, { back: add }), 'Open the Macro builder');
       add.dataset.mbBack = 'new';
       add.prepend(icon('plus', 14));
-      mCard.append(actionRow('Build a macro', 'Opens the Macro builder: drag blocks such as Speed code, Set a field and Only if ' +
-        'into a list of steps, and save it as a square in the Macros tab.', add));
+      mCard.append(actionRow('Build a macro', 'Opens the Macro builder: drag blocks such as Enter edit mode, Ticket speed code, ' +
+        'Save ticket & enter time and Time entry speed code into a list of steps, and save it as a square in the Macros tab.', add));
       applyFind();
     }
 
@@ -4227,31 +4280,36 @@ label.set-label{cursor:pointer}
   }
 
   // ---------------------------------------------------------------------------
-  // Macros (the Macros tab, and the Macros button on a ticket pop-up). Change account, two ways:
-  // - the ticket you're looking at: done right there, in that page ("here")
-  // - the tickets ticked in a queue: one at a time, in a tab of their own. The page you start it from
-  //   drives it: it shows each ticket in the macro tab in turn, and the copy of this script running
-  //   there does the clicking and reports back through localStorage.
-  // Either way: on the ticket press Edit, pick the new account, fill in Sub-Issue Type and Work Type
-  // where they're empty (if you gave them), Save, then check the ticket shows the new account.
-  // Macros you build in the Macro builder run the same two ways, their blocks in place of those steps
-  // (see "Macros you build" below).
+  // Macros (the Macros tab, and the Macros button on a ticket pop-up), run two ways:
+  // - on the ticket you're looking at: done right there, in that page ("here")
+  // - on the tickets ticked in a queue: each in a tab of its own, up to CONFIG.macroTabs at once. The page you
+  //   start it from drives it: it opens a tab per ticket, and the copy of this script running there does the
+  //   clicking and reports back through localStorage. A ticket finished with has its tab closed, and the next
+  //   ticket starts in its place.
+  // Change account (built in): on the ticket press Edit, pick the new account, fill in Sub-Issue Type and Work
+  // Type where they're empty (if you gave them), Save, then check the ticket shows the new account. Macros you
+  // build in the Macro builder do their blocks instead (see "Macros you build" below).
   // ---------------------------------------------------------------------------
-  const MACRO_WIN = 'atqm_macro'; // the macro tab's window name (names starting 'atqm-' are Quick start's)
-  const MACRO_SS = P + 'macro';   // the job id, in the macro tab's sessionStorage and so in any window Autotask opens from it
+  const MACRO_WIN = 'atqm_macro'; // a macro tab's window name: this, ':' and its ticket (names starting 'atqm-' are Quick start's)
+  const MACRO_SS = P + 'macro';   // the job id, in a macro tab's sessionStorage and so in any window Autotask opens from it
+  const MACRO_ITEM_SS = P + 'macro:ticket'; // the same for the ticket it's doing
   // ms: let a page settle; wait for a drop-down list to offer what was typed (each try; tries in all, the box
   // cleared and retype later typed again between them); wait for the field to show what was picked; wait for
-  // Save to finish; give up on a stuck step; reload the ticket if it doesn't show the new account by then
-  const MACRO = { settle: 1500, pick: 3000, tries: 3, retype: 500, confirm: 3000, saved: 12000, stage: 120000, verify: 30000 };
-  const MACRO_ACTIVE = new Set(['open', 'edit', 'verify']);
+  // Save (or another button that leads to another page) to go through; give up on a stuck step; load the ticket
+  // again if it doesn't show the new account by then; load the ticket's page again once a page it led to, in a
+  // window of its own, has had time to finish; how long a finished macro tab waits for the driving page to close
+  // it (or give it the next ticket) before it closes itself
+  const MACRO = { settle: 1500, pick: 3000, tries: 3, retype: 500, confirm: 3000, saved: 12000, stage: 120000, verify: 30000,
+    stale: 15000, linger: 3000 };
+  const MACRO_ACTIVE = new Set(['open', 'edit', 'verify', 'run']);
   const MACRO_WORDS = {
-    waiting: 'Waiting', open: 'Opening', edit: 'Editing', verify: 'Saving', done: 'Done',
+    waiting: 'Waiting', open: 'Opening', edit: 'Editing', verify: 'Saving', run: 'Running', done: 'Done',
     skipped: 'Already on it', failed: 'Failed', check: 'Check it',
   };
   // A macro you built skips a ticket for other reasons than already being on an account
   const macroWord = (job, s) => (s === 'skipped' && job?.kind === 'custom' ? 'Skipped' : MACRO_WORDS[s] || s);
-  // When this page loaded: a ticket's page from before its Save (Autotask edited it in a window of its own) is
-  // older than the save
+  // When this page loaded: a ticket's page from before a page it led to (Autotask opened that in a window of its
+  // own) is older than the press that led there
   const PAGE_T0 = Date.now();
   // The edit page's fields Change account fills in as well as the account, only where they're empty
   // (a speed code would set them every time, over what's there)
@@ -4260,8 +4318,9 @@ label.set-label{cursor:pointer}
     workType: { label: 'Work Type', re: AT.text.workTypeLabel, a: 'a Work Type', many: 'Work Types' },
   };
   const ACCOUNT_FIELD = { label: 'Account', re: AT.text.accountLabel, a: 'an account', many: 'accounts' };
-  let macroWin = null; // the tab this page opened for its job
+  const macroTabs = new Map(); // ticket -> the tab this page opened for it
   let macroBusy = false;
+  let reloading = false; // this page is loading again for its ticket's next step
 
   const macroJob = () => get(K.macro, null);
   // jobId: only while that job is still the one in hand (a page left over from a stopped one mustn't
@@ -4273,12 +4332,27 @@ label.set-label{cursor:pointer}
   function macroTabName() {
     try { return W.top.name || ''; } catch { return W.name || ''; }
   }
-  // This page does the job's steps: it's in the macro tab, or in a tab running a job "here" (or a window
-  // Autotask opened from one of those)
+  // The ticket a macro tab is doing, by its window name; '' for a macro tab from before 0.19 (one tab for every
+  // ticket in turn, named 'atqm_macro'); null for any other page
+  function macroTabTicket() {
+    const n = macroTabName();
+    return n === MACRO_WIN ? '' : n.startsWith(MACRO_WIN + ':') ? n.slice(MACRO_WIN.length + 1) : null;
+  }
+  const isMacroTab = () => macroTabTicket() != null;
+  // This page does the job's steps: it's a macro tab, or in a tab running a job "here" (or a window Autotask
+  // opened from one of those)
   function macroPage() {
-    if (macroTabName() === MACRO_WIN) return true;
+    if (isMacroTab()) return true;
     const job = macroJob();
     try { return !!job && !job.finished && sessionStorage.getItem(MACRO_SS) === job.id; } catch { return false; }
+  }
+  // The ticket this page does the steps for: a macro tab's own (a window Autotask opened from one knows it from
+  // sessionStorage), else the one under way (a job "here" has just the one)
+  function myItem(job) {
+    let id = macroTabTicket();
+    if (!id) { try { id = sessionStorage.getItem(MACRO_ITEM_SS) || ''; } catch { id = ''; } }
+    if (id) return job.items.find(i => i.id === id) || null;
+    return job.items.find(i => MACRO_ACTIVE.has(i.state)) || null;
   }
   // `from`: only if the ticket is still at that step. A step finishing late (a slow page, or a background
   // tab's timers held back) mustn't undo the driving page having given up on it. The job is finished
@@ -4304,17 +4378,21 @@ label.set-label{cursor:pointer}
     ? `${location.origin}${AT.path.ticketDetail}?workspace=False&ticketId=${it.tid}`
     : commandUrl('TicketNumber', it.id));
 
-  // Show a page in the macro tab. Opening it the first time needs the click that started the job;
-  // after that it's steered by its handle.
-  function showInMacroTab(url) {
-    try { if (macroWin && !macroWin.closed) { macroWin.location.href = url; return true; } } catch { /* fall through */ }
-    macroWin = W.open(url, MACRO_WIN);
-    if (!macroWin) { notePopups('blocked'); return false; }
-    return true;
+  const isOpen = win => { try { return !!win && !win.closed; } catch { return false; } };
+  function closeMacroTabs() {
+    for (const win of macroTabs.values()) { try { win.close(); } catch { /* ignore */ } }
+    macroTabs.clear();
   }
-  function closeMacroTab() {
-    try { macroWin?.close(); } catch { /* ignore */ }
-    macroWin = null;
+  // A tab for this ticket: a new one, else one of `spare` (tabs whose tickets are finished with). The browser
+  // only opens a tab without your click when pop-ups are allowed for autotask.net. null: neither.
+  function openMacroTab(it, spare) {
+    const name = MACRO_WIN + ':' + it.id, url = macroUrl(it);
+    let win = null;
+    try { win = W.open(url, name); } catch { /* blocked */ }
+    if (win) return win;
+    const reuse = spare.pop();
+    if (!reuse) return null;
+    try { reuse.name = name; reuse.location.href = url; return reuse; } catch { return null; }
   }
 
   // tickets: [{ id, tid }]. here: the one ticket this page shows, changed in this page.
@@ -4332,16 +4410,18 @@ label.set-label{cursor:pointer}
     if (Object.keys(fills).length) set(K.macroFills, recent);
     beginJob({ kind: 'account', account: name, fill: fills }, tickets, here);
   }
-  // A job for these tickets: what: what it does ({ kind, … }). Started straight away, by this page.
+  // A job for these tickets: what: what it does ({ kind, … }). Started straight away, by this page, with as many
+  // tickets at once as the setting says (tabs).
   function beginJob(what, tickets, here) {
     const idx = ticketIndex();
     const job = {
       id: Date.now().toString(36) + ID.slice(0, 4), ...what, by: ID, ts: Date.now(), here,
+      tabs: here ? 1 : Math.max(1, Math.min(10, Math.round(CONFIG.macroTabs) || 1)),
       items: tickets.map(t => ({ id: t.id, tid: t.tid || idx[t.id]?.tid || null, state: 'waiting', note: '' })),
     };
     set(K.macro, job);
-    if (here) { try { sessionStorage.setItem(MACRO_SS, job.id); } catch { /* ignore */ } }
-    macroWin = null;
+    if (here) { try { sessionStorage.setItem(MACRO_SS, job.id); sessionStorage.setItem(MACRO_ITEM_SS, job.items[0]?.id || ''); } catch { /* ignore */ } }
+    closeMacroTabs();
     macroStep();
     if (here) macroWork();
   }
@@ -4350,69 +4430,79 @@ label.set-label{cursor:pointer}
     if (!job) return;
     const items = job.items.map(i => (MACRO_ACTIVE.has(i.state) ? { ...i, state: 'check', note: 'Stopped part-way' } : i));
     set(K.macro, { ...job, items, finished: Date.now(), note: 'Stopped.' });
-    closeMacroTab();
+    closeMacroTabs();
   }
-  // The page that was driving it was closed or reloaded: carry on from this one
+  // The page that was driving it was closed or reloaded: carry on from this one (the tabs it opened close
+  // themselves as their tickets finish)
   function takeOverMacro() {
     const job = macroJob();
     if (!job) return;
     set(K.macro, { ...job, by: ID, ts: Date.now() });
-    macroWin = null;
     macroStep();
   }
 
-  // The driving page: move on once a ticket is finished with, and give up on one that's stuck
+  // The driving page: tickets go to tabs of their own, up to job.tabs at once. A ticket finished with has its tab
+  // closed and the next one starts in a new tab, or, if the browser won't open one, in that tab. A ticket stuck too
+  // long is given up on.
   function macroStep() {
     const job = macroJob();
-    if (!job || job.finished) { if (macroWin) closeMacroTab(); return; }
+    if (!job || job.finished) { closeMacroTabs(); return; }
     if (job.by !== ID) return;
     const now = Date.now();
     const items = job.items.map(i => ({ ...i }));
-    let cur = items.find(i => MACRO_ACTIVE.has(i.state));
-    let changed = false, note = '', reload = false;
-    if (cur?.state === 'verify' && now - cur.at > MACRO.verify) {
-      // The ticket page may still show the account from before Save (Autotask edited it in a window
-      // of its own): load it again, once. A job "here" is driven from that page itself.
-      if (!cur.reloaded) {
-        cur.reloaded = true;
-        cur.at = now;
-        if (job.here) reload = true;
-        else showInMacroTab(macroUrl(cur));
-      } else {
-        cur.state = 'check';
-        cur.note = unseenNote(job);
-        cur = null;
+    let changed = false, note = '', limited = !!job.limited;
+    for (const it of items) {
+      if (!MACRO_ACTIVE.has(it.state) || now - it.at <= MACRO.stage) continue;
+      Object.assign(it, { state: 'failed', note: stuckNote(it, job) });
+      changed = true;
+    }
+    // Tabs whose tickets are finished with: one may take the next ticket; the rest close
+    const spare = [];
+    for (const it of items) {
+      const win = macroTabs.get(it.id);
+      if (!win || MACRO_ACTIVE.has(it.state)) continue;
+      macroTabs.delete(it.id);
+      if (isOpen(win)) spare.push(win);
+    }
+    const busy = () => items.filter(i => MACRO_ACTIVE.has(i.state)).length;
+    for (let next; (next = items.find(i => i.state === 'waiting')) && busy() < (job.tabs || 1);) {
+      if (!job.here) {
+        const win = openMacroTab(next, spare);
+        if (!win) {
+          if (!busy()) note = 'Your browser blocked the macro tab. Allow pop-ups for autotask.net and run it again.';
+          else if (!limited) { limited = true; changed = true; }
+          notePopups('blocked');
+          break;
+        }
+        macroTabs.set(next.id, win);
       }
-      changed = true;
-    } else if (cur && now - cur.at > MACRO.stage) {
-      cur.note = stuckNote(cur);
-      cur.state = 'failed';
-      cur = null;
+      Object.assign(next, { state: 'open', at: now });
       changed = true;
     }
-    if (!cur) {
-      const next = items.find(i => i.state === 'waiting');
-      if (next && (job.here || showInMacroTab(macroUrl(next)))) Object.assign(next, { state: 'open', at: now });
-      else if (next) note = 'Your browser blocked the macro tab. Allow pop-ups for autotask.net and run it again.';
-      changed = changed || !!next;
-    }
+    for (const win of spare) { try { win.close(); } catch { /* ignore */ } }
     const finished = !!note || !items.some(i => MACRO_ACTIVE.has(i.state) || i.state === 'waiting');
     if (!changed && !finished && now - job.ts < 15000) return; // otherwise a heartbeat, so other tabs know it's alive
-    set(K.macro, { ...job, items, ts: now, ...(note ? { note } : {}), ...(finished ? { finished: now } : {}) });
-    if (finished) closeMacroTab();
-    if (reload) location.reload();
+    set(K.macro, { ...job, items, ts: now, ...(limited ? { limited } : {}), ...(note ? { note } : {}), ...(finished ? { finished: now } : {}) });
+    if (finished) closeMacroTabs();
   }
 
-  const stuckNote = it => (it.state === 'open' ? "The ticket page didn't open, or had no Edit button"
-    : "Stuck on the edit page (if Edit opens a window of its own, allow pop-ups for autotask.net)");
+  function stuckNote(it, job) {
+    if (it.state === 'open') return "The ticket page didn't open, or had no Edit button";
+    if (job?.kind === 'custom') {
+      const steps = builtSteps(job), s = steps[it.step], page = macroFlow(steps).pages[it.step];
+      if (!s) return "Stuck after its last step: the ticket's page didn't come back";
+      return `Stuck before step ${it.step + 1}, ${BLOCKS[s.type].name}: ${PAGES[page].name} didn't come up` +
+        (page === 'ticket' ? '' : ' (if Autotask opens it in a window of its own, allow pop-ups for autotask.net)');
+    }
+    return "Stuck on the edit page (if Edit opens a window of its own, allow pop-ups for autotask.net)";
+  }
   // Saved, but the ticket's page never showed the result
-  const unseenNote = job => (job.kind === 'custom' ? "Saved, but the ticket's page didn't load again afterwards"
-    : `Saved, but the ticket didn't show ${job.account} afterwards`);
+  const unseenNote = job => `Saved, but the ticket didn't show ${job.account} afterwards`;
 
-  // Press Edit; onBlocked() if Autotask opens the edit page in a window of its own and the browser blocks it
-  // (a click made by the script doesn't count as yours, so pop-ups need allowing for autotask.net). Autotask
-  // may open it a moment after the click, so window.open is watched for a few seconds.
-  function pressEdit(btn, onBlocked) {
+  // Press something; then(win) if Autotask opens a window for it within a few seconds (win null: the browser
+  // blocked it: a click made by the script doesn't count as yours, so pop-ups need allowing for autotask.net).
+  // Autotask may open it a moment after the click, so window.open is watched for a while.
+  function pressWatching(btn, then) {
     const real = W.open;
     let done = false;
     const restore = () => {
@@ -4422,34 +4512,52 @@ label.set-label{cursor:pointer}
     };
     function watch(...args) {
       const win = real.apply(this, args);
-      if (!win) { restore(); onBlocked(); }
+      restore();
+      then(win);
       return win;
     }
     try { W.open = watch; } catch { /* can't watch it: just press */ }
     press(btn);
     setTimeout(restore, 5000);
   }
+  // Press Edit; onBlocked() if Autotask opens the edit page in a window of its own and the browser blocks it
+  const pressEdit = (btn, onBlocked) => pressWatching(btn, win => { if (!win) onBlocked(); });
 
-  // The macro tab: do the current ticket's next step on whichever page Autotask is showing
+  // A macro tab whose ticket is finished with (or whose job is) closes itself a moment later, unless the driving
+  // page has closed it or given it the next ticket (renamed it) by then: for when that page has gone
+  let lingering = false;
+  function closeIfDone(job) {
+    const t = macroTabTicket();
+    const going = j => { const it = j?.items.find(i => i.id === t); return !!it && !j.finished && (MACRO_ACTIVE.has(it.state) || it.state === 'waiting'); };
+    if (!isTop || !t || lingering || going(job)) return;
+    lingering = true;
+    setTimeout(() => {
+      lingering = false;
+      if (macroTabTicket() === t && !going(macroJob())) { try { W.close(); } catch { /* ignore */ } }
+    }, MACRO.linger);
+  }
+
+  // The macro tab (or a page running a job "here"): do its ticket's next step on whichever page Autotask is showing
   async function macroWork() {
     if (macroBusy) return;
     // Not (or no longer) doing a macro's steps: a ticket's page running one "here" stops being one the moment
     // it finishes (or is stopped, or cleared), and its strip along the bottom goes with it
     if (!macroPage()) { macroBanner(null, null); return; }
     const job = macroJob();
-    const item = job && !job.finished ? job.items.find(i => MACRO_ACTIVE.has(i.state)) : null;
+    const mine = job && !job.finished ? myItem(job) : null;
+    const item = mine && MACRO_ACTIVE.has(mine.state) ? mine : null;
     macroBanner(job, item);
-    if (!item) return;
+    if (!item) { closeIfDone(job); return; }
     const jid = job.id;
     // A job "here" whose page has moved on (Edit, a reload) has no driving page left to give up on a stuck step
     if (job.here && job.by !== ID && item.state !== 'verify' && Date.now() - item.at > MACRO.stage) {
-      patchMacroItem(item.id, { state: 'failed', note: stuckNote(item) }, item.state, jid);
+      patchMacroItem(item.id, { state: 'failed', note: stuckNote(item, job) }, item.state, jid);
       return;
     }
     macroBusy = true;
     try {
       if (job.kind === 'custom') {
-        await customWork(job, item);
+        await runBuilt(job, item);
       } else if (item.state === 'edit') {
         if (macroEditPage()) await macroEdit(job, item);
       } else if (openTicketId() === item.id && findButton(AT.text.editButton)) {
@@ -4457,10 +4565,14 @@ label.set-label{cursor:pointer}
           if (accountShown(job.account, item.chosen)) {
             const off = fillProblem(job, item); // the page is up to date now: the types it filled in should show too
             patchMacroItem(item.id, off ? { state: 'check', note: off } : { state: 'done', note: '' }, 'verify', jid);
-          }
-          // Long after the driving page would have reloaded it (and a job "here" has no driving page left)
-          else if (Date.now() - item.at > 2 * MACRO.verify) {
-            patchMacroItem(item.id, { state: 'check', note: unseenNote(job) }, 'verify', jid);
+          } else if (Date.now() - item.at > MACRO.verify) {
+            // Still the account from before Save (Autotask edited it in a window of its own): loaded again, once
+            if (item.reloaded) patchMacroItem(item.id, { state: 'check', note: unseenNote(job) }, 'verify', jid);
+            else if (!reloading) {
+              reloading = true;
+              patchMacroItem(item.id, { reloaded: true, at: Date.now() }, 'verify', jid);
+              location.reload();
+            }
           }
         } else {
           await sleep(MACRO.settle); // let the account show before judging it
@@ -4695,7 +4807,10 @@ label.set-label{cursor:pointer}
     const ok = o => notOurs(o) && (template || !o.closest(AT.sel.formTemplate)) && !o.closest(AT.sel.pickerShown) &&
       o.dataset?.itemType !== 'Default' && !o.matches(AT.sel.pickHeader) && visible(o);
     const own = scope ? [...scope.querySelectorAll(AT.sel.pickItem)].filter(ok) : [];
-    const opts = own.length ? own : [...document.querySelectorAll(AT.sel.pickItem)].filter(ok);
+    let opts = own.length ? own : [...document.querySelectorAll(AT.sel.pickItem)].filter(ok);
+    // The speed code list has a speed code under each of its headings it's in (Recently Used, and Department, say):
+    // the same one twice
+    if (template) opts = opts.filter((o, i, all) => all.findIndex(x => text(x) === text(o)) === i);
     const exact = opts.find(o => text(o) === want);
     if (exact) return { pick: exact, exact: true };
     const isPart = template
@@ -4780,10 +4895,12 @@ label.set-label{cursor:pointer}
       document.body.append(bar);
     }
     const n = job.items.indexOf(job.items.find(i => i.id === item.id)) + 1;
-    const doing = job.kind === 'custom' ? `running ${job.name} on ${item.id}` : `changing the account on ${item.id} to ${job.account}`;
+    const steps = job.kind === 'custom' ? builtSteps(job) : null, s = steps?.[item.step || 0];
+    const doing = steps ? `running ${job.name} on ${item.id}${s ? `, step ${(item.step || 0) + 1} of ${steps.length}: ${BLOCKS[s.type]?.name}` : ''}`
+      : `changing the account on ${item.id} to ${job.account}`;
     bar.textContent = job.here
       ? `Queue monitor macro: ${doing}. Leave this page until it's done.`
-      : `Queue monitor macro: ${doing} (${n} of ${job.items.length}). Leave this tab alone. It closes when the macro finishes.`;
+      : `Queue monitor macro: ${doing} (ticket ${n} of ${job.items.length}). Leave this tab alone. It closes when this ticket is done.`;
   }
 
   // Tickets ticked in the queue grid (Autotask's row checkboxes), with their internal IDs
@@ -4844,19 +4961,44 @@ label.set-label{cursor:pointer}
   }
 
   // ---------------------------------------------------------------------------
-  // Macros you build (the Macro builder): a list of blocks, done in order on each ticket. Each block works on one
-  // page, the ticket's own page or its edit page. The macro presses Edit before the first block for the edit page
-  // and plain Save after the last of a run of them, so "Only if Status is New, Speed code PWR, Set Status to In
-  // Progress" opens the ticket, checks it, edits it once and saves once. A Wait, which works on either page, goes
-  // with the block before it (else the one after).
-  //   fields: what a block asks for in the builder: { id, label, type: 'text' | 'number' | 'select' | 'checkbox',
-  //     value (to start with), required (what to say while it's empty), ask (can be asked for each time the macro
-  //     runs instead; one per block), when(block) (only asked for then), hint, list (names to offer), recent,
-  //     options, min, max }
-  //   changes: it changes the ticket (a macro needs one)
+  // Macros you build (the Macro builder): a list of blocks, done in order on each ticket, each on the page it works
+  // on (PAGES). Some lead to another page: Enter edit mode to the edit page, Save ticket back to the ticket's page,
+  // Save ticket & enter time on to a time entry. The builder follows them (macroFlow), and won't save a macro with
+  // a block on the wrong page, or one that ends anywhere but the ticket's page (so unsaved).
+  // Two kinds (scope): 'queue' runs on the tickets ticked in a queue, each in a tab of its own; 'page' runs on the
+  // ticket in the page you run it from, right there.
+  //   fields: what a block asks for in the builder: { id, label, type: 'text' | 'textarea' | 'number' | 'select' |
+  //     'checkbox', value (to start with), required (what to say while it's empty), ask (can be asked for each
+  //     time the macro runs instead; one per block), when(block) (only asked for then), hint, list (names to
+  //     offer), recent, options, min, max }
+  //   page: where it works ('any': wherever the macro is by then). to: the page it leads to.
+  //   changes: it changes the ticket (a macro needs one). run(step, ctx): see runBuilt.
   // ---------------------------------------------------------------------------
+  const PAGES = {
+    ticket: { name: "the ticket's page", Name: "The ticket's page", on: "on the ticket's page", tag: 'Ticket page', now: "Back on the ticket's page" },
+    edit: { name: 'the edit page', Name: 'The edit page', on: 'on the edit page', tag: 'Edit mode', now: 'Now in edit mode' },
+    time: { name: 'a time entry', Name: 'The time entry', on: 'in the time entry', tag: 'Time entry', now: 'Now in a time entry' },
+  };
+  const BLOCK_PAGES = { ticket: "On the ticket's page", edit: 'In edit mode', time: 'In a time entry', any: 'Anywhere' };
+  // The blocks that get from one page to another: ROUTES[from][to]
+  const ROUTES = {
+    ticket: { edit: ['edit'], time: ['newTime'] },
+    edit: { ticket: ['saveTicket'], time: ['saveAndTime'] },
+    time: { ticket: ['saveEntry'], edit: ['saveEntry', 'edit'] },
+  };
   const OPS = [['is', 'is'], ['not', "isn't"], ['empty', 'is empty'], ['set', 'is filled in']];
+  const codeField = () => ({ id: 'code', label: 'Speed code', type: 'text', ask: true, recent: () => get(K.macroCodes, []), required: 'Type the speed code.' });
+  const setFields = names => [
+    { id: 'field', label: 'Field', type: 'text', list: names, required: 'Name the field to set, as Autotask labels it.' },
+    { id: 'value', label: 'To', type: 'text', ask: true, required: 'Give the value to set it to.' },
+    { id: 'empty', label: "Only if it's empty", type: 'checkbox' },
+  ];
+  const noteFields = () => [
+    { id: 'text', label: 'Text', type: 'textarea', ask: true, required: 'Write what goes in it.' },
+    { id: 'mode', label: 'Goes', type: 'select', options: [['replace', 'In place of what is there'], ['add', 'After what is there']], value: 'replace' },
+  ];
   const BLOCKS = {
+    // On the ticket's page
     onlyIf: {
       name: 'Only if', page: 'ticket',
       about: "Carries on only if a field on the ticket's page matches. Otherwise the ticket is skipped.",
@@ -4866,31 +5008,105 @@ label.set-label{cursor:pointer}
         { id: 'value', label: 'Value', type: 'text', ask: true, hint: 'Separate several with commas.', when: b => b.op === 'is' || b.op === 'not',
           required: 'Give the value to check for.' },
       ],
+      run: s => onlyIfResult(s),
     },
+    edit: {
+      name: 'Enter edit mode', page: 'ticket', to: 'edit', fields: [],
+      about: "Presses Edit on the ticket's page.",
+      run: (s, ctx) => runEdit(ctx),
+    },
+    newTime: {
+      name: 'New time entry', page: 'ticket', to: 'time', fields: [],
+      about: "Opens a new time entry from the ticket's page.",
+      run: () => buttonFor(AT.text.newTimeButtons, 'New Time Entry'),
+    },
+    quickNote: {
+      name: 'Quick note', page: 'ticket', changes: true,
+      about: "Writes a note in the ticket page's Quick note box, and saves it.",
+      fields: [
+        { id: 'text', label: 'Note', type: 'textarea', ask: true, required: 'Write the note.' },
+        { id: 'noteType', label: 'Note type (optional)', type: 'text', hint: "As the Quick note's list names it. Empty: the one it starts on." },
+      ],
+      run: s => runQuickNote(s),
+    },
+    // In edit mode
     speedCode: {
-      name: 'Speed code', page: 'edit', changes: true,
+      name: 'Ticket speed code', page: 'edit', fields: [codeField()],
       about: "Types a speed code into the edit page's speed code box and picks it, so its template fills in the ticket. " +
         'It sets the fields its template sets, over what is in them.',
-      fields: [{ id: 'code', label: 'Speed code', type: 'text', ask: true, recent: () => get(K.macroCodes, []), required: 'Type the speed code.' }],
+      run: (s, ctx) => applyCode(s.code, 'Ticket speed code', ctx),
     },
     setField: {
-      name: 'Set a field', page: 'edit', changes: true,
+      name: 'Set a ticket field', page: 'edit', fields: setFields(AT.text.ticketFields),
       about: "Picks a value from a field's list on the edit page. A plain box, like Purchase Order Number, is typed into.",
-      fields: [
-        { id: 'field', label: 'Field', type: 'text', list: AT.text.ticketFields, required: 'Name the field to set, as Autotask labels it.' },
-        { id: 'value', label: 'To', type: 'text', ask: true, required: 'Give the value to set it to.' },
-        { id: 'empty', label: "Only if it's empty", type: 'checkbox' },
-      ],
+      run: (s, ctx) => runSetField(s, ctx),
     },
+    saveTicket: {
+      name: 'Save ticket', page: 'edit', to: 'ticket', changes: true, fields: [],
+      about: 'Leaves edit mode, saving: plain Save, never Save & Close (which goes on to close the ticket).',
+      run: (s, ctx) => buttonFor([AT.text.saveButton], 'Save', ctx, { did: 'Saved the ticket' }),
+    },
+    saveAndTime: {
+      name: 'Save ticket & enter time', page: 'edit', to: 'time', changes: true, fields: [],
+      about: "The edit page's Save & Enter Time (in its Save & ... menu): saves the ticket and opens a new time entry.",
+      run: (s, ctx) => buttonFor([AT.text.saveAndTime], AT.text.saveAndTime, ctx, { did: 'Saved the ticket' }),
+    },
+    cancelEdit: {
+      name: 'Cancel edit', page: 'edit', to: 'ticket', fields: [],
+      about: 'Leaves edit mode without saving.',
+      run: (s, ctx) => buttonFor([AT.text.cancelButton], 'Cancel', ctx),
+    },
+    // In a time entry
+    timeCode: {
+      name: 'Time entry speed code', page: 'time', fields: [codeField()],
+      about: "Types a speed code into the time entry's speed code box and picks it, so its template fills in the time entry.",
+      run: (s, ctx) => applyCode(s.code, 'Time entry speed code', ctx),
+    },
+    hours: {
+      name: 'Hours worked', page: 'time',
+      fields: [{ id: 'hours', label: 'Hours', type: 'text', value: '0.25', ask: true, required: 'Give the hours, such as 0.25.' }],
+      about: 'Fills in the time entry\'s Hours Worked.',
+      run: (s, ctx) => runSetField({ value: s.hours }, ctx, { label: 'Hours Worked', re: AT.text.hoursLabel, a: 'an Hours Worked', many: 'Hours Worked choices' }),
+    },
+    summary: {
+      name: 'Summary notes', page: 'time', fields: noteFields(),
+      about: "Writes in the time entry's Summary Notes.",
+      run: (s, ctx) => writeNotes(s, AT.text.summaryLabel, 'Summary Notes', ctx),
+    },
+    internal: {
+      name: 'Internal notes', page: 'time', fields: noteFields(),
+      about: "Writes in the time entry's Internal Notes.",
+      run: (s, ctx) => writeNotes(s, AT.text.internalLabel, 'Internal Notes', ctx),
+    },
+    timeField: {
+      name: 'Set a time entry field', page: 'time', fields: setFields(AT.text.timeFields),
+      about: "Picks a value for a time entry field (Role, Work Type, the ticket's Status…) from its list, or types it in a plain box.",
+      run: (s, ctx) => runSetField(s, ctx),
+    },
+    saveEntry: {
+      name: 'Save time entry', page: 'time', to: 'ticket', changes: true, fields: [],
+      about: "Saves the time entry (its Save & Close), back to the ticket's page.",
+      run: (s, ctx) => buttonFor(AT.text.timeSaveButtons, 'Save & Close', ctx, { did: 'Saved a time entry' }),
+    },
+    cancelEntry: {
+      name: 'Cancel time entry', page: 'time', to: 'ticket', fields: [],
+      about: 'Closes the time entry without saving it (its ✕).',
+      run: () => {
+        const x = timeEntryClose();
+        return x ? { go: x } : { fail: "Couldn't find the time entry's close button (✕)" };
+      },
+    },
+    // Anywhere
     wait: {
       name: 'Wait', page: 'any',
       about: 'Waits a few seconds, for Autotask to catch up (after a speed code, say).',
       fields: [{ id: 'seconds', label: 'Seconds', type: 'number', min: 1, max: 60, value: 3 }],
+      run: async s => { await sleep(s.seconds * 1000); return {}; },
     },
   };
-  const BLOCK_PAGES = { ticket: "On the ticket's page", edit: 'On the edit page', any: 'On either page' };
-  const MAX_MACROS = 40, MAX_BLOCKS = 30;
+  const MAX_MACROS = 40, MAX_BLOCKS = 40;
   const SPEED_CODE = { label: 'speed code', a: 'a speed code', many: 'speed codes' };
+  const MACRO_ID = /^[\w-]{1,40}$/;
 
   const newMacroId = () => 'm' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
   const newBlock = type => Object.fromEntries([['type', type],
@@ -4900,16 +5116,30 @@ label.set-label{cursor:pointer}
     if (f.type === 'checkbox') return v === true;
     if (f.type === 'number') { const n = Math.round(Number(v)); return Number.isFinite(n) ? Math.min(f.max, Math.max(f.min, n)) : f.value; }
     if (f.type === 'select') return f.options.some(([o]) => o === v) ? v : f.value;
+    if (f.type === 'textarea') return typeof v === 'string' ? v.replace(/\r\n?/g, '\n').trim().slice(0, 4000) : '';
     return typeof v === 'string' ? clean(v).slice(0, 200) : '';
   }
-  // A macro made safe to keep and run (from storage, an import or the builder): a name, and only the blocks it
-  // knows, each with just the values it takes. null: not a macro.
+  // A macro from 0.18 pressed Edit and Save by itself around its blocks for the edit page: they're put in
+  function fromV1(blocks) {
+    const own = blocks.map(b => ({ onlyIf: 'ticket', speedCode: 'edit', setField: 'edit' })[b?.type] || 'any');
+    const pages = own.map((p, i) => (p !== 'any' ? p : own.slice(0, i).reverse().find(x => x !== 'any') || own.slice(i + 1).find(x => x !== 'any') || 'ticket'));
+    const out = [];
+    blocks.forEach((b, i) => {
+      if (pages[i] === 'edit' && pages[i - 1] !== 'edit') out.push({ type: 'edit' });
+      out.push(b);
+      if (pages[i] === 'edit' && pages[i + 1] !== 'edit') out.push({ type: 'saveTicket' });
+    });
+    return out;
+  }
+  // A macro made safe to keep and run (from storage, an import or the builder): a name, which kind it is, and only
+  // the blocks it knows, each with just the values it takes. null: not a macro.
   function cleanMacroDef(d) {
     if (!d || typeof d !== 'object') return null;
     const name = typeof d.name === 'string' ? clean(d.name).slice(0, 60) : '';
     if (!name) return null;
+    const raw = Array.isArray(d.blocks) ? (d.v === 2 ? d.blocks : fromV1(d.blocks)) : [];
     const blocks = [];
-    for (const b of Array.isArray(d.blocks) ? d.blocks.slice(0, MAX_BLOCKS) : []) {
+    for (const b of raw.slice(0, MAX_BLOCKS)) {
       const t = b && BLOCKS[b.type];
       if (!t) continue;
       const out = { type: b.type };
@@ -4917,53 +5147,70 @@ label.set-label{cursor:pointer}
       if (b.ask === true && t.fields.some(f => f.ask)) out.ask = true;
       blocks.push(out);
     }
-    return { id: typeof d.id === 'string' && MACRO_ID.test(d.id) ? d.id : newMacroId(), name,
-      about: typeof d.about === 'string' ? clean(d.about).slice(0, 300) : '', blocks };
+    return { id: typeof d.id === 'string' && MACRO_ID.test(d.id) ? d.id : newMacroId(), v: 2, name,
+      about: typeof d.about === 'string' ? clean(d.about).slice(0, 300) : '', scope: d.scope === 'page' ? 'page' : 'queue', blocks };
   }
-  const MACRO_ID = /^[\w-]{1,40}$/;
   // As stored (each saved with its id: one without isn't ours, and would get a new id on every read)
   const macroDefs = () => {
     const v = get(K.macroDefs, []);
     return (Array.isArray(v) ? v : []).filter(d => typeof d?.id === 'string' && MACRO_ID.test(d.id)).map(cleanMacroDef).filter(Boolean);
   };
   const saveMacroDefs = list => set(K.macroDefs, list.map(cleanMacroDef).filter(Boolean).slice(0, MAX_MACROS));
+  const builtSteps = job => (job.v === 2 ? job.steps || [] : fromV1(job.steps || []));
 
+  // The page each step is done on, following the blocks from the ticket's page: { pages, end, problem }. problem,
+  // the first: a block on a page the macro isn't on by then, or the macro ending somewhere else than the ticket's
+  // page: { i (that step, or the number of steps for the end), text, fix: the blocks that get it there, to put in at i }
+  function macroFlow(blocks) {
+    const pages = [];
+    let at = 'ticket', problem = null;
+    blocks.forEach((b, i) => {
+      const t = BLOCKS[b.type], need = !t || t.page === 'any' ? at : t.page;
+      if (need !== at && !problem) {
+        problem = { i, fix: ROUTES[at][need], text: `Step ${i + 1}, ${t.name}, works ${PAGES[need].on}, but the macro is ${PAGES[at].on} by then.` };
+      }
+      pages.push(need);
+      at = t?.to || need;
+    });
+    if (at !== 'ticket' && !problem) {
+      problem = { i: blocks.length, fix: ROUTES[at].ticket, text: `It ends ${PAGES[at].on}, so that wouldn't be saved: finish with ${BLOCKS[ROUTES[at].ticket[0]].name}.` };
+    }
+    return { pages, end: at, problem };
+  }
   // Why a macro can't be saved yet ('' when it can)
   function macroProblem(def) {
     if (!clean(def.name)) return 'Give the macro a name.';
     if (!def.blocks.length) return 'Drag blocks into the list, or click one to add it.';
-    if (!def.blocks.some(b => BLOCKS[b.type].changes)) return 'Add a block that changes the ticket: Speed code or Set a field.';
+    const { problem } = macroFlow(def.blocks);
+    if (problem) return problem.text;
     for (const [i, b] of def.blocks.entries()) {
       for (const f of BLOCKS[b.type].fields) {
         if (f.required && !(f.ask && b.ask) && (!f.when || f.when(b)) && !clean(b[f.id])) return `Step ${i + 1}, ${BLOCKS[b.type].name}: ${f.required}`;
       }
     }
+    if (!def.blocks.some(b => BLOCKS[b.type].changes)) return 'Add a block that changes the ticket, such as Save ticket, Save time entry or Quick note.';
     return '';
   }
 
-  // The page each step is done on: its block's own, or for one that works on either (Wait), the page of the step
-  // before it (else the one after; the ticket's page when it's alone)
-  function stepPages(steps) {
-    const own = steps.map(s => BLOCKS[s.type]?.page || 'ticket');
-    return own.map((p, i) => {
-      if (p !== 'any') return p;
-      for (let j = i - 1; j >= 0; j--) if (own[j] !== 'any') return own[j];
-      for (let j = i + 1; j < own.length; j++) if (own[j] !== 'any') return own[j];
-      return 'ticket';
-    });
-  }
-
   const opWord = op => OPS.find(([o]) => o === op)?.[1] || 'is';
-  // A step in a few words: "Speed code PWR", "Set Status to In Progress, if it's empty", "Only if Status is New"
+  const short = t => { const s = clean(t); return s.length > 40 ? `"${s.slice(0, 38)}…"` : `"${s}"`; };
+  // A step in a few words: "Ticket speed code PWR", "Set Status to In Progress, if it's empty", "Only if Status is New"
   function blockSummary(b) {
+    const t = BLOCKS[b.type];
+    if (!t) return b.type;
     const v = x => (b.ask ? '(asked each time)' : x);
-    if (b.type === 'speedCode') return `Speed code ${v(b.code)}`;
-    if (b.type === 'setField') return `Set ${b.field} to ${v(b.value)}${b.empty ? ", if it's empty" : ''}`;
-    if (b.type === 'onlyIf') return `Only if ${b.field} ${opWord(b.op)}${b.op === 'is' || b.op === 'not' ? ` ${v(b.value)}` : ''}`;
-    if (b.type === 'wait') return `Wait ${b.seconds} s`;
-    return b.type;
+    switch (b.type) {
+      case 'onlyIf': return `Only if ${b.field} ${opWord(b.op)}${b.op === 'is' || b.op === 'not' ? ` ${v(b.value)}` : ''}`;
+      case 'speedCode': case 'timeCode': return `${t.name} ${v(b.code)}`;
+      case 'setField': case 'timeField': return `Set ${b.field} to ${v(b.value)}${b.empty ? ", if it's empty" : ''}`;
+      case 'hours': return `Hours worked ${v(b.hours)}`;
+      case 'quickNote': return `Quick note ${v(short(b.text))}`;
+      case 'summary': case 'internal': return `${t.name} ${v(short(b.text))}${b.mode === 'add' ? ', after what is there' : ''}`;
+      case 'wait': return `Wait ${b.seconds} s`;
+      default: return t.name;
+    }
   }
-  // What a macro you built did to a ticket: "Speed code PWR · Status: In Progress · kept its Work Type"
+  // What a macro you built did to a ticket: "Ticket speed code PWR · Status: In Progress · kept its Work Type"
   const didText = it => [...(it.did || []), it.kept?.length ? `kept its ${it.kept.join(' and ')}` : ''].filter(Boolean).join(' · ');
 
   // What a macro you built asks for each time it runs, as its window's fields (see macroField): one per block set
@@ -4971,13 +5218,13 @@ label.set-label{cursor:pointer}
   function askedParams(def) {
     const out = [];
     def.blocks.forEach((b, i) => {
-      const f = BLOCKS[b.type].fields.find(x => x.ask);
+      const t = BLOCKS[b.type], f = t.fields.find(x => x.ask);
       if (!b.ask || !f) return;
-      const label = b.type === 'setField' ? `${b.field}${b.empty ? ', if empty' : ''}`
-        : b.type === 'onlyIf' ? `Only if ${b.field} ${opWord(b.op)}` : f.label;
-      out.push({ id: 'b' + i, label, type: 'text', value: b[f.id], recent: f.recent, hint: f.hint });
+      const label = b.type === 'setField' || b.type === 'timeField' ? `${b.field}${b.empty ? ', if empty' : ''}`
+        : b.type === 'onlyIf' ? `Only if ${b.field} ${opWord(b.op)}` : t.name;
+      out.push({ id: 'b' + i, label, type: f.type === 'textarea' ? 'textarea' : 'text', value: b[f.id], recent: f.recent, hint: f.hint });
     });
-    // Two the same ("Speed code" twice): say which step each is
+    // Two the same ("Ticket speed code" twice): say which step each is
     const n = {};
     for (const p of out) n[p.label] = (n[p.label] || 0) + 1;
     for (const p of out) {
@@ -4986,10 +5233,12 @@ label.set-label{cursor:pointer}
     }
     return out;
   }
-  // A macro you built, as the Macros grid shows and runs it (see MACROS)
+  // A macro you built, as the Macros grid shows and runs it (see MACROS). only: the one way it runs (see macroWays).
+  // broken: what needs fixing in the builder before it can run (an imported one, say).
   const customMacro = def => ({
     id: 'c:' + def.id, name: def.name, custom: def, params: askedParams(def),
     about: def.about || def.blocks.map(blockSummary).join(', then '),
+    only: def.scope === 'page' ? 'ticket' : 'ticked', broken: macroProblem(def),
     start: (values, way) => startCustom(def, values, way),
   });
   const allMacros = () => [...MACROS, ...macroDefs().map(customMacro)];
@@ -5000,127 +5249,234 @@ label.set-label{cursor:pointer}
     const steps = def.blocks.map((b, i) => {
       const { ask, ...s } = b;
       const f = BLOCKS[b.type].fields.find(x => x.ask);
-      if (ask && f && values['b' + i] != null) s[f.id] = clean(values['b' + i]);
+      if (ask && f && values['b' + i] != null) s[f.id] = blockValue(f, values['b' + i]);
       return s;
     });
-    const codes = steps.filter(s => s.type === 'speedCode' && s.code).map(s => s.code);
+    const codes = steps.filter(s => (s.type === 'speedCode' || s.type === 'timeCode') && s.code).map(s => s.code);
     if (codes.length) set(K.macroCodes, [...codes, ...get(K.macroCodes, [])].filter((c, i, a) => a.findIndex(x => same(x, c)) === i).slice(0, 10));
-    beginJob({ kind: 'custom', macro: def.id, name: def.name, steps }, way.tickets, way.here);
+    beginJob({ kind: 'custom', v: 2, macro: def.id, name: def.name, scope: def.scope, steps }, way.tickets, way.here);
   }
 
-  // A macro you built, on the page in front of it. The ticket's page: its blocks there, then Edit for the ones
-  // after (after Save, first a check that the fields it set show). The edit page: its blocks there, then Save.
-  async function customWork(job, item) {
-    const steps = job.steps || [], pages = stepPages(steps), jid = job.id;
-    if (item.state === 'edit') {
-      if (macroEditPage()) await customEdit(job, item, pages);
-      return;
-    }
-    if (openTicketId() !== item.id || !findButton(AT.text.editButton)) return;
-    let from = item.state;
+  // Which of PAGES this is, for this ticket (null: any other, or one still loading). A time entry laid over the
+  // ticket's page, in the same page, is the time entry.
+  function pageKind(item) {
+    if (macroEditPage()) return 'edit';
+    if (timeEntryPage(item)) return 'time';
+    if (openTicketId() === item.id && findButton(AT.text.editButton)) return 'ticket';
+    return null;
+  }
+  // The time entry dialog's ✕, in its title bar (it has no Cancel button)
+  function timeEntryClose() {
+    const title = [...document.querySelectorAll(AT.sel.formTitle)]
+      .find(t => notOurs(t) && visible(t) && AT.text.timeTitle.test(clean((t.querySelector(AT.sel.ticketTitleKind) || t).textContent)));
+    const x = title?.parentElement?.querySelector(AT.sel.dialogClose);
+    return x ? x.closest(AT.sel.dialogTitleButton) || x : null;
+  }
+  // A time entry for this ticket: Autotask's dialog titled "New Ticket Time Entry" (or a page titled so), or one with
+  // Summary Notes or Hours Worked to fill in; and Save & Close. Not the ticket's edit page (which has an Account
+  // field), nor one for another ticket (it shows the ticket's number).
+  function timeEntryPage(item) {
+    if (accountField() || !AT.text.timeSaveButtons.some(findButton)) return false;
+    const shown = [...document.querySelectorAll(AT.sel.formTicket)].filter(notOurs).map(e => clean(e.textContent).match(TICKET_RE)?.[0]).filter(Boolean);
+    if (item && shown.length && !shown.includes(item.id)) return false;
+    const titles = [...document.querySelectorAll(AT.sel.formTitle)].map(b => b.querySelector(AT.sel.ticketTitleKind) || b)
+      .concat([...document.querySelectorAll(AT.sel.ticketTitle)].map(b => b.querySelector(AT.sel.ticketTitleKind) || b));
+    const titled = titles.some(t => notOurs(t) && visible(t) && AT.text.timeTitle.test(clean(t.textContent)));
+    return titled || !!findTextBox(AT.text.summaryLabel) || !!findField(AT.text.hoursLabel);
+  }
+
+  // A macro you built, on the page in front of it: the blocks for this page, from where the ticket is up to. A block
+  // that leads to another page is pressed once where it's up to is kept (step, navAt), so the page it leads to
+  // carries on from the next block. A page from before then (the other page was a window of its own) waits, and the
+  // ticket's page loads again once that has had time to finish. A page loaded again part-way through a block isn't
+  // trusted to finish it.
+  // run(step, ctx), ctx { job, item, i, steps, pages, page }, returns { fail } (the ticket fails), { skip } (it's
+  // skipped), { did, kept, pick } (what it did), { go: a button that leads on, done() (it finished in this page),
+  // had (fields read off the ticket's page) }
+  async function runBuilt(job, item) {
+    const steps = builtSteps(job), { pages } = macroFlow(steps), jid = job.id;
+    let from = item.state, i = item.step || 0;
     const patch = p => { patchMacroItem(item.id, p, from, jid); if (p.state) from = p.state; };
-    // A page from before Save (Autotask edited the ticket in a window of its own): the driving page loads it again
-    if (from === 'verify' && PAGE_T0 < item.at) {
-      if (Date.now() - item.at > 2 * MACRO.verify) patch({ state: 'check', note: unseenNote(job) });
+    const still = () => macroItemState(item.id, jid) === from;
+    const page = pageKind(item);
+    if (!page || page !== (i < steps.length ? pages[i] : 'ticket')) return; // not this page's turn, or its page isn't up yet
+    if (item.navAt && PAGE_T0 < item.navAt) {
+      if (page === 'ticket' && Date.now() - item.navAt > MACRO.stale && !reloading) { reloading = true; location.reload(); }
       return;
     }
+    if (item.doing != null) return patch({ state: 'failed', note: `${PAGES[page].Name} loaded again part-way through step ${item.doing + 1}, so it wasn't finished` });
     await sleep(MACRO.settle); // let its fields show before reading them
-    if (macroItemState(item.id, jid) !== from) return; // stopped, or given up on, meanwhile
-    if (from === 'verify') {
-      const off = setProblem(job, item);
-      if (off) return patch({ state: 'check', note: off });
-      patch({ state: 'open', at: Date.now() }); // on with the rest
+    if (!still()) return; // stopped, or given up on, meanwhile
+    if (from === 'open') patch({ state: 'run', at: Date.now() });
+    // Back on the ticket's page after Save ticket: the fields it set should show
+    if (page === 'ticket' && item.verify) {
+      const off = setProblem(steps, item.verify);
+      if (off) return patch({ state: 'check', note: off, verify: null });
     }
-    const kept = [...(item.kept || [])];
-    let i = item.step || 0;
-    for (;;) {
-      for (; i < steps.length && pages[i] === 'ticket'; i++) {
-        const s = steps[i];
-        if (s.type === 'onlyIf') {
-          const r = onlyIfResult(s);
-          if (r.fail) return patch({ state: 'failed', note: r.fail });
-          if (r.skip) return patch({ state: 'skipped', note: r.skip });
-        } else if (s.type === 'wait') {
-          await sleep(s.seconds * 1000);
-          if (macroItemState(item.id, jid) !== from) return;
-          patch({ at: Date.now() }); // still going, not stuck
-        }
-      }
-      if (i >= steps.length) {
-        const did = item.did || [];
-        return patch(did.length || !kept.length ? { state: 'done', note: '', kept }
-          : { state: 'skipped', note: `Nothing to change: it has ${kept.join(' and ')}`, kept });
-      }
-      // The blocks for the edit page next. A field only filled in where it's empty is read off the ticket's page
-      // first: one it has is left alone, whatever the edit page shows ('' empty; null: this page doesn't show it)
-      let end = i;
-      while (end < steps.length && pages[end] === 'edit') end++;
-      const had = {};
-      for (let j = i; j < end; j++) if (steps[j].type === 'setField' && steps[j].empty) had[j] = ticketField(fieldSpec(steps[j].field).re);
-      if (steps.slice(i, end).some((s, k) => BLOCKS[s.type].changes && !had[i + k])) {
-        patch({ state: 'edit', at: Date.now(), step: i, had, kept });
-        pressEdit(findButton(AT.text.editButton), () => {
-          notePopups('blocked');
-          patchMacroItem(item.id, { state: 'failed', note: 'Your browser blocked the Edit window. Allow pop-ups for autotask.net and run it again.' }, 'edit', jid);
-        });
-        return;
-      }
-      // Nothing to do there (every field it would fill in has something already): on past them, without editing
-      for (let j = i; j < end; j++) if (had[j]) kept.push(fieldSpec(steps[j].field).label);
-      i = end;
-    }
-  }
-
-  // On the edit page: its blocks, from where the ticket is up to, then Save. A field only filled in where it's empty
-  // is left alone if the ticket's page showed something there, or the edit page does now (a speed code may have
-  // filled it in).
-  async function customEdit(job, item, pages) {
-    const steps = job.steps, jid = job.id;
-    const fail = note => patchMacroItem(item.id, { state: 'failed', note }, 'edit', jid);
-    // The edit page loaded again while a block was under way (Autotask reloading it, after a speed code say): what
-    // the blocks before it did may be gone, and doing them again could go round for ever, so it isn't saved
-    if (item.doing != null) return fail(`The edit page loaded again part-way through step ${item.doing + 1}, so the ticket wasn't saved`);
+    const did = [...(item.did || [])], kept = [...(item.kept || [])], picks = { ...(item.picks || {}) };
+    let had = item.had || {};
     const before = new Set(dialogs()); // message boxes already on the page aren't questions for us
-    await sleep(MACRO.settle);
-    const did = [...(item.did || [])], kept = [...(item.kept || [])], picks = {};
-    let i = item.step || 0;
-    for (; i < steps.length && pages[i] === 'edit'; i++) {
-      if (macroItemState(item.id, jid) !== 'edit') return; // stopped, or given up on, meanwhile
-      patchMacroItem(item.id, { doing: i, at: Date.now() }, 'edit', jid); // (and still going, not stuck)
-      const s = steps[i];
-      if (s.type === 'wait') {
-        await sleep(s.seconds * 1000);
-      } else if (s.type === 'speedCode') {
-        const box = speedCodeBox();
-        if (!box) return fail("Couldn't find the speed code box on the edit page");
-        const got = await chooseOption(box, s.code, SPEED_CODE);
-        if (got.note) return fail(got.note);
-        did.push(`Speed code ${s.code}`);
-      } else if (s.type === 'setField') {
-        const f = fieldSpec(s.field);
-        if (s.empty && item.had?.[i]) { kept.push(f.label); continue; }
-        const fld = await findFieldOpening(f.re);
-        if (!fld) return fail(`Couldn't find the ${f.label} field on the edit page`);
-        if (s.empty && fieldShows(fld)) { kept.push(f.label); continue; }
-        if (fld.input.disabled) return fail(`${f.label} is greyed out on the edit page, so it couldn't be set`);
-        const got = fld.input.matches(AT.sel.plainBox) ? await typeValue(fld, s.value, f) : await chooseOption(fld, s.value, f);
-        if (got.note) return fail(got.note);
-        did.push(`${f.label}: ${got.text}`);
-        picks[i] = got.text;
+    for (; i < steps.length && pages[i] === page; i++) {
+      if (!still()) return;
+      const s = steps[i], t = BLOCKS[s.type];
+      patch({ step: i, doing: i, at: Date.now(), verify: null });
+      const r = (await t.run(s, { job, item: { ...item, had }, i, steps, pages, page })) || {};
+      if (!still()) return;
+      if (r.fail) return patch({ state: 'failed', note: r.fail, doing: null });
+      if (r.skip) return patch({ state: 'skipped', note: r.skip, doing: null, did, kept });
+      if (r.did) did.push(r.did);
+      if (r.kept) kept.push(r.kept);
+      if (r.pick != null) picks[i] = r.pick;
+      if (r.had) had = { ...had, ...r.had };
+      if (r.go) {
+        // Where it's up to, kept before pressing: the page it leads to carries on from the next block. Save ticket
+        // leaves the fields it set to be checked on the ticket's page.
+        const leaves = !!t.to && t.to !== page;
+        patch({ step: i + 1, doing: null, navAt: Date.now(), did, kept, had, picks: leaves ? {} : picks, verify: s.type === 'saveTicket' ? picks : null });
+        const res = await leadAway(r.go, before, r.done, leaves ? () => pageKind(item) === t.to : null);
+        if (res.problem) return patch({ state: 'failed', note: t.changes ? `Not saved: ${res.problem}` : `${t.name} didn't go through: ${res.problem}` });
+        if (res.how === 'opened' || res.how === 'pending') return; // a window of its own (or the page loading) carries on; this page waits
+        patch({ navAt: null }); // it happened in this page, which isn't from before it
+        if (leaves) return; // the page it leads to carries on (this one, redrawn, or the one loading)
+        continue;
       }
+      patch({ step: i + 1, doing: null, did, kept, picks, had });
       await sleep(MACRO.settle);
       const q = answerDialog(before);
-      if (q) return fail(q);
+      if (q) return patch({ state: 'failed', note: q });
     }
-    await saveEdit(job, item, { step: i, doing: null, did, kept, picks }, before);
+    if (i >= steps.length) patch({ state: 'done', note: '', did, kept, doing: null, verify: null });
   }
 
-  // The edit page's speed code box, as findField gives a field: its search box, and the box to pick in
+  // Press a button that leads to another page, or (done) finishes in this one. { how: 'opened' } once Autotask has
+  // opened a window for it; { how: 'here' } once the button has gone, or done() says so, or the page it leads to is
+  // showing in this one (arrived(): a time entry is a dialog over the ticket's page, its button still there). The
+  // page still there a while later: { problem } if Autotask said or marked what's wrong (or one finishing in this
+  // page hasn't), else { how: 'pending' }, the next page maybe just slow to load, or in a frame of its own (one that
+  // never comes is given up on as stuck). When the page goes, so does this.
+  async function leadAway(btn, before, done, arrived) {
+    let opened = null; // the window Autotask opened for it, or false: the browser blocked it
+    pressWatching(btn, win => { opened = win || false; });
+    const ok = await waitSteps(() => opened != null || (done ? done() : !btn.isConnected || !visible(btn)) || !!arrived?.(), MACRO.saved);
+    if (opened === false) {
+      notePopups('blocked');
+      return { problem: 'your browser blocked the window Autotask opened for it. Allow pop-ups for autotask.net and run it again.' };
+    }
+    if (ok) return { how: opened ? 'opened' : 'here' };
+    const q = answerDialog(before) || formProblem();
+    if (q) return { problem: q };
+    return done ? { problem: `pressed ${clean(btn.textContent)}, but it didn't finish` } : { how: 'pending' };
+  }
+  // A button by its names (the first there is), in one of the page's drop-down menus if need be (the menu opened to
+  // show it), as a block that leads on
+  async function buttonFor(names, label, ctx, extra = {}) {
+    for (const n of names) {
+      const b = await menuButton(n);
+      if (b) return { go: b, ...extra };
+    }
+    return { fail: `Couldn't find ${label} ${PAGES[ctx?.page || 'ticket'].on}` };
+  }
+  // A button that may be in a drop-down menu (the edit page's Save & ..., Tools): showing already, or its menu opened
+  // to show it. null if there's none.
+  async function menuButton(text) {
+    const shown = findButton(text);
+    if (shown) return shown;
+    const hidden = [...document.querySelectorAll(AT.sel.buttonText)].find(e => clean(e.textContent) === text && notOurs(e) && e.closest(AT.sel.menu));
+    const drop = hidden?.closest(AT.sel.dropButton), menu = hidden?.closest(AT.sel.menu);
+    if (!drop) return null;
+    const opener = [...drop.querySelectorAll(AT.sel.menuOpener)].find(e => !menu.contains(e) && visible(e)) || drop;
+    press(opener, true);
+    return await waitSteps(() => findButton(text), 2000);
+  }
+  // Enter edit mode: Edit, and first, for the steps on the edit page that only fill in an empty field, what the
+  // ticket's page shows there (one it has is left alone, whatever the edit page shows; '' empty, null: not shown)
+  function runEdit(ctx) {
+    const btn = findButton(AT.text.editButton);
+    if (!btn) return { fail: "Couldn't find Edit on the ticket's page" };
+    const had = {};
+    for (let j = ctx.i + 1; j < ctx.steps.length && ctx.pages[j] === 'edit'; j++) {
+      const b = ctx.steps[j];
+      if (b.type === 'setField' && b.empty) had[j] = ticketField(fieldSpec(b.field).re);
+    }
+    return { go: btn, had };
+  }
+  async function applyCode(code, name, ctx) {
+    const box = speedCodeBox();
+    if (!box) return { fail: `Couldn't find the speed code box ${PAGES[ctx.page].on}` };
+    const got = await chooseOption(box, code, SPEED_CODE);
+    return got.note ? { fail: got.note } : { did: `${name} ${code}` };
+  }
+  // f: the field (by default the one the step names). Only where it's empty: left alone if the ticket's page
+  // showed something there before editing, or this page shows something now (a speed code may have filled it in).
+  async function runSetField(s, ctx, f = fieldSpec(s.field)) {
+    const on = PAGES[ctx.page].on;
+    if (s.empty && ctx.item.had?.[ctx.i]) return { kept: f.label };
+    const fld = await findFieldOpening(f.re);
+    if (!fld) return { fail: `Couldn't find the ${f.label} field ${on}` };
+    if (s.empty && fieldShows(fld)) return { kept: f.label };
+    if (fld.input.disabled) return { fail: `${f.label} is greyed out ${on}, so it couldn't be set` };
+    const got = fld.input.matches(AT.sel.plainBox) ? await typeValue(fld, s.value, f) : await chooseOption(fld, s.value, f);
+    if (got.note) return { fail: got.note };
+    return { did: `${f.label}: ${got.text}`, pick: ctx.page === 'edit' ? got.text : null };
+  }
+  // A notes box (a time entry's Summary Notes): written in place of what's there, or after it
+  async function writeNotes(s, re, label, ctx) {
+    const box = findTextBox(re);
+    if (!box) return { fail: `Couldn't find the ${label} box ${PAGES[ctx.page].on}` };
+    const area = box.matches('textarea'), now = () => (area ? box.value : box.innerText ?? box.textContent);
+    const text = s.mode === 'add' && clean(now()) ? `${now()}\n${s.text}` : s.text;
+    press(box, true);
+    box.focus();
+    if (area) typeInto(box, text);
+    else { box.textContent = text; box.dispatchEvent(new Event('input', { bubbles: true })); }
+    try { box.dispatchEvent(new Event('change', { bubbles: true })); } catch { /* ignore */ }
+    if (await waitSteps(() => clean(now()).includes(clean(s.text)), MACRO.confirm)) return { did: label };
+    return { fail: `Wrote in ${label}, but the box didn't keep it` };
+  }
+  // The ticket page's Quick note: the note typed in, its note type picked, and its Save (which stays greyed out until
+  // something is typed). Saved, the box empties (or the page loads again).
+  async function runQuickNote(s) {
+    const box = [...document.querySelectorAll(AT.sel.quickNote)].find(b => notOurs(b) && visible(b));
+    const area = box && [...box.querySelectorAll('textarea')].find(visible);
+    if (!area) return { fail: "Couldn't find the Quick note box on the ticket's page" };
+    if (clean(s.noteType)) {
+      const sel = box.querySelector('select');
+      const opt = sel && [...sel.options].find(o => same(o.textContent, s.noteType));
+      if (!opt) return { fail: `The Quick note has no note type called "${clean(s.noteType)}"` };
+      sel.value = opt.value;
+      sel.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+    press(area, true);
+    area.focus();
+    typeInto(area, s.text);
+    const saveButton = () => {
+      const t = [...box.querySelectorAll(AT.sel.buttonText)].find(e => clean(e.textContent) === AT.text.saveButton);
+      const b = t ? t.closest(AT.sel.button) || t : null;
+      return b && !b.matches(AT.sel.disabledButton) ? b : null;
+    };
+    const save = await waitSteps(saveButton, MACRO.confirm);
+    if (!save) return { fail: "The Quick note's Save didn't come on after typing" };
+    return { go: save, done: () => !area.isConnected || !clean(area.value), did: 'Quick note' };
+  }
+
+  // The speed code box (the edit page's, a time entry's), as findField gives a field: its search box, and the box to pick in
   function speedCodeBox() {
     for (const box of document.querySelectorAll(AT.sel.formTemplate)) {
       if (!notOurs(box) || !visible(box)) continue;
       const input = [...box.querySelectorAll(AT.sel.textInput)].find(x => visible(x) && !x.disabled);
       if (input) return { input, editor: box, area: box, label: null, template: true };
+    }
+    return null;
+  }
+  // A notes box by the label before it (Summary Notes): a <textarea>, or a box you type in, in the label's part of the page
+  function findTextBox(re) {
+    const after = (a, b) => !!(a.compareDocumentPosition(b) & 4);
+    for (const label of document.querySelectorAll(AT.sel.fieldLabel)) {
+      if (label.childElementCount > 1 || !re.test(clean(label.textContent)) || !notOurs(label) || !visible(label)) continue;
+      for (let n = label.parentElement, k = 0; n && k < 4; n = n.parentElement, k++) {
+        const box = [...n.querySelectorAll(AT.sel.textBox)].find(x => notOurs(x) && visible(x) && after(label, x));
+        if (box) return box;
+      }
     }
     return null;
   }
@@ -5130,7 +5486,7 @@ label.set-label{cursor:pointer}
     const re = new RegExp('^' + label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/[\s-]+/g, '[\\s-]*') + '\\s*\\*?:?$', 'i');
     return { label, re, a: `${/^[aeiou]/i.test(label) ? 'an' : 'a'} ${label}`, many: `${label} choices` };
   }
-  // A plain box (Purchase Order Number, Estimated Hours): typed in. Autotask may tidy a number up ("2" to "2.00").
+  // A plain box (Purchase Order Number, Hours Worked): typed in. Autotask may tidy a number up ("2" to "2.00").
   async function typeValue(fld, text, f) {
     const input = fld.input;
     press(input, true);
@@ -5149,10 +5505,10 @@ label.set-label{cursor:pointer}
     const ok = s.op === 'empty' ? !shown : s.op === 'set' ? !!shown : s.op === 'not' ? !listed : listed;
     return ok ? { ok } : { skip: shown ? `${f.label} is ${shown}` : `${f.label} is empty` };
   }
-  // A field it set that the ticket's page shows otherwise after Save (one the page doesn't show can't be checked)
-  function setProblem(job, item) {
-    for (const [i, text] of Object.entries(item.picks || {})) {
-      const s = job.steps[i], f = s ? fieldSpec(s.field) : null, shown = f ? ticketField(f.re) : null;
+  // A ticket field it set that the ticket's page shows otherwise after Save (one the page doesn't show can't be checked)
+  function setProblem(steps, picks) {
+    for (const [i, text] of Object.entries(picks || {})) {
+      const s = steps[i], f = s ? fieldSpec(s.field) : null, shown = f ? ticketField(f.re) : null;
       if (shown == null || alike(shown, text) || alike(shown, s.value) || (!!shown && Number(shown) === Number(text))) continue;
       return `Saved, but ${f.label} shows ${shown ? `"${shown}"` : 'nothing'} instead of ${text}`;
     }
@@ -5185,24 +5541,27 @@ label.set-label{cursor:pointer}
   const macroRunning = () => { const job = macroJob(); return !!job && !job.finished; };
 
   // The tickets a macro can run on from this page: the one it shows (done right there), or the ones ticked
-  // in the queue or other list of tickets it shows (one at a time, in a tab of their own; a dashboard
-  // widget's drill-down is a list too). A ticket pop-up only has its ticket.
-  function macroWays(ctx) {
+  // in the queue or other list of tickets it shows (each in a tab of its own, so many at once; a dashboard
+  // widget's drill-down is a list too). A ticket pop-up only has its ticket. A macro you built runs one
+  // way only (macro.only: an on page macro on this ticket, a queue selection macro on the ticked ones).
+  function macroWays(ctx, macro) {
     const ways = [{
       key: 'ticket', title: 'This ticket', here: true, tickets: ctx.ticket ? [{ id: ctx.ticket }] : [],
       sub: ctx.ticket ? `${ctx.ticket}, in this page` : 'Open a ticket to run it on just that one.',
       how: "It happens in this page: leave it until it says it's done.",
     }];
-    if (ctx.popup) return ways;
-    const inList = (!!ctx.cur || !!ctx.grid) && !ctx.isCalls, ticked = inList ? ctx.ticked || [] : [];
-    const where = ctx.cur ? ctx.cur.nav : 'this list';
-    ways.push({
-      key: 'ticked', title: 'Ticked in this queue', here: false, tickets: ticked,
-      sub: !inList ? 'Open a queue and tick the tickets to run it on them together.'
-        : ticked.length ? `${ticked.length} ticked in ${where}` : `Tick tickets in ${where} to run it on them together.`,
-      how: 'Each ticket opens in a separate tab, one at a time. Keep this tab open until it finishes.',
-    });
-    return ways;
+    if (!ctx.popup) {
+      const inList = (!!ctx.cur || !!ctx.grid) && !ctx.isCalls, ticked = inList ? ctx.ticked || [] : [];
+      const where = ctx.cur ? ctx.cur.nav : 'this list', n = Math.max(1, Math.round(CONFIG.macroTabs) || 1);
+      ways.push({
+        key: 'ticked', title: 'Ticked in this queue', here: false, tickets: ticked,
+        sub: !inList ? 'Open a queue and tick the tickets to run it on them together.'
+          : ticked.length ? `${ticked.length} ticked in ${where}` : `Tick tickets in ${where} to run it on them together.`,
+        how: n > 1 ? `Each ticket opens in a tab of its own, up to ${n} at once, and its tab closes when it's done. Keep this tab open until it finishes.`
+          : "Each ticket opens in a tab of its own, one at a time, and its tab closes when it's done. Keep this tab open until it finishes.",
+      });
+    }
+    return macro?.only ? ways.filter(w => w.key === macro.only) : ways;
   }
 
   // One thing a macro's window asks for: { root, p, value(), refresh() }
@@ -5217,9 +5576,10 @@ label.set-label{cursor:pointer}
       root.append(picker.root);
       field = { value: picker.value, refresh: picker.refresh };
     } else {
-      const input = el('input', 'mc-text');
+      const input = el(p.type === 'textarea' ? 'textarea' : 'input', 'mc-text');
       input.id = label.htmlFor;
-      input.autocomplete = 'off';
+      if (p.type === 'textarea') input.rows = 3;
+      else input.autocomplete = 'off';
       if (p.value) input.value = p.value;
       root.append(input);
       const recent = p.recent ? p.recent() : [];
@@ -5231,7 +5591,7 @@ label.set-label{cursor:pointer}
         root.append(list);
       }
       input.addEventListener('input', onChange);
-      field = { value: () => clean(input.value), refresh() {} };
+      field = { value: () => (p.type === 'textarea' ? input.value.trim() : clean(input.value)), refresh() {} };
     }
     if (p.hint) root.append(el('div', 'atqm-sub', p.hint));
     return { root, p, ...field };
@@ -5243,7 +5603,7 @@ label.set-label{cursor:pointer}
   // leave the Macros tab.
   let mcWin = null; // { root, macro, panel, sq, back, refresh(ctx) }
   function openMacroWindow(macro, { ctx, anchor, after, panel = false, sq = null }) {
-    if (mcWin?.macro === macro) { (mcWin.root.querySelector('select, input:not([type=radio])') || mcWin.root).focus(); return; }
+    if (mcWin?.macro === macro) { (mcWin.root.querySelector('select, textarea, input:not([type=radio])') || mcWin.root).focus(); return; }
     closeMacroWindow();
     ensureCss();
     const back = sq || document.activeElement; // where focus goes back to when it's closed
@@ -5265,6 +5625,8 @@ label.set-label{cursor:pointer}
       edit.title = 'Change this macro in the Macro builder';
       edit.onclick = () => { const id = macro.custom.id; closeMacroWindow(); openBuilder(id, { back: sq }); };
       head.insertBefore(edit, x);
+      root.append(el('div', 'mcw-kind', macro.only === 'ticket' ? 'On page macro: runs on the ticket in this page'
+        : 'Queue selection macro: runs on the tickets ticked in a queue'));
       if (macro.custom.about) root.append(el('div', 'atqm-sub', macro.custom.about));
       const steps = el('ol', 'mcw-steps');
       for (const b of macro.custom.blocks) steps.append(el('li', null, blockSummary(b)));
@@ -5278,7 +5640,7 @@ label.set-label{cursor:pointer}
     // Which tickets: a choice when this page offers more than one way
     let cur = ctx, way = '';
     const rows = {}, waysBox = el('div', 'mcw-ways');
-    const ways0 = macroWays(ctx);
+    const ways0 = macroWays(ctx, macro);
     if (ways0.length > 1) {
       waysBox.append(el('div', 'mcw-lbl', 'Run on'));
       for (const w of ways0) {
@@ -5305,7 +5667,7 @@ label.set-label{cursor:pointer}
       if (started) return null;
       cur = c;
       for (const f of fields) f.refresh();
-      const ways = macroWays(c);
+      const ways = macroWays(c, macro);
       if (!ways.find(w => w.key === way)?.tickets.length) way = ways.find(w => w.tickets.length)?.key || '';
       for (const w of ways) {
         const r = rows[w.key];
@@ -5318,10 +5680,12 @@ label.set-label{cursor:pointer}
       if (ways.length === 1) waysBox.replaceChildren(el('b', null, `${ways[0].title}: `), ways[0].sub);
       const chosen = ways.find(w => w.key === way), busy = macroRunning();
       const need = fields.find(f => f.p.required && !f.value());
-      run.disabled = busy || !chosen || !!need;
-      how.className = 'mcw-how ' + (busy ? 'atqm-warn' : 'atqm-sub');
-      how.textContent = busy ? 'Another macro is running. Wait for it to finish.'
-        : !chosen ? 'Open a ticket, or tick tickets in a queue, to run it.'
+      run.disabled = busy || !chosen || !!need || !!macro.broken;
+      how.className = 'mcw-how ' + (busy || macro.broken ? 'atqm-warn' : 'atqm-sub');
+      how.textContent = macro.broken ? `Fix it in the Macro builder (Edit): ${macro.broken}`
+        : busy ? 'Another macro is running. Wait for it to finish.'
+        : !chosen ? (macro.only === 'ticked' ? 'Tick tickets in a queue to run it on them.'
+          : macro.only === 'ticket' ? 'Open a ticket to run it on.' : 'Open a ticket, or tick tickets in a queue, to run it.')
         : need ? need.p.required : chosen.how;
       return chosen;
     }
@@ -5331,7 +5695,7 @@ label.set-label{cursor:pointer}
     // on the page underneath.
     run.onclick = () => {
       if (started) return;
-      const shown = JSON.stringify(macroWays(cur).find(w => w.key === way)?.tickets || []);
+      const shown = JSON.stringify(macroWays(cur, macro).find(w => w.key === way)?.tickets || []);
       const chosen = refresh(panel ? pageInfo(true) : cur);
       if (run.disabled || !chosen || JSON.stringify(chosen.tickets) !== shown) return;
       const values = Object.fromEntries(fields.map(f => [f.p.id, f.value()]));
@@ -5351,7 +5715,7 @@ label.set-label{cursor:pointer}
     mcWin = { root, macro, panel, sq, back, refresh, started: () => started };
     refresh();
     placeMacroWindow(root, anchor);
-    (root.querySelector('select, input:not([type=radio])') || run).focus();
+    (root.querySelector('select, textarea, input:not([type=radio])') || run).focus();
   }
   function closeMacroWindow(restore = false) {
     if (!mcWin) return;
@@ -5377,18 +5741,19 @@ label.set-label{cursor:pointer}
   // Run one that asks for nothing on what this page offers first. False: it can't run now (another macro
   // is running, or there's no ticket here), so its window opens instead to say why.
   function quickRunMacro(macro, ctx, after) {
-    const way = macroWays(ctx).find(w => w.tickets.length);
-    if (macroRunning() || !way) return false;
+    const way = macroWays(ctx, macro).find(w => w.tickets.length);
+    if (macroRunning() || !way || macro.broken) return false;
     closeMacroWindow();
     macro.start({}, way);
     after();
     return true;
   }
 
-  // The squares, the macros you've built after the built-in ones, and New macro last (the Macro builder).
-  // getCtx: what the page shows now (pageInfo, or the pop-up's ticket); getAnchor: the box to open windows
-  // beside; after: once a macro has started. { root, sync() }: sync puts the squares right when you've built,
-  // changed or deleted a macro (in any tab), keeping focus on the square that had it.
+  // The squares, the macros you've built after the built-in ones, and New macro last (the Macro builder). A
+  // ticket pop-up has only its ticket, so no queue selection macros. getCtx: what the page shows now (pageInfo,
+  // or the pop-up's ticket); getAnchor: the box to open windows beside; after: once a macro has started.
+  // { root, sync() }: sync puts the squares right when you've built, changed or deleted a macro (in any tab),
+  // keeping focus on the square that had it.
   const macroSig = () => JSON.stringify(macroDefs());
   function macroGrid(getCtx, getAnchor, after, panel = false) {
     const grid = el('div', 'mc-grid');
@@ -5396,13 +5761,16 @@ label.set-label{cursor:pointer}
     function fill() {
       sig = macroSig();
       const focused = grid.contains(document.activeElement) ? document.activeElement.dataset.macro : null;
+      const popup = !!getCtx().popup;
       grid.replaceChildren();
       for (const m of allMacros()) {
+        if (popup && m.only === 'ticked') continue;
         const sq = el('button', 'mc-sq' + (m.custom ? ' mc-own' : ''));
         sq.type = 'button';
         sq.dataset.macro = m.id;
         sq.title = m.about;
         sq.append(el('b', null, m.name));
+        if (m.custom) sq.append(el('span', 'mc-kind', m.only === 'ticket' ? 'On page' : 'Queue'));
         if (!m.params.length) sq.append(el('span', 'atqm-sub', 'Double-click to run'));
         let wait = null;
         const open = () => openMacroWindow(m, { ctx: getCtx(), anchor: getAnchor(), after, panel, sq });
@@ -5456,7 +5824,7 @@ label.set-label{cursor:pointer}
   function retryMacro(job) {
     const rest = job.items.filter(i => ['failed', 'check', 'waiting'].includes(i.state));
     const here = job.here && rest.length === 1 && pageInfo(true).ticket === rest[0].id;
-    if (job.kind === 'custom') beginJob({ kind: 'custom', macro: job.macro, name: job.name, steps: job.steps }, rest, here);
+    if (job.kind === 'custom') beginJob({ kind: 'custom', v: job.v, macro: job.macro, name: job.name, scope: job.scope, steps: job.steps }, rest, here);
     else startMacro(rest, job.account, { here, fill: job.fill });
   }
   // What it did with the types on a ticket: "Filled in Sub-Issue Type; kept its Work Type"
@@ -5471,15 +5839,21 @@ label.set-label{cursor:pointer}
     if (custom) head.append(job.finished ? 'Ran ' : 'Running ', el('b', null, job.name));
     else head.append(job.finished ? 'Changed account to ' : 'Changing account to ', el('b', null, job.account));
     box.append(head);
-    if (custom) box.append(el('div', 'atqm-sub', (job.steps || []).map(blockSummary).join(', then ')));
+    const steps = custom ? builtSteps(job) : null;
+    if (custom) box.append(el('div', 'atqm-sub', steps.map(blockSummary).join(', then ')));
     const fills = Object.entries(job.fill || {}).filter(([k]) => FILL_FIELDS[k]).map(([k, v]) => `${FILL_FIELDS[k].label} ${v}`);
     if (fills.length) box.append(el('div', 'atqm-sub', `Where the ticket has none: ${fills.join(', ')}`));
     const parts = [`${over} of ${total} finished`];
+    if (!job.here && !job.finished && job.tabs > 1 && total > 1) parts.push(`up to ${job.tabs} at once`);
     for (const s of ['done', 'skipped', 'check', 'failed']) if (count(s)) parts.push(`${count(s)} ${macroWord(job, s).toLowerCase()}`);
     box.append(el('div', 'atqm-sub', parts.join(' · ')));
     // The driving page writes a heartbeat; a background tab's timers can run a minute late.
     // A job "here" moves through the ticket's own pages, so it has no driving page to watch.
     const alive = job.here || Date.now() - job.ts < 150000;
+    if (job.limited && !job.finished) {
+      box.append(el('div', 'atqm-warn', `Your browser blocked some of its tabs, so it's doing fewer at once. ` +
+        `Allow pop-ups for autotask.net to do ${job.tabs} at once.`));
+    }
     if (job.note) box.append(el('div', 'atqm-warn', job.note));
     else if (!job.finished && job.by !== ID) {
       box.append(el('div', alive ? 'atqm-sub' : 'atqm-warn', job.here ? "Running in the ticket's page."
@@ -5490,7 +5864,9 @@ label.set-label{cursor:pointer}
     for (const it of job.items) {
       const li = el('li', 'mc-' + it.state);
       li.append(el('span', 'atqm-when', it.state === 'waiting' && job.finished ? 'Not started' : macroWord(job, it.state)), ticketLink(it.id, { tid: it.tid }));
-      const sub = it.note || (custom ? didText(it) : filledText(it));
+      // Under way: which step it's on
+      const at = custom && it.state === 'run' && steps[it.step || 0];
+      const sub = it.note || (at ? `Step ${(it.step || 0) + 1} of ${steps.length}: ${BLOCKS[at.type]?.name}` : custom ? didText(it) : filledText(it));
       if (sub) li.append(el('div', 'atqm-sub', sub));
       list.append(li);
     }
@@ -5521,7 +5897,7 @@ label.set-label{cursor:pointer}
   // macros are behind a small Macros button in the corner instead, for that ticket
   let tkPill = null, tkSquares = null; // tkSquares: its squares (see macroGrid)
   function renderTicketPill() {
-    const id = isTop && document.body && !document.getElementById('atqm') && macroTabName() !== MACRO_WIN ? openTicketId() : null;
+    const id = isTop && document.body && !document.getElementById('atqm') && !isMacroTab() ? openTicketId() : null;
     const job = macroJob();
     const mine = job?.here && job.items.length === 1 && job.items[0].id === id ? job : null;
     // Turned off (setting "Macros button on ticket pop-ups"): none, though a macro run here still says how it went.
@@ -5615,7 +5991,7 @@ label.set-label{cursor:pointer}
     closeMacroWindow();
     ensureCss();
     const saved = id ? macroDefs().find(d => d.id === id) || null : null;
-    const draft = saved ? JSON.parse(JSON.stringify(saved)) : { id: newMacroId(), name: '', about: '', blocks: [] };
+    const draft = saved ? JSON.parse(JSON.stringify(saved)) : { id: newMacroId(), v: 2, name: '', about: '', scope: 'queue', blocks: [] };
     const start = JSON.stringify(draft);
     const dirty = () => JSON.stringify(draft) !== start;
     const fromGrid = !!back?.closest?.('.mc-grid'); // opened from a Macros grid: back to the macro's own square after
@@ -5664,6 +6040,31 @@ label.set-label{cursor:pointer}
     };
     const nameBox = textBox('Name', 'name', 60, 'What its square says, e.g. Password reset');
     textBox('What it does (optional)', 'about', 300, 'Shown in its window');
+    // Which kind: on the tickets ticked in a queue (each in a tab of its own), or the ticket in the page
+    const kind = el('div', 'mb-kind');
+    const kinds = el('div', 'set-seg');
+    kinds.setAttribute('role', 'group');
+    kinds.setAttribute('aria-label', 'Runs on');
+    const kindHint = el('div', 'mb-sub');
+    const KINDS = {
+      queue: ['Queue selection', () => `Runs on the tickets ticked in a queue: it opens each in a tab of its own, up to ${CONFIG.macroTabs} at once ` +
+        '(Settings > Macros), and closes the tab when that ticket is done.'],
+      page: ['On page', () => 'Runs on the ticket in the page you run it from, right there.'],
+    };
+    const drawKind = () => {
+      for (const b of kinds.children) b.setAttribute('aria-pressed', String(b.dataset.scope === draft.scope));
+      kindHint.textContent = KINDS[draft.scope][1]();
+    };
+    for (const [scope, [label]] of Object.entries(KINDS)) {
+      const b = el('button', null, label);
+      b.type = 'button';
+      b.dataset.scope = scope;
+      b.onclick = () => { draft.scope = scope; drawKind(); drawSteps(); };
+      kinds.append(b);
+    }
+    kind.append(el('span', 'mb-klbl', 'Runs on'), kinds, kindHint);
+    meta.append(kind);
+    drawKind();
 
     // The blocks, on the left, by the page they work on
     let drag = null; // { type }: a block from the left; { from }: a step being moved
@@ -5683,6 +6084,7 @@ label.set-label{cursor:pointer}
         b.draggable = true;
         b.dataset.type = type;
         b.append(el('b', null, t.name), el('span', null, t.about));
+        if (t.to) b.append(el('i', 'mb-to pg-' + t.to, `Then ${PAGES[t.to].on}`));
         b.onclick = () => addStep(type, draft.blocks.length);
         b.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); b.click(); } });
         b.addEventListener('dragstart', e => { drag = { type }; carry(e, 'copy'); });
@@ -5765,7 +6167,8 @@ label.set-label{cursor:pointer}
       if (draft.blocks.length >= MAX_BLOCKS) return flash(`A macro can have up to ${MAX_BLOCKS} steps.`);
       draft.blocks.splice(at, 0, newBlock(type));
       drawSteps();
-      list.querySelector(`.mb-step[data-i="${at}"] .mb-step-b`)?.querySelector('input, select')?.focus();
+      const card = list.querySelector(`.mb-step[data-i="${at}"]`);
+      (card?.querySelector('.mb-step-b input, .mb-step-b select, .mb-step-b textarea') || card?.querySelector('[data-act="out"]'))?.focus();
     }
     // Moved to go before what's at `to` now; returns where it is
     function moveStep(from, to) {
@@ -5787,18 +6190,38 @@ label.set-label{cursor:pointer}
       (t && !t.disabled ? t : tool(act === 'up' ? 'down' : 'up'))?.focus();
     }
 
+    // The steps, with lines where the macro starts, where a step takes it to another page, and where it ends. The first
+    // step on the wrong page (or the end, somewhere else than the ticket's page) says so, with a button that puts in
+    // the blocks that get it there.
     function drawSteps() {
       list.replaceChildren();
-      const pages = stepPages(draft.blocks);
-      const line = text => list.append(el('li', 'mb-auto', text));
-      if (!draft.blocks.length) list.append(el('li', 'mb-empty', 'Drag blocks here, or click one on the left to add it.'));
-      else line('Opens the ticket');
+      const flow = macroFlow(draft.blocks), p = flow.problem, n = draft.blocks.length;
+      const line = (text, page) => list.append(el('li', 'mb-auto' + (page ? ' pg-' + page : ''), text));
+      const fixIt = () => {
+        const bad = el('div', 'mb-bad');
+        bad.setAttribute('role', 'alert');
+        const go = el('button', null, `Put in ${p.fix.map(t => BLOCKS[t].name).join(' then ')}${p.i < n ? ' before it' : ' at the end'}`);
+        go.type = 'button';
+        go.onclick = () => {
+          draft.blocks.splice(p.i, 0, ...p.fix.map(newBlock));
+          drawSteps();
+          list.querySelector(`.mb-step[data-i="${p.i}"] [data-act="out"]`)?.focus();
+        };
+        bad.append(el('span', null, p.text), go);
+        return bad;
+      };
+      if (!n) list.append(el('li', 'mb-empty', 'Drag blocks here, or click one on the left to add it.'));
+      else line(draft.scope === 'page' ? 'On the ticket in the page you run it from' : 'Opens the ticket in a tab of its own', 'ticket');
       draft.blocks.forEach((b, i) => {
-        if (pages[i] === 'edit' && pages[i - 1] !== 'edit') line('Presses Edit');
-        list.append(stepCard(b, i, pages[i]));
-        if (pages[i] === 'edit' && pages[i + 1] !== 'edit') line('Presses Save');
+        const card = stepCard(b, i, flow.pages[i]);
+        if (p && p.i === i) { card.classList.add('bad'); card.append(fixIt()); }
+        list.append(card);
+        const to = BLOCKS[b.type].to;
+        if (to && to !== flow.pages[i]) line(PAGES[to].now, to);
       });
-      sub.textContent = `${saved ? `Changing ${saved.name}` : 'A new macro'} · ${draft.blocks.length} step${draft.blocks.length === 1 ? '' : 's'}`;
+      if (n && p && p.i === n) { const end = el('li', 'mb-end bad'); end.append(fixIt()); list.append(end); }
+      else if (n) line(draft.scope === 'page' ? 'Done' : "Done: closes the ticket's tab", 'ticket');
+      sub.textContent = `${saved ? `Changing ${saved.name}` : 'A new macro'} · ${n} step${n === 1 ? '' : 's'}`;
       update();
     }
     function stepCard(b, i, page) {
@@ -5833,7 +6256,7 @@ label.set-label{cursor:pointer}
         tool('↓', 'down', 'Move down', () => focusTool(moveStep(i, i + 2), 'down'), i === draft.blocks.length - 1),
         tool('×', 'out', 'Take out', () => removeStep(i), false));
       const h = el('div', 'mb-step-h');
-      h.append(grip, el('span', 'mb-num', String(i + 1)), el('b', null, t.name), el('span', 'mb-tag', page === 'edit' ? 'Edit page' : "Ticket's page"), tools);
+      h.append(grip, el('span', 'mb-num', String(i + 1)), el('b', null, t.name), el('span', 'mb-tag', PAGES[page].tag), tools);
       li.append(h, stepFields(b, i));
       return li;
     }
@@ -5855,7 +6278,7 @@ label.set-label{cursor:pointer}
           box.append(lab);
           continue;
         }
-        const lab = el('label', 'mb-f' + (f.type === 'number' ? ' mb-n' : ''));
+        const lab = el('label', 'mb-f' + (f.type === 'number' ? ' mb-n' : f.type === 'textarea' ? ' mb-w' : ''));
         lab.htmlFor = id;
         let input;
         if (f.type === 'select') {
@@ -5863,6 +6286,11 @@ label.set-label{cursor:pointer}
           for (const [v, text] of f.options) { const o = el('option', null, text); o.value = v; input.append(o); }
           input.value = b[f.id];
           input.onchange = () => { b[f.id] = input.value; redraw(id); };
+        } else if (f.type === 'textarea') {
+          input = el('textarea');
+          input.rows = 3;
+          input.value = b[f.id] ?? '';
+          input.addEventListener('input', () => { b[f.id] = input.value; update(); });
         } else {
           input = el('input');
           input.type = f.type === 'number' ? 'number' : 'text';
@@ -5944,7 +6372,7 @@ label.set-label{cursor:pointer}
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') { e.preventDefault(); if (!save.disabled) doSave(); return; }
       if (e.key !== 'Tab') return;
       // Keep Tab inside the window
-      const all = [...panel.querySelectorAll('button, input, select, [href], [role=button]')].filter(n => !n.disabled && n.tabIndex >= 0 && n.getClientRects().length);
+      const all = [...panel.querySelectorAll('button, input, select, textarea, [href], [role=button]')].filter(n => !n.disabled && n.tabIndex >= 0 && n.getClientRects().length);
       if (!all.length) return;
       const first = all[0], last = all[all.length - 1];
       if (e.shiftKey && (document.activeElement === first || document.activeElement === panel)) { e.preventDefault(); last.focus(); }
@@ -7005,8 +7433,8 @@ label.set-label{cursor:pointer}
     if (!popupsBlocked() || p.dismissed) return null;
     const r = el('div', 'atqm-qsbox atqm-popwarn');
     r.append(el('b', null, 'Your browser is blocking pop-ups from Autotask'));
-    r.append(el('div', 'atqm-sub', 'So Quick start and Start tracking only get one new tab per click. To fix it, click the pop-up ' +
-      'icon at the right of the address bar and choose to always allow pop-ups from autotask.net.'));
+    r.append(el('div', 'atqm-sub', 'So Quick start, Start tracking and macros on ticked tickets only get one new tab per click. To fix it, ' +
+      'click the pop-up icon at the right of the address bar and choose to always allow pop-ups from autotask.net.'));
     const btns = el('div', 'atqm-qsbtns');
     const ok = el('button', null, 'Got it');
     ok.onclick = () => { set(K.popups, { ...p, dismissed: true }); render(); };
@@ -7218,8 +7646,8 @@ label.set-label{cursor:pointer}
       readableColor, statusColor, statusWord, alertText, targetDue, dashboardStats, deadlineBuckets,
       needsAction, resting, ticketDeadline, priorityWord,
       pageInfo, MACRO, MACROS, macroJob, startMacro, stopMacro, macroStep, macroWork, patchMacroItem, accountField, fieldInput, ticketField, tickedTickets, renderTicketPill,
-      BLOCKS, macroDefs, saveMacroDefs, cleanMacroDef, macroProblem, stepPages, askedParams, customMacro, allMacros, startCustom, retryMacro,
-      openBuilder, speedCodeBox, fieldSpec, exportSettings,
+      BLOCKS, PAGES, macroDefs, saveMacroDefs, cleanMacroDef, macroProblem, macroFlow, fromV1, askedParams, customMacro, allMacros, startCustom, retryMacro,
+      openBuilder, speedCodeBox, fieldSpec, exportSettings, pageKind, timeEntryPage, macroTabs,
     });
     return;
   }
@@ -7231,11 +7659,12 @@ label.set-label{cursor:pointer}
   try { topHasNoBody = !isTop && W.top.document.body?.tagName === 'FRAMESET'; } catch { /* ignore */ }
   // The macro tab got a copy of its opener's sessionStorage: drop any monitoring role in it (it's not a
   // queue tab), and note the job, which windows Autotask opens from here (Edit) inherit in turn
-  if (macroTabName() === MACRO_WIN) {
+  if (isMacroTab()) {
     try {
       for (const k of [SS_KEY, P + 'launched', ROTATE_SS, CONSENT_KEY]) sessionStorage.removeItem(k);
       const job = macroJob();
       if (job && !job.finished) sessionStorage.setItem(MACRO_SS, job.id);
+      if (macroTabTicket()) sessionStorage.setItem(MACRO_ITEM_SS, macroTabTicket());
     } catch { /* ignore */ }
   }
   setInterval(macroWork, 1000); // does nothing unless this page is doing a macro's steps (see macroPage)

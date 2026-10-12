@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.21.0 (2026-10-12)
+
+### Added
+
+- **Queue macros from the dashboard.** Next up and the queue tables have a tick box on each ticket, and one in the header to tick the whole table. Tick some and a bar along the bottom offers your queue selection macros (Change account and the ones you've built), with **Clear**. A macro's window and **Run** work as in the Macros tab, each ticket in a tab of its own. Its progress shows in a **Macro** card at the top of the dashboard, since the Queue monitor window is put away while the dashboard is open.
+
 ## 0.20.0 (2026-10-12)
 
 ### Added

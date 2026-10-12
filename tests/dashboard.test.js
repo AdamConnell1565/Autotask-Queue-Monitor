@@ -191,7 +191,7 @@ test('boot: the dashboard button opens the full-window dashboard; Esc closes it'
 
     // Next up as a table, grouped, with a queue column as more than one queue is tracked
     const nt = dash.querySelector('.dash-nt');
-    assert.deepEqual([...nt.querySelectorAll('th')].map(th => th.textContent), ['When', 'Ticket', 'Status', 'Priority', 'Queue', 'Title', 'Deadline']);
+    assert.deepEqual([...nt.querySelectorAll('th')].map(th => th.textContent), ['', 'When', 'Ticket', 'Status', 'Priority', 'Queue', 'Title', 'Deadline']);
     assert.deepEqual([...nt.querySelectorAll('tr.dash-grp')].map(tr => tr.textContent.replace(/ · \d+$/, '')),
       ['In progress', 'Overdue', 'Due soon', 'Waiting for you']);
 
@@ -201,6 +201,71 @@ test('boot: the dashboard button opens the full-window dashboard; Esc closes it'
 
     doc.body.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
     assert.equal(doc.getElementById('atqm-dash'), null);
+  } finally {
+    close();
+  }
+});
+
+test('boot: tickets ticked on the dashboard can have a queue macro run on them, and how it goes shows there', async () => {
+  const macros = [
+    { id: 'm1', v: 2, name: 'Bulk close', scope: 'queue', blocks: [{ type: 'edit' }, { type: 'saveTicket' }] },
+    { id: 'm2', v: 2, name: 'Note here', scope: 'page', blocks: [{ type: 'quickNote', text: 'Hi' }] },
+  ];
+  const { window, close } = load({ boot: true, now: NOW, settings: { dashboard: true }, storage: { ...DASH_STORAGE, 'atqm:macros': macros } });
+  try {
+    const doc = window.document, opened = [];
+    window.open = (url, name) => { opened.push(name); return {}; };
+    await sleep(200);
+    doc.getElementById('atqm-dashbtn').click();
+    const dash = () => doc.getElementById('atqm-dash');
+    const bar = () => dash().querySelector('.dash-macbar');
+    const box = fk => [...dash().querySelectorAll('input[type=checkbox]')].find(b => b.dataset.fk === fk);
+    const mine = [...dash().querySelectorAll('.dash-mq input[type=checkbox]')];
+    assert.equal(mine.length, 5, "a tick box for every ticket in My queue's table, and one to tick them all");
+    assert.equal(bar(), null, 'nothing ticked: no macros bar');
+
+    // Ticked in My queue's table: ticked in Next up too, and the bar has the queue selection macros (not the on page one)
+    const first = mine.find(b => /T20261001\.0001/.test(b.getAttribute('aria-label')));
+    first.focus();
+    first.click();
+    assert.ok(box('tick:Next up:T20261001.0001').checked);
+    assert.equal(doc.activeElement.dataset.fk, first.dataset.fk, 'drawn again, focus kept');
+    assert.match(bar().textContent, /^1 ticket ticked/);
+    assert.deepEqual([...bar().querySelectorAll('.mc-sq')].map(s => s.dataset.macro), ['account', 'c:m1', 'new']);
+    // Next up's tick box ticks every ticket it shows
+    box('tickall:Next up').click();
+    const ticked = [...dash().querySelectorAll('.dash-nt td.tick input')].filter(b => b.checked).length;
+    assert.equal(ticked, [...dash().querySelectorAll('.dash-nt td.tick input')].length);
+    assert.match(bar().textContent, /^5 tickets ticked/);
+    box('tickall:Next up').click();
+    assert.equal(bar(), null, 'all unticked again');
+
+    // Two ticked, and Bulk close run on them from its window
+    box('tick:Next up:T20261002.0001').click();
+    box('tick:Next up:T20261001.0002').click();
+    bar().querySelector('[data-macro="c:m1"]').click();
+    const win = doc.getElementById('atqm-mcwin');
+    assert.match(win.textContent, /Ticked on the dashboard: T20261002\.0001, T20261001\.0002/);
+    button(win, /^Run$/).click();
+    const job = JSON.parse(window.localStorage.getItem('atqm:macro'));
+    assert.deepEqual([job.name, job.items.map(i => i.id)], ['Bulk close', ['T20261002.0001', 'T20261001.0002']]);
+    assert.deepEqual(opened, ['atqm_macro:T20261002.0001', 'atqm_macro:T20261001.0002'], 'each in a tab of its own');
+    // Unticked, and how it's going at the top of the dashboard
+    assert.equal(bar(), null);
+    const run = dash().querySelector('.dash-stack > .dash-card');
+    assert.match(run.textContent, /^Macro.*Running Bulk close/);
+    assert.ok(button(run, /^Stop$/));
+    // Ticked again while it runs: the bar says to wait
+    box('tick:Next up:T20261002.0001').click();
+    assert.match(bar().textContent, /A macro is running/);
+    assert.equal(bar().querySelector('.mc-sq'), null);
+    // Closed, the ticks go (once the macro's window has gone: it stays a moment after Run)
+    await sleep(450);
+    assert.equal(doc.getElementById('atqm-mcwin'), null);
+    esc(window);
+    assert.equal(dash(), null);
+    doc.getElementById('atqm-dashbtn').click();
+    assert.equal(bar(), null);
   } finally {
     close();
   }
@@ -479,7 +544,7 @@ test('boot: the dashboard leaves out what has nothing to show', async () => {
     const dash = doc.getElementById('atqm-dash');
     assert.ok(!dash.textContent.includes('Deadlines in the next 8 hours'), 'no deadlines, no chart card');
     const heads = [...dash.querySelectorAll('.dash-mq th')].map(th => th.textContent);
-    assert.deepEqual(heads, ['Ticket', 'Status', 'Priority', 'Title', 'Age'], 'no deadline column when no ticket has one');
+    assert.deepEqual(heads, ['', 'Ticket', 'Status', 'Priority', 'Title', 'Age'], 'no deadline column when no ticket has one (the first: its tick box)');
     assert.equal(dash.querySelectorAll('.dash-mq tr').length, 5); // header, 2 groups, 2 tickets
   } finally {
     close();

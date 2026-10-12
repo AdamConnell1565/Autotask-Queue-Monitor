@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Autotask Queue Monitor
 // @namespace    autotask
-// @version      0.20.0
+// @version      0.21.0
 // @description  Track any My Workspace & Queues queue (My queue by default) in its own tab, with a live overview on every Autotask page
 // @author       AdamConnell1565
 // @homepageURL  https://github.com/AdamConnell1565/Autotask-Queue-Monitor
@@ -2080,6 +2080,17 @@
 .dash-tt td{padding:6px 8px;white-space:nowrap}
 .dash-tt th:first-child,.dash-tt td:first-child{padding-left:16px}.dash-tt th:last-child,.dash-tt td:last-child{padding-right:16px}
 .dash-tt td.fill{width:100%;max-width:0;overflow:hidden;text-overflow:ellipsis}
+.dash-tt th.tick,.dash-tt td.tick{width:1%;padding-right:2px}
+#atqm-dash .dash-tt input[type=checkbox]{display:block;width:15px;height:15px;margin:0;accent-color:#4ea1ff;cursor:pointer}
+#atqm-dash .dash-tt input[type=checkbox]:disabled{cursor:default;opacity:.4}
+#atqm-dash .dash-tt input[type=checkbox]:focus-visible{outline:2px solid #4ea1ff;outline-offset:1px}
+.dash-macbar{flex:none;display:flex;flex-wrap:wrap;align-items:center;gap:10px 18px;padding:10px 32px;background:#1a1b1f;
+  border-top:1px solid #2c2f35;box-shadow:0 -8px 24px rgba(0,0,0,.35)}
+.dash-macn{display:flex;align-items:center;gap:10px;white-space:nowrap}
+.dash-macbar .mc-grid{flex:1 1 300px;display:flex;flex-wrap:wrap;gap:8px}
+.dash-macbar .mc-sq{aspect-ratio:auto;flex-direction:row;gap:8px;padding:6px 12px}
+.dash-macbar .mc-sq .mc-kind{display:none}
+@media (max-width:820px){.dash-macbar{padding:10px 16px}}
 .dash-tt .tt{color:#e6e6e6}.dash-tt .acct,.dash-tt .was,.dash-tt td.dl{color:#9aa4b2}
 .dash-tt td.when{font-weight:600}
 .dash-tt tr.dash-grp td{background:#1a1b1f;color:#9aa4b2;font-weight:600;font-size:12px;padding-top:7px;padding-bottom:7px;border-bottom-color:#272a2f}
@@ -5623,7 +5634,20 @@ label.set-label{cursor:pointer}
   // in the queue or other list of tickets it shows (each in a tab of its own, so many at once; a dashboard
   // widget's drill-down is a list too). A ticket pop-up only has its ticket. A macro you built runs one
   // way only (macro.only: an on page macro on this ticket, a queue selection macro on the ticked ones).
+  // The dashboard (ctx.dash) has only the tickets ticked on it.
   function macroWays(ctx, macro) {
+    const n = Math.max(1, Math.round(CONFIG.macroTabs) || 1);
+    const tabsHow = n > 1 ? `Each ticket opens in a tab of its own, up to ${n} at once, and its tab closes when it's done. Keep this tab open until it finishes.`
+      : "Each ticket opens in a tab of its own, one at a time, and its tab closes when it's done. Keep this tab open until it finishes.";
+    if (ctx.dash) {
+      const ids = ctx.ticked.map(t => t.id);
+      const ways = [{
+        key: 'ticked', title: 'Ticked on the dashboard', here: false, tickets: ctx.ticked, how: tabsHow,
+        sub: !ids.length ? 'Tick tickets on the dashboard to run it on them.'
+          : ids.length <= 3 ? ids.join(', ') : `${ids.slice(0, 2).join(', ')} and ${ids.length - 2} more`,
+      }];
+      return macro?.only === 'ticket' ? [] : ways;
+    }
     const ways = [{
       key: 'ticket', title: 'This ticket', here: true, tickets: ctx.ticket ? [{ id: ctx.ticket }] : [],
       sub: ctx.ticket ? `${ctx.ticket}, in this page` : 'Open a ticket to run it on just that one.',
@@ -5631,13 +5655,11 @@ label.set-label{cursor:pointer}
     }];
     if (!ctx.popup) {
       const inList = (!!ctx.cur || !!ctx.grid) && !ctx.isCalls, ticked = inList ? ctx.ticked || [] : [];
-      const where = ctx.cur ? ctx.cur.nav : 'this list', n = Math.max(1, Math.round(CONFIG.macroTabs) || 1);
+      const where = ctx.cur ? ctx.cur.nav : 'this list';
       ways.push({
-        key: 'ticked', title: 'Ticked in this queue', here: false, tickets: ticked,
+        key: 'ticked', title: 'Ticked in this queue', here: false, tickets: ticked, how: tabsHow,
         sub: !inList ? 'Open a queue and tick the tickets to run it on them together.'
           : ticked.length ? `${ticked.length} ticked in ${where}` : `Tick tickets in ${where} to run it on them together.`,
-        how: n > 1 ? `Each ticket opens in a tab of its own, up to ${n} at once, and its tab closes when it's done. Keep this tab open until it finishes.`
-          : "Each ticket opens in a tab of its own, one at a time, and its tab closes when it's done. Keep this tab open until it finishes.",
       });
     }
     return macro?.only ? ways.filter(w => w.key === macro.only) : ways;
@@ -5677,10 +5699,10 @@ label.set-label{cursor:pointer}
   }
 
   // A macro's window: what it asks for, which tickets, and Run. One at a time, beside where it was opened
-  // from (the Queue monitor window, or a ticket pop-up's Macros box). panel: opened from the Queue monitor
-  // window, which keeps it up to date with the page (tickets ticked meanwhile) and closes it when you
-  // leave the Macros tab.
-  let mcWin = null; // { root, macro, panel, sq, back, refresh(ctx) }
+  // from (the Queue monitor window, a ticket pop-up's Macros box, or the dashboard's macros bar). panel: opened
+  // from the Queue monitor window, which keeps it up to date with the page (tickets ticked meanwhile) and closes
+  // it when you leave the Macros tab. dash: opened from the dashboard, which does the same with its ticks.
+  let mcWin = null; // { root, macro, panel, dash, sq, back, refresh(ctx) }
   function openMacroWindow(macro, { ctx, anchor, after, panel = false, sq = null }) {
     if (mcWin?.macro === macro) { (mcWin.root.querySelector('select, textarea, input:not([type=radio])') || mcWin.root).focus(); return; }
     closeMacroWindow();
@@ -5763,7 +5785,7 @@ label.set-label{cursor:pointer}
       how.className = 'mcw-how ' + (busy || macro.broken ? 'atqm-warn' : 'atqm-sub');
       how.textContent = macro.broken ? `Fix it in the Macro builder (Edit): ${macro.broken}`
         : busy ? 'Another macro is running. Wait for it to finish.'
-        : !chosen ? (macro.only === 'ticked' ? 'Tick tickets in a queue to run it on them.'
+        : !chosen ? (c.dash ? 'Tick tickets on the dashboard to run it on them.' : macro.only === 'ticked' ? 'Tick tickets in a queue to run it on them.'
           : macro.only === 'ticket' ? 'Open a ticket to run it on.' : 'Open a ticket, or tick tickets in a queue, to run it.')
         : need ? need.p.required : chosen.how;
       return chosen;
@@ -5775,7 +5797,7 @@ label.set-label{cursor:pointer}
     run.onclick = () => {
       if (started) return;
       const shown = JSON.stringify(macroWays(cur, macro).find(w => w.key === way)?.tickets || []);
-      const chosen = refresh(panel ? pageInfo(true) : cur);
+      const chosen = refresh(panel ? pageInfo(true) : cur.dash ? dashCtx() : cur);
       if (run.disabled || !chosen || JSON.stringify(chosen.tickets) !== shown) return;
       const values = Object.fromEntries(fields.map(f => [f.p.id, f.value()]));
       started = true;
@@ -5791,7 +5813,7 @@ label.set-label{cursor:pointer}
 
     document.body.append(root);
     sq?.classList.add('on');
-    mcWin = { root, macro, panel, sq, back, refresh, started: () => started };
+    mcWin = { root, macro, panel, dash: !!ctx.dash, sq, back, refresh, started: () => started };
     refresh();
     placeMacroWindow(root, anchor);
     (root.querySelector('select, textarea, input:not([type=radio])') || run).focus();
@@ -5829,8 +5851,9 @@ label.set-label{cursor:pointer}
   }
 
   // The squares, the macros you've built after the built-in ones, and New macro last (the Macro builder). A
-  // ticket pop-up has only its ticket, so no queue selection macros. getCtx: what the page shows now (pageInfo,
-  // or the pop-up's ticket); getAnchor: the box to open windows beside; after: once a macro has started.
+  // ticket pop-up has only its ticket, so no queue selection macros; the dashboard has only its ticks, so no on
+  // page ones. getCtx: what the page shows now (pageInfo, the pop-up's ticket, or the dashboard's ticks);
+  // getAnchor: the box to open windows beside; after: once a macro has started.
   // { root, sync() }: sync puts the squares right when you've built, changed or deleted a macro (in any tab),
   // keeping focus on the square that had it.
   const macroSig = () => JSON.stringify(macroDefs());
@@ -5840,10 +5863,10 @@ label.set-label{cursor:pointer}
     function fill() {
       sig = macroSig();
       const focused = grid.contains(document.activeElement) ? document.activeElement.dataset.macro : null;
-      const popup = !!getCtx().popup;
+      const { popup, dash } = getCtx();
       grid.replaceChildren();
       for (const m of allMacros()) {
-        if (popup && m.only === 'ticked') continue;
+        if ((popup && m.only === 'ticked') || (dash && m.only === 'ticket')) continue;
         const sq = el('button', 'mc-sq' + (m.custom ? ' mc-own' : ''));
         sq.type = 'button';
         sq.dataset.macro = m.id;
@@ -6669,8 +6692,8 @@ label.set-label{cursor:pointer}
 
   // ---------------------------------------------------------------------------
   // Dashboard (setting "Dashboard button"): the whole window, for keeping SLAs and the tickets without
-  // one in view at the same time. Close or Esc returns to the page. Read-only: monitoring carries on
-  // in the monitoring tabs.
+  // one in view at the same time. Close or Esc returns to the page. Monitoring carries on in the monitoring
+  // tabs. Tickets ticked in its tables can have a queue selection macro run on them (the macros bar).
   // ---------------------------------------------------------------------------
   // Open in this tab: the page it was opened on. A reload of that page keeps it open (so it can stay up
   // on a wall screen); going to another page from Autotask's top bar leaves it closed.
@@ -6723,6 +6746,10 @@ label.set-label{cursor:pointer}
 
   let dashTable = false;      // deadlines shown as a table instead of the chart
   let dashAllChanges = false; // the longer change history
+  // Tickets ticked on the dashboard, for a queue selection macro to run on (id -> { id, tid }), until it closes
+  const dashTicked = new Map();
+  const dashCtx = () => ({ dash: true, ticked: [...dashTicked.values()] });
+  let dashMacros = null; // the macros bar's squares (see macroGrid), kept between redraws
   const dueOf = it => it.due || it.dl?.due || null;
   // Tickets in Next up that need you within the hour: overdue, or a deadline in the next 60 minutes
   const needYouWithinHour = items => items.filter(it => it.kind !== 'call' && dueOf(it) && dueOf(it) - Date.now() <= 3600000);
@@ -6923,6 +6950,30 @@ label.set-label{cursor:pointer}
     wrap.append(table);
     return wrap;
   }
+  // Tick boxes, for running a queue macro on the ticked tickets (the macros bar). fk: found again, and focused, once
+  // the dashboard is drawn again.
+  function tickBox(label, fk, checked, onchange) {
+    const box = el('input');
+    box.type = 'checkbox';
+    box.checked = checked;
+    box.dataset.fk = fk;
+    box.setAttribute('aria-label', label);
+    box.onchange = () => { onchange(box.checked); render(); };
+    return box;
+  }
+  const tickTicket = (t, on) => (on ? dashTicked.set(t.id, { id: t.id, tid: t.tid || null }) : dashTicked.delete(t.id));
+  // where: the table (a ticket can be in Next up and its queue's table both, ticked in both at once)
+  const tickCell = (t, where) => cell('tick', tickBox(`Tick ${t.id}`, `tick:${where}:${t.id}`, dashTicked.has(t.id), on => tickTicket(t, on)));
+  // A table's header, with a tick box that ticks (or unticks) every ticket in the table
+  function tickHead(names, tickets, where) {
+    const tr = tableHead(names), th = el('th', 'tick'), n = tickets.filter(t => dashTicked.has(t.id)).length;
+    const box = tickBox(`Tick every ticket in ${where}`, 'tickall:' + where, !!n && n === tickets.length, on => tickets.forEach(t => tickTicket(t, on)));
+    box.indeterminate = n > 0 && n < tickets.length;
+    box.disabled = !tickets.length;
+    th.append(box);
+    tr.prepend(th);
+    return tr;
+  }
 
   // Next up as a table, grouped as in the window
   function nextUpTable(items) {
@@ -6941,17 +6992,17 @@ label.set-label{cursor:pointer}
     }
     const showQueue = qs.length > 1;
     const names = ['When', 'Ticket', 'Status', 'Priority', ...(showQueue ? ['Queue'] : []), 'Title', 'Deadline'];
+    const groups = NEXT_GROUPS.map(([g, title]) => [title, items.filter(it => it.g === g)]).filter(([, group]) => group.length);
+    const shown = groups.flatMap(([, group]) => group.slice(0, 25)).filter(it => it.kind !== 'call').map(it => it.t);
     const table = el('table', 'dash-table dash-tt dash-nt');
-    table.append(tableHead(names));
-    for (const [g, title] of NEXT_GROUPS) {
-      const group = items.filter(it => it.g === g);
-      if (!group.length) continue;
-      table.append(groupRow(title, group.length, names.length));
+    table.append(tickHead(names, [...new Map(shown.map(t => [t.id, t])).values()], 'Next up'));
+    for (const [title, group] of groups) {
+      table.append(groupRow(title, group.length, names.length + 1));
       for (const it of group.slice(0, 25)) table.append(it.kind === 'call' ? callTableRow(it, showQueue) : nextTableRow(it, showQueue));
       if (group.length > 25) {
         const tr = el('tr');
         const c = el('td', 'atqm-empty', `…and ${group.length - 25} more`);
-        c.colSpan = names.length;
+        c.colSpan = names.length + 1;
         tr.append(c);
         table.append(tr);
       }
@@ -6966,7 +7017,7 @@ label.set-label{cursor:pointer}
     const tr = el('tr', state === 'overdue' || state === 'soon' ? state : it.g === 'doing' ? 'doing' : it.g === 'waiting' ? 'fresh' : '');
     const when = it.due ? relDue(it.due, now) : it.g === 'doing' ? 'in progress' : `waiting ${dur(now - it.age)}`;
     const due = it.due || it.dl?.due, what = it.due ? it.what : it.dl?.what;
-    tr.append(cell('when', when), ticketCell(t, it.changes), statusCell(t, it.changes), priorityCell(t.priority));
+    tr.append(tickCell(t, 'Next up'), cell('when', when), ticketCell(t, it.changes), statusCell(t, it.changes), priorityCell(t.priority));
     if (showQueue) tr.append(cell('', el('span', 'atqm-tag', qName(it.q))));
     tr.append(titleCell(t.title, t.account), cell('dl', due ? `${what} · ${dueAt(due)}` : '–'));
     return tr;
@@ -6974,7 +7025,7 @@ label.set-label{cursor:pointer}
   function callTableRow(it, showQueue) {
     const c = it.c, now = Date.now();
     const tr = el('tr', c.start <= now ? 'callnow' : 'call');
-    tr.append(cell('when', c.start <= now ? `started ${dur(now - c.start)} ago` : `in ${dur(c.start - now)}`),
+    tr.append(cell('tick'), cell('when', c.start <= now ? `started ${dur(now - c.start)} ago` : `in ${dur(c.start - now)}`),
       cell('tk', callLink(c, 'Service call')), cell('', c.status || '–'), priorityCell(c.priority));
     if (showQueue) tr.append(cell('', el('span', 'atqm-tag', qName(it.q))));
     tr.append(titleCell(c.description || '(no description)', c.account), cell('dl', c.start ? `${timeOf(c.start)}–${timeOf(c.end)}` : '–'));
@@ -7003,19 +7054,19 @@ label.set-label{cursor:pointer}
     const withDeadline = rows.some(r => r.d);
     const names = ['Ticket', 'Status', 'Priority', 'Title', ...(withDeadline ? ['Next deadline'] : []), 'Age'];
     const table = el('table', 'dash-table dash-tt dash-mq');
-    table.append(tableHead(names));
+    table.append(tickHead(names, tickets, qName(q)));
     for (const [name, list] of [['Needs action', act], ['No action needed', rest]]) {
       if (!list.length) continue;
-      table.append(groupRow(name, list.length, names.length));
-      for (const r of list) table.append(ticketRow(r, withDeadline));
+      table.append(groupRow(name, list.length, names.length + 1));
+      for (const r of list) table.append(ticketRow(r, withDeadline, qName(q)));
     }
     body.append(tableCard(table));
     return card;
   }
-  function ticketRow({ t, d, age, changes }, withDeadline) {
+  function ticketRow({ t, d, age, changes }, withDeadline, where) {
     const now = Date.now();
     const tr = el('tr', resting(t) ? 'resting' : d ? dueState(d.due, d.soon) : '');
-    tr.append(ticketCell(t, changes), statusCell(t, changes), priorityCell(t.priority), titleCell(t.title, t.account));
+    tr.append(tickCell(t, where), ticketCell(t, changes), statusCell(t, changes), priorityCell(t.priority), titleCell(t.title, t.account));
     if (withDeadline) {
       const due = cell('dl');
       if (d) {
@@ -7103,7 +7154,17 @@ label.set-label{cursor:pointer}
     // The Queue monitor window is put away while it's open, as for Settings
     const open = isTop && dashOpen();
     document.documentElement.classList.toggle('atqm-dash-open', open);
-    if (!open) { d?.remove(); return; }
+    if (!open) {
+      if (mcWin?.dash) closeMacroWindow();
+      dashTicked.clear();
+      d?.remove();
+      return;
+    }
+    // A ticked ticket that's left your queues isn't shown any more, so it isn't ticked either
+    const pool = new Set(macroPool().map(t => t.id));
+    for (const id of [...dashTicked.keys()]) if (!pool.has(id)) dashTicked.delete(id);
+    // What had focus: the same box again once it's drawn again (a kept one, or one found by its data-fk)
+    const had = d?.contains(document.activeElement) ? document.activeElement : null, fk = had?.dataset.fk;
     const opening = !d;
     if (opening) {
       d = el('div');
@@ -7194,10 +7255,47 @@ label.set-label{cursor:pointer}
     right.append(queues.card);
     if (chart) right.append(chart);
     right.append(changes.card);
+    // A macro running, or the last one run: how it's going, at the top (the Queue monitor window, which shows
+    // it too, is put away meanwhile)
+    const job = macroJob();
+    if (job) {
+      const run = dashCard('layers', 'Macro', '');
+      run.body.classList.add('mc-run');
+      renderMacroRun(run.body, job);
+      left.prepend(run.card);
+    }
     columns.append(left, right);
     inner.append(columns);
+    if (dashTicked.size) d.append(dashMacroBar(job));
+    if (mcWin?.dash) {
+      if (job && !mcWin.started()) closeMacroWindow(); // the macros bar is put away until it's cleared
+      else mcWin.refresh(dashCtx());
+    }
     main.scrollTop = scroll;
-    if (opening) d.focus();
+    const back = had?.isConnected ? had : fk ? [...d.querySelectorAll('[data-fk]')].find(e => e.dataset.fk === fk) : null;
+    if (back) back.focus();
+    else if (opening || had) d.focus();
+  }
+  // Along the bottom while tickets are ticked: how many, Clear, and the queue selection macros to run on them (a
+  // click opens a macro's window, as in the Macros tab). While a macro's list is up, it says how to run another.
+  function dashMacroBar(job) {
+    const bar = el('div', 'dash-macbar');
+    bar.setAttribute('role', 'region');
+    bar.setAttribute('aria-label', 'Run a macro on the ticked tickets');
+    const n = dashTicked.size, count = el('div', 'dash-macn');
+    const clear = dashButton('Clear', '', () => { dashTicked.clear(); render(); }, { cls: 'sm', title: 'Untick them all' });
+    clear.dataset.fk = 'untick';
+    count.append(el('b', null, `${n} ticket${n === 1 ? '' : 's'} ticked`), clear);
+    bar.append(count);
+    if (job) {
+      bar.append(el('div', 'atqm-sub', job.finished ? 'Press Done on the macro above to run another on them.'
+        : 'A macro is running. Wait for it to finish to run another on them.'));
+      return bar;
+    }
+    dashMacros = dashMacros || macroGrid(dashCtx, () => document.querySelector('#atqm-dash .dash-macbar'), () => { dashTicked.clear(); render(); });
+    dashMacros.sync();
+    bar.append(dashMacros.root);
+    return bar;
   }
 
   // ---------------------------------------------------------------------------

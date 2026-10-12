@@ -191,6 +191,8 @@ The ⛶ button at the top of the window opens a dashboard over the page, below A
 
 Next up and your queue's tickets fill the left; queues, deadlines and changes the right. Each side fills downwards on its own, and on narrower screens they stack.
 
+**Run a macro from the dashboard.** Next up and the queue tables have a tick box on each ticket, and one in the header that ticks every ticket in that table. A ticket in both is ticked in both. Once something is ticked, a bar along the bottom shows how many, with **Clear**, and your queue selection macros (Change account and the ones you've built). Click one to open its window, as in the Macros tab, and **Run** it on the ticked tickets. As from a queue, each ticket opens in a tab of its own, so keep the dashboard's tab open until it's done. The ticks clear once it starts, and how it's going shows in a **Macro** card at the top, with **Stop**, **Try again** and **Done**. Press **Done** before running another. Closing the dashboard clears the ticks.
+
 **Full screen** fills the screen; ✕ or Esc goes back to the page. The dashboard stays open when that page reloads, so it can stay up on a second screen; going to another page from Autotask's top bar leaves it closed. It only shows what the monitoring tabs collect, so keep those open too.
 
 ## How monitoring works

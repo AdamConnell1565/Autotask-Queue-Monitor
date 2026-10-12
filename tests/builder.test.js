@@ -64,6 +64,27 @@ test('a macro you build is kept clean: only the blocks the script knows, each wi
   close();
 });
 
+test("an Only if's lines are kept clean; one from before it had lines becomes its first line", () => {
+  const { api, close } = load();
+  const only = conds => plain(api.cleanMacroDef({ id: 'm1', v: 2, name: 'X', blocks: [b('onlyIf', { conds })] }).blocks[0]);
+  assert.deepEqual(only([
+    { join: 'or', field: ' Account ', op: 'is', value: ' Fabrikam  Ltd ', ask: 'yes', extra: 1 },
+    { join: 'or', field: 'Ticket Category', op: 'like', value: 'Standard', ask: true },
+    { field: 'Status', op: 'empty', value: 'x' },
+    null, 'x',
+  ]), { type: 'onlyIf', conds: [
+    { field: 'Account', op: 'is', value: 'Fabrikam Ltd' },
+    { join: 'or', field: 'Ticket Category', op: 'is', value: 'Standard', ask: true },
+    { join: 'and', field: 'Status', op: 'empty', value: 'x' },
+  ] }, 'the first line has no and / or; a line without one is and');
+  assert.deepEqual(only([]), { type: 'onlyIf', conds: [{ field: 'Status', op: 'is', value: '' }] }, 'never no lines');
+  assert.equal(only(Array.from({ length: 15 }, () => ({ field: 'Status', op: 'set' }))).conds.length, 10, 'up to 10 lines');
+  // From before: its one condition, and asking for it, on the block itself
+  const def = api.cleanMacroDef({ id: 'm1', v: 2, name: 'X', blocks: [b('onlyIf', { field: 'Status', op: 'not', value: 'Complete', ask: true })] });
+  assert.deepEqual(plain(def.blocks), [{ type: 'onlyIf', conds: [{ field: 'Status', op: 'not', value: 'Complete', ask: true }] }]);
+  close();
+});
+
 test("a macro from 0.18, which pressed Edit and Save by itself, gets them put in", () => {
   const { api, close } = load();
   const def = api.cleanMacroDef({ id: 'm1', name: 'Old', blocks: [b('onlyIf', { field: 'Status', op: 'is', value: 'New' }), b('speedCode', { code: 'PWR' }),
@@ -101,6 +122,22 @@ test("the macro follows the pages its blocks lead to; a block on the wrong page,
   assert.equal(problem([b('edit'), b('speedCode', { code: '', ask: true }), b('saveTicket')]), '', 'asked each time, it can start empty');
   assert.equal(problem([b('onlyIf', { field: 'Status', op: 'empty', value: '' }), b('quickNote', { text: 'Hi' })]), '', 'is empty takes no value');
   assert.match(problem([b('speedCode', { code: 'PWR' }), b('saveTicket')]), /^Step 1, Ticket speed code, works on the edit page/);
+  // An Only if's lines: which one needs something, once there's more than one
+  const only = (...conds) => problem([b('onlyIf', { conds }), b('quickNote', { text: 'Hi' })]);
+  assert.equal(only({ field: 'Status', op: 'is', value: '' }), 'Step 1, Only if: Give the value to check for.');
+  assert.equal(only({ field: 'Status', op: 'is', value: 'New' }, { join: 'or', field: '', op: 'set', value: '' }), 'Step 1, Only if: line 2: Pick the field to check.');
+  assert.equal(only({ field: 'Status', op: 'is', value: 'New' }, { join: 'and', field: 'Account', op: 'is', value: '' }), 'Step 1, Only if: line 2: Give the value to check for.');
+  assert.equal(only({ field: 'Status', op: 'is', value: 'New' }, { join: 'and', field: 'Account', op: 'is', value: '', ask: true }), '', 'asked each time, it can start empty');
+  close();
+});
+
+test("an Only if's lines read as one sentence", () => {
+  const { api, close } = load();
+  const def = { id: 'm1', v: 2, name: 'X', scope: 'queue', blocks: [b('onlyIf', { conds: [
+    { field: 'Status', op: 'is', value: 'New, In Progress' }, { join: 'and', field: 'Account', op: 'not', value: 'Fabrikam Ltd' },
+    { join: 'or', field: 'Ticket Category', op: 'is', value: '', ask: true }, { join: 'and', field: 'Contract', op: 'empty', value: '' }] }), b('quickNote', { text: 'Hi' })] };
+  assert.equal(api.customMacro(def).about, "Only if Status is New, In Progress and Account isn't Fabrikam Ltd, or Ticket Category is (asked each time) " +
+    'and Contract is empty, then Quick note "Hi"');
   close();
 });
 
@@ -113,9 +150,22 @@ test('a macro you build asks, in its window, for the values set to ask each time
   ] });
   assert.deepEqual(plain(params.map(p => [p.id, p.label, p.value, p.type])), [
     ['b0', 'Ticket speed code (step 1)', 'PWR', 'text'], ['b1', 'Work Type, if empty', 'Remote Support', 'text'],
-    ['b2', 'Time entry speed code', '', 'text'], ['b3', "Only if Status isn't", 'Complete', 'text'], ['b4', 'Summary notes', 'Done', 'textarea'],
+    ['b2', 'Time entry speed code', '', 'text'], ['b3c0', "Only if Status isn't", 'Complete', 'text'], ['b4', 'Summary notes', 'Done', 'textarea'],
     ['b5', 'Ticket speed code (step 6)', 'X', 'text']]);
   assert.equal(params[0].required, 'Fill in Ticket speed code (step 1).');
+
+  // An Only if's lines each ask for themselves (one with no value to check asks nothing), and two the same say which line
+  const conds = [{ field: 'Account', op: 'is', value: 'Fabrikam Ltd', ask: true }, { join: 'or', field: 'Account', op: 'is', value: '', ask: true },
+    { join: 'and', field: 'Status', op: 'empty', value: '', ask: true }, { join: 'and', field: 'Ticket Category', op: 'not', value: 'Standard', ask: true }];
+  const more = api.askedParams({ blocks: [b('onlyIf', { conds }), b('onlyIf', { conds: [{ field: 'Account', op: 'is', value: 'Contoso', ask: true }] })] });
+  assert.deepEqual(plain(more.map(p => [p.id, p.label, p.value])), [
+    ['b0c0', 'Only if Account is (step 1, line 1)', 'Fabrikam Ltd'], ['b0c1', 'Only if Account is (step 1, line 2)', ''],
+    ['b0c3', "Only if Ticket Category isn't", 'Standard'], ['b1c0', 'Only if Account is (step 2)', 'Contoso']]);
+  // What's given goes in the lines it's for when it runs
+  api.saveMacroDefs([{ id: 'm1', v: 2, name: 'Check', scope: 'page', blocks: [b('onlyIf', { conds }), b('quickNote', { text: 'Hi' })] }]);
+  api.startCustom(api.macroDefs()[0], { b0c0: ' Contoso ', b0c3: 'Premium' }, { tickets: [], here: null });
+  assert.deepEqual(plain(api.macroJob().steps[0].conds), [{ field: 'Account', op: 'is', value: 'Contoso' }, { join: 'or', field: 'Account', op: 'is', value: '' },
+    { join: 'and', field: 'Status', op: 'empty', value: '' }, { join: 'and', field: 'Ticket Category', op: 'not', value: 'Premium' }]);
   close();
 });
 
@@ -147,44 +197,78 @@ test('boot: New macro opens the Macro builder; a block on the wrong page is fixe
     type(window, name, 'Password reset');
     assert.match(mb.querySelector('.mb-empty').textContent, /Drag blocks here/);
 
-    // A ticket speed code first: it works in edit mode, so the step says so, with a fix
+    // A ticket speed code first: it works in edit mode, so the step says so, with a fix. A Wait goes in after it by
+    // itself, for its template to fill in.
     block(mb, 'Ticket speed code').click();
     assert.equal(doc.activeElement.id, 'atqm-mb-0-code', 'its box ready to type in');
     type(window, doc.activeElement, 'PWR');
+    assert.deepEqual(steps(mb), ['Ticket speed code', 'Wait']);
+    assert.equal(doc.getElementById('atqm-mb-1-seconds').value, '3');
+    assert.match(mb.querySelector('.mb-step[data-i="1"] .mb-hint').textContent, /^Gives the speed code's template time to fill in the ticket\.$/);
     assert.ok(mb.querySelector('.mb-step[data-i="0"]').classList.contains('bad'));
     assert.match(mb.querySelector('.mb-step[data-i="0"] .mb-bad').textContent, /works on the edit page, but the macro is on the ticket's page by then/);
     assert.ok(save.disabled);
     button(mb.querySelector('.mb-bad'), /^Put in Enter edit mode before it$/).click();
     // Now it ends in edit mode, unsaved: the end says so
-    assert.deepEqual(lines(mb).slice(0, 4), ['(Opens the ticket in a tab of its own)', 'Enter edit mode', '(Now in edit mode)', 'Ticket speed code']);
+    assert.deepEqual(lines(mb).slice(0, 5), ['(Opens the ticket in a tab of its own)', 'Enter edit mode', '(Now in edit mode)', 'Ticket speed code', 'Wait']);
     assert.match(mb.querySelector('.mb-steps > li:last-child.mb-end').textContent, /^It ends on the edit page, so that wouldn't be saved/);
     button(mb.querySelector('.mb-end'), /^Put in Save ticket at the end$/).click();
-    assert.deepEqual(lines(mb), ['(Opens the ticket in a tab of its own)', 'Enter edit mode', '(Now in edit mode)', 'Ticket speed code', 'Save ticket',
+    assert.deepEqual(lines(mb), ['(Opens the ticket in a tab of its own)', 'Enter edit mode', '(Now in edit mode)', 'Ticket speed code', 'Wait', 'Save ticket',
       "(Back on the ticket's page)", "(Done: closes the ticket's tab)"]);
-    assert.deepEqual([...mb.querySelectorAll('.mb-step .mb-tag')].map(t => t.textContent), ['Ticket page', 'Edit mode', 'Edit mode']);
+    assert.deepEqual([...mb.querySelectorAll('.mb-step .mb-tag')].map(t => t.textContent), ['Ticket page', 'Edit mode', 'Edit mode', 'Edit mode']);
 
     // Only if, Enter on it: at the end; moved to the top with its arrow, it's checked before editing
     block(mb, 'Only if').dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
-    assert.equal(doc.getElementById('atqm-mb-3-field').value, 'Status', 'starts on Status');
-    type(window, doc.getElementById('atqm-mb-3-value'), 'New, In Progress');
-    for (let i = 3; i > 0; i--) mb.querySelector(`.mb-step[data-i="${i}"] [data-act=up]`).click();
-    assert.deepEqual(steps(mb), ['Only if', 'Enter edit mode', 'Ticket speed code', 'Save ticket']);
+    assert.deepEqual(steps(mb), ['Enter edit mode', 'Ticket speed code', 'Wait', 'Save ticket', 'Only if'], 'no Wait after it');
+    assert.equal(doc.activeElement.id, 'atqm-mb-4-c0-field', 'on its field');
+    assert.equal(doc.activeElement.value, 'Status', 'starts on Status');
+    assert.ok([...doc.activeElement.options].some(o => o.textContent === 'Ticket Category'), 'the heading\'s fields are on the list too');
+    type(window, doc.getElementById('atqm-mb-4-c0-value'), 'New, In Progress');
+    for (let i = 4; i > 0; i--) mb.querySelector(`.mb-step[data-i="${i}"] [data-act=up]`).click();
+    assert.deepEqual(steps(mb), ['Only if', 'Enter edit mode', 'Ticket speed code', 'Wait', 'Save ticket']);
     assert.equal(doc.activeElement, mb.querySelector('.mb-step[data-i="0"] [data-act=down]'), 'at the top: on its other arrow');
-    assert.equal(doc.getElementById('atqm-mb-0-value').value, 'New, In Progress', 'its values went with it');
+    assert.equal(doc.getElementById('atqm-mb-0-c0-value').value, 'New, In Progress', 'its values went with it');
+    const change = (id, value) => { const s = doc.getElementById(id); s.value = value; s.dispatchEvent(new window.Event('change', { bubbles: true })); };
     // "is empty" takes no value: its box goes, and comes back
-    const op = doc.getElementById('atqm-mb-0-op');
-    op.value = 'empty';
-    op.dispatchEvent(new window.Event('change', { bubbles: true }));
-    assert.equal(doc.getElementById('atqm-mb-0-value'), null);
-    assert.equal(doc.activeElement.id, 'atqm-mb-0-op', 'redrawn, focus kept');
-    doc.getElementById('atqm-mb-0-op').value = 'is';
-    doc.getElementById('atqm-mb-0-op').dispatchEvent(new window.Event('change', { bubbles: true }));
+    change('atqm-mb-0-c0-op', 'empty');
+    assert.equal(doc.getElementById('atqm-mb-0-c0-value'), null);
+    assert.equal(doc.activeElement.id, 'atqm-mb-0-c0-op', 'redrawn, focus kept');
+    change('atqm-mb-0-c0-op', 'is');
+    assert.equal(mb.querySelector('.mb-step[data-i="0"] .mb-cond-x'), null, "one line: there's no taking it out");
+
+    // + adds a line, joined by and, on a field the block doesn't check yet
+    doc.getElementById('atqm-mb-0-add').click();
+    assert.equal(doc.activeElement.id, 'atqm-mb-0-c1-field');
+    assert.equal(doc.activeElement.value, 'Account');
+    assert.equal(doc.getElementById('atqm-mb-0-c1-join').value, 'and');
+    assert.equal(msg(), 'Step 1, Only if: line 2: Give the value to check for.');
+    type(window, doc.getElementById('atqm-mb-0-c1-value'), 'Fabrikam Ltd');
+    // A third, or: Ticket Category
+    doc.getElementById('atqm-mb-0-add').click();
+    change('atqm-mb-0-c2-field', 'Ticket Category');
+    change('atqm-mb-0-c2-join', 'or');
+    type(window, doc.getElementById('atqm-mb-0-c2-value'), 'Standard');
+    const rows = () => [...mb.querySelectorAll('.mb-step[data-i="0"] .mb-cond')];
+    assert.deepEqual(rows().map(r => r.classList.contains('or')), [false, false, true], 'or starts a new run');
+    assert.match(mb.querySelector('.mb-step[data-i="0"] .mb-conds > .mb-hint').textContent, /And is checked before or/);
+    // A fourth, on a field that isn't on the list: typed in. Then taken out again.
+    doc.getElementById('atqm-mb-0-add').click();
+    change('atqm-mb-0-c3-field', '\u0000other');
+    assert.equal(doc.activeElement.id, 'atqm-mb-0-c3-other', 'ready to type the field');
+    assert.equal(msg(), 'Step 1, Only if: line 4: Pick the field to check.');
+    type(window, doc.activeElement, 'Due Date');
+    change('atqm-mb-0-c3-op', 'set');
+    assert.equal(doc.getElementById('atqm-mb-0-c3-other').value, 'Due Date', 'still typed in once redrawn');
+    assert.equal(doc.getElementById('atqm-mb-0-c3-field').value, '\u0000other');
+    rows()[3].querySelector('.mb-cond-x').click();
+    assert.equal(rows().length, 3);
+    assert.equal(doc.activeElement.id, 'atqm-mb-0-c2-field');
 
     // An on page macro instead
     kinds[1].click();
     assert.equal(lines(mb)[0], '(On the ticket in the page you run it from)');
     assert.equal(lines(mb).at(-1), '(Done)');
-    assert.match(mb.querySelector('.mb-head').textContent, /A new macro · 4 steps/);
+    assert.match(mb.querySelector('.mb-head').textContent, /A new macro · 5 steps/);
     assert.equal(save.disabled, false);
     assert.equal(msg(), 'Ready to save: it goes in the Macros tab as Password reset.');
 
@@ -192,12 +276,15 @@ test('boot: New macro opens the Macro builder; a block on the wrong page is fixe
     assert.equal(doc.getElementById('atqm-mb'), null);
     const [def] = stored(window);
     assert.deepEqual({ ...def, id: 'x' }, { id: 'x', v: 2, name: 'Password reset', about: '', scope: 'page', blocks: [
-      { type: 'onlyIf', field: 'Status', op: 'is', value: 'New, In Progress' }, { type: 'edit' }, { type: 'speedCode', code: 'PWR' }, { type: 'saveTicket' }] });
+      { type: 'onlyIf', conds: [{ field: 'Status', op: 'is', value: 'New, In Progress' }, { join: 'and', field: 'Account', op: 'is', value: 'Fabrikam Ltd' },
+        { join: 'or', field: 'Ticket Category', op: 'is', value: 'Standard' }] },
+      { type: 'edit' }, { type: 'speedCode', code: 'PWR' }, { type: 'wait', seconds: 3 }, { type: 'saveTicket' }] });
     // Its square: after Change account, before New macro, with focus on it
     const squares = [...panel.querySelectorAll('.mc-grid .mc-sq')];
     assert.deepEqual(squares.map(s => s.dataset.macro), ['account', 'c:' + def.id, 'new']);
     assert.equal(squares[1].textContent, 'Password resetOn pageDouble-click to run', 'it asks nothing: a double-click runs it');
-    assert.equal(squares[1].title, 'Only if Status is New, In Progress, then Enter edit mode, then Ticket speed code PWR, then Save ticket');
+    assert.equal(squares[1].title, 'Only if Status is New, In Progress and Account is Fabrikam Ltd, or Ticket Category is Standard, ' +
+      'then Enter edit mode, then Ticket speed code PWR, then Wait 3 s, then Save ticket');
     assert.equal(doc.activeElement, squares[1]);
   } finally {
     close();
@@ -235,17 +322,17 @@ test('the Macro builder: blocks dragged into place, steps dragged by their handl
       fire(li, 'dragend');
     };
 
-    dragIn('Ticket speed code', 0);
+    dragIn('Set a ticket field', 0);
     dragIn('Save ticket', 100); // below the last step: at the end
     const shown = dragIn('Enter edit mode', 10); // above the first step's middle: before it
     assert.ok(shown, 'a line shows where it goes while it is dragged');
     assert.equal(list.querySelector('.mb-drop'), null, 'and goes once it is dropped');
-    assert.deepEqual(steps(mb), ['Enter edit mode', 'Ticket speed code', 'Save ticket']);
+    assert.deepEqual(steps(mb), ['Enter edit mode', 'Set a ticket field', 'Save ticket']);
 
     dragStep(0, list, 500); // to the end
-    assert.deepEqual(steps(mb), ['Ticket speed code', 'Save ticket', 'Enter edit mode']);
+    assert.deepEqual(steps(mb), ['Set a ticket field', 'Save ticket', 'Enter edit mode']);
     dragStep(2, list, 10); // above the first's middle
-    assert.deepEqual(steps(mb), ['Enter edit mode', 'Ticket speed code', 'Save ticket']);
+    assert.deepEqual(steps(mb), ['Enter edit mode', 'Set a ticket field', 'Save ticket']);
     // Dropped back on the blocks: taken out
     const li = list.querySelector('.mb-step[data-i="1"]');
     fire(li.querySelector('.mb-grip'), 'mousedown');
@@ -265,6 +352,12 @@ test('the Macro builder: blocks dragged into place, steps dragged by their handl
     mb.querySelector('.mb-step[data-i="0"] [data-act=out]').click();
     assert.deepEqual(steps(mb), ['Save ticket']);
     assert.equal(doc.activeElement, mb.querySelector('.mb-step[data-i="0"] [data-act=out]'));
+    // A speed code dragged in gets a Wait after it, unless there's one there already
+    dragIn('Wait', 10);
+    dragIn('Ticket speed code', 10);
+    assert.deepEqual(steps(mb), ['Ticket speed code', 'Wait', 'Save ticket']);
+    dragIn('Ticket speed code', 110); // before Save ticket
+    assert.deepEqual(steps(mb), ['Ticket speed code', 'Wait', 'Ticket speed code', 'Wait', 'Save ticket']);
   } finally {
     close();
   }

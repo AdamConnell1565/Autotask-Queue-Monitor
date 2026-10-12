@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.20.0 (2026-10-12)
+
+### Added
+
+- **Only if checks more than one thing.** Its first line reads *If [field] [is] [value]*. **+ Add a line** adds another, joined by **and** or **or**, up to 10. And is checked before or: *A and B, or C* carries on when A and B both match, or when C does. Each line can ask for its value each time the macro runs. When a ticket is skipped, the note says what each field it checked showed.
+- **Only if's field is a list**: Account, Contact, Status, Priority, **Ticket Category**, **Ticket Type**, Queue, Issue Type, Sub-Issue Type and the rest, or **Another field…** to type one in. Ticket Category and Ticket Type are read from the ticket page's heading.
+- **Waits go in by themselves**: adding a Ticket speed code or a Time entry speed code puts a 3 second Wait after it, for its template to fill in, unless there's a Wait there already. The Wait says why it's there; × takes it out.
+
+### Changed
+
+- An Only if from before keeps its one check as its first line.
+
 ## 0.19.0 (2026-10-09)
 
 ### Added

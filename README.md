@@ -121,7 +121,7 @@ The blocks are on the left, grouped by where they work. Drag one into **Steps**,
 
 | Block | What it does |
 | --- | --- |
-| **Only if** | Carries on only if a field matches: it **is** one of some values (separate them with commas), **isn't** any of them, **is empty** or **is filled in**. Otherwise the ticket is **Skipped**, with what the field showed. |
+| **Only if** | Carries on only if the ticket matches: *If Account is Fabrikam Ltd*. Pick the field from the list (Account, Status, Priority, **Ticket Category**, **Ticket Type**, Queue, Work Type…) or **Another field…** to type one in, as Autotask labels it. It checks the field **is** one of some values (separate them with commas), **isn't** any of them, **is empty** or **is filled in**. **+ Add a line** checks another field too, joined by **and** or **or** (up to 10 lines). And is checked before or: *A and B, or C* carries on when A and B both match, or when C does. Otherwise the ticket is **Skipped**, with what each field showed. |
 | **Enter edit mode** | Presses **Edit**. Then the macro is in edit mode. |
 | **New time entry** | Opens a new time entry from the ticket's page. Then the macro is in a time entry. |
 | **Quick note** | Writes a note in the ticket page's Quick note box, picks its note type if you name one, and saves it. |
@@ -147,13 +147,13 @@ The blocks are on the left, grouped by where they work. Drag one into **Steps**,
 | **Save time entry** | Saves the time entry (its **Save & Close**), back to the ticket's page. |
 | **Cancel time entry** | Closes the time entry without saving it (its ✕: it has no Cancel button). |
 
-**Anywhere**: **Wait** pauses 1 to 60 seconds, for Autotask to catch up (after a speed code, say).
+**Anywhere**: **Wait** pauses 1 to 60 seconds, for Autotask to catch up. Adding a speed code (ticket or time entry) puts a 3 second Wait after it for you, unless there's one there already, so its template has time to fill in. Change its seconds, or take it out with ×.
 
 The builder follows the pages the blocks lead to, shows where each step runs, and draws a line wherever the macro moves to another page. A block put where it can't work, such as a ticket speed code with no **Enter edit mode** before it, is marked, with a button that puts in what's missing. So is a macro that would end in edit mode or a time entry, unsaved. It can't be saved until it makes sense, and it needs at least one step that changes the ticket (a save, or a quick note).
 
-For example, *Only if Status is New, Enter edit mode, Ticket speed code PWR, Set Status to In Progress, Save ticket & enter time, Time entry speed code T30, Save time entry* checks the ticket, edits it, saves it, logs the time and is done.
+For example, *Only if Status is New and Ticket Category is Standard, Enter edit mode, Ticket speed code PWR, Wait 3 s, Set Status to In Progress, Save ticket & enter time, Time entry speed code T30, Wait 3 s, Save time entry* checks the ticket, edits it, saves it, logs the time and is done.
 
-**Ask each time.** Tick it on a step's value, and the macro's window asks for that value whenever you run it, starting on what you put in the builder. A macro that asks for nothing runs from its square on a double-click, like any other.
+**Ask each time.** Tick it on a step's value (or on a line of an Only if), and the macro's window asks for that value whenever you run it, starting on what you put in the builder. A macro that asks for nothing runs from its square on a double-click, like any other.
 
 Your macros show the same progress list as Change account, with the step each ticket is on, and **Stop**, **Try again** and **Done**. As well as Done and Failed, a ticket can end up:
 

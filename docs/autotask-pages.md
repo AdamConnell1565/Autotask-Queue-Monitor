@@ -224,7 +224,7 @@ Which fields a section shows, and in what order, varies from ticket to ticket. I
 - the title (`.Title .Text`)
 - when it was created and by whom (`.Bundle`)
 
-The script uses none of these.
+An Only if reads the category and type from here (`AT.sel.ticketCategory`, `AT.sel.ticketType`), for its Ticket Category and Ticket Type fields. Only these selectors were noted, not the markup around them: the tests build the heading from them alone. The script uses none of the others.
 
 ### Account alert bar
 
@@ -539,7 +539,7 @@ The job keeps a step pointer per ticket (`item.step`). `runBuilt()` does the ste
   - If the page is still there after `MACRO.saved` and Autotask says why (a question, a marked field), the ticket fails. Otherwise it's left to load; one that never comes is given up on as stuck after `MACRO.stage`.
 - **Part-way.** While a step is under way its number is kept (`item.doing`). A page that loads again with one set fails the ticket rather than doing that step again, which could go round for ever.
 - **Fields by name.** A block names a field as you'd read it ("Sub-Issue Type"). `fieldSpec()` turns that into a label pattern like `AT.text`'s, allowing the trailing `*` and a space or hyphen either way. The names the builder offers are `AT.text.ticketFields` and `AT.text.timeFields`.
-- **Only if** reads the field on the ticket page with `ticketField()`: its value container's text, so a colour band's (Status, Priority) is its text. A field the page doesn't show fails the ticket rather than guessing.
+- **Only if** reads each line's field on the ticket page with `ticketField()`: its value container's text, so a colour band's (Status, Priority) is its text. Ticket Category and Ticket Type aren't fields there, so they're read from the heading (see [Heading](#heading)). A field the page doesn't show, on any line, fails the ticket rather than guessing.
 - **Enter edit mode** first reads each "only if it's empty" ticket field of the edit steps after it off the ticket page, as Change account does with the types.
 - **On the edit page**, Set a ticket field uses `findFieldOpening()` (so a closed section is opened) and `chooseOption()`, or types into a plain box (`AT.sel.plainBox`).
 - **After Save ticket**, the ticket page it lands back on is checked: each field it picked should show it there, or the ticket is marked Check it.

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Autotask Queue Monitor
 // @namespace    autotask
-// @version      0.19.0
+// @version      0.20.0
 // @description  Track any My Workspace & Queues queue (My queue by default) in its own tab, with a live overview on every Autotask page
 // @author       AdamConnell1565
 // @homepageURL  https://github.com/AdamConnell1565/Autotask-Queue-Monitor
@@ -65,6 +65,8 @@
       detailLabel: '.ReadOnlyLabelContainer',  //   <div class="ReadOnlyData"><div class="ReadOnlyLabelContainer">…Account…</div>
       detailValue: '.ReadOnlyValueContainer',  //   <div class="ReadOnlyValueContainer">…The account…</div></div>
       accountLink: '.LinkButton2 .Text2',      // a page without those: its account is one of these links
+      ticketCategory: '.EntityHeadingContainer .CategoryChip .Name', // the ticket page's heading: its category and type (Incident…)
+      ticketType: '.EntityHeadingContainer .TypeChip',
       fieldLabel: 'label, span, div',          // the edit page's field names ("Account", "Work Type")
       textInput: 'input:not([type]), input[type="text"], input[type="search"]',
       // A plain box with no list to pick from (Purchase Order Number, Estimated Hours; a time entry's Date and Start Time,
@@ -134,6 +136,11 @@
       // Fields of the ticket's page and its edit page, offered when you name one in the Macro builder
       ticketFields: ['Status', 'Priority', 'Queue', 'Issue Type', 'Sub-Issue Type', 'Source', 'Work Type', 'Account', 'Contact',
         'Contract', 'Line of Business', 'Purchase Order Number', 'Estimated Hours'],
+      // Fields an Only if can check on the ticket's page: Ticket Category and Ticket Type are in its heading
+      checkFields: ['Account', 'Contact', 'Status', 'Priority', 'Ticket Category', 'Ticket Type', 'Queue', 'Issue Type', 'Sub-Issue Type',
+        'Source', 'Work Type', 'Contract', 'Line of Business', 'Location', 'Purchase Order Number', 'Estimated Hours'],
+      categoryLabel: /^(ticket\s*)?category$/i,
+      typeLabel: /^(ticket\s*)?type$/i,
       // and a time entry's (its Status is the ticket's, set when the time entry is saved)
       timeFields: ['Status', 'Role', 'Work Type', 'Contract', 'Date', 'Start Time', 'End Time', 'Hours Worked'],
       dialogOk: /^(ok|close)$/i,               // a message box with only this button is just acknowledged
@@ -2392,6 +2399,17 @@ label.set-label{cursor:pointer}
 .mb-f.mb-n{flex:0 0 90px}
 .mb-chk{display:flex;align-items:center;gap:6px;height:30px;color:#c9d1d9;font-size:12px;cursor:pointer;white-space:nowrap}
 .mb-hint{flex-basis:100%;color:#9aa4b2;font-size:11.5px}
+.mb-conds{flex:1 1 100%;display:flex;flex-direction:column;align-items:flex-start;gap:6px;min-width:0}
+.mb-cond{align-self:stretch;display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px}
+.mb-cond.or{margin-top:2px;padding-top:8px;border-top:1px dashed #3a3d44}
+#atqm-mb .mb-cond select,#atqm-mb .mb-cond input[type=text]{flex:1 1 150px;width:auto}
+#atqm-mb .mb-cond select.mb-join,.mb-if{flex:0 0 64px}
+.mb-if{padding-left:9px;color:#c9d1d9;font-weight:600}
+.mb-cond-x{width:26px;height:26px;border:0;border-radius:5px;background:none;color:#9aa4b2;cursor:pointer;font:inherit;font-size:14px;line-height:1}
+.mb-cond-x:hover{background:#3a2a2c;color:#ff9b9e}
+.mb-add{padding:3px 10px;background:none;color:#9aa4b2;border:1px dashed #3a3d44;border-radius:6px;cursor:pointer;font:inherit;font-size:12px}
+.mb-add:hover:not(:disabled){color:#e6e6e6;border-color:#4ea1ff}
+.mb-add:disabled{opacity:.4;cursor:default}
 .mb-drop{height:0;margin:-4px 0;border-top:3px solid #4ea1ff;border-radius:2px;list-style:none}
 .mb-foot{display:flex;align-items:center;gap:8px;padding:10px 16px;background:#1a1b1f;border-top:1px solid #2c2f35;flex:none;flex-wrap:wrap}
 .mb-msg{flex:1 1 200px;min-width:0;color:#9aa4b2}
@@ -4973,6 +4991,7 @@ label.set-label{cursor:pointer}
   //     offer), recent, options, min, max }
   //   page: where it works ('any': wherever the macro is by then). to: the page it leads to.
   //   changes: it changes the ticket (a macro needs one). run(step, ctx): see runBuilt.
+  //   wait: { seconds, why }: Autotask needs a moment after it, so the builder puts a Wait in after it when it's added
   // ---------------------------------------------------------------------------
   const PAGES = {
     ticket: { name: "the ticket's page", Name: "The ticket's page", on: "on the ticket's page", tag: 'Ticket page', now: "Back on the ticket's page" },
@@ -4987,6 +5006,33 @@ label.set-label{cursor:pointer}
     time: { ticket: ['saveEntry'], edit: ['saveEntry', 'edit'] },
   };
   const OPS = [['is', 'is'], ['not', "isn't"], ['empty', 'is empty'], ['set', 'is filled in']];
+  // An Only if's conditions: [{ field, op, value, ask }, { join: 'and' | 'or', field, op, value, ask }…]. And goes
+  // before or: "A and B, or C" is (A and B) or C.
+  const MAX_CONDS = 10;
+  const hasValue = op => op === 'is' || op === 'not';
+  const VALUES_HINT = 'Separate several values with commas.';
+  const newCond = (join, field = 'Status') => ({ ...(join ? { join } : {}), field, op: 'is', value: '' });
+  // An Only if from before it had lines kept its one condition on the block itself
+  const condsOf = s => (Array.isArray(s.conds) ? s.conds : [{ field: s.field, op: s.op, value: s.value, ...(s.ask ? { ask: true } : {}) }]);
+  function cleanConds(v) {
+    const out = (Array.isArray(v) ? v : []).filter(c => c && typeof c === 'object').slice(0, MAX_CONDS).map((c, j) => ({
+      ...(j ? { join: c.join === 'or' ? 'or' : 'and' } : {}),
+      field: typeof c.field === 'string' ? clean(c.field).slice(0, 60) : '',
+      op: OPS.some(([o]) => o === c.op) ? c.op : 'is',
+      value: typeof c.value === 'string' ? clean(c.value).slice(0, 200) : '',
+      ...(c.ask === true ? { ask: true } : {}),
+    }));
+    return out.length ? out : [newCond()];
+  }
+  // What's wrong with them ('' when nothing is): which line, when there's more than one
+  function condsProblem(conds) {
+    for (const [j, c] of conds.entries()) {
+      const line = conds.length > 1 ? `line ${j + 1}: ` : '';
+      if (!clean(c.field)) return `${line}Pick the field to check.`;
+      if (hasValue(c.op) && !c.ask && !clean(c.value)) return `${line}Give the value to check for.`;
+    }
+    return '';
+  }
   const codeField = () => ({ id: 'code', label: 'Speed code', type: 'text', ask: true, recent: () => get(K.macroCodes, []), required: 'Type the speed code.' });
   const setFields = names => [
     { id: 'field', label: 'Field', type: 'text', list: names, required: 'Name the field to set, as Autotask labels it.' },
@@ -5001,13 +5047,9 @@ label.set-label{cursor:pointer}
     // On the ticket's page
     onlyIf: {
       name: 'Only if', page: 'ticket',
-      about: "Carries on only if a field on the ticket's page matches. Otherwise the ticket is skipped.",
-      fields: [
-        { id: 'field', label: 'Field', type: 'text', value: 'Status', list: AT.text.ticketFields, required: 'Name the field to check, as Autotask labels it.' },
-        { id: 'op', label: 'Check', type: 'select', options: OPS, value: 'is' },
-        { id: 'value', label: 'Value', type: 'text', ask: true, hint: 'Separate several with commas.', when: b => b.op === 'is' || b.op === 'not',
-          required: 'Give the value to check for.' },
-      ],
+      about: "Carries on only if the ticket's page matches: its Account, Status, Ticket Category… Add lines with + to check more, " +
+        'with and or or. Otherwise the ticket is skipped.',
+      fields: [{ id: 'conds', type: 'conds', value: [newCond()], problem: b => condsProblem(condsOf(b)) }],
       run: s => onlyIfResult(s),
     },
     edit: {
@@ -5032,6 +5074,7 @@ label.set-label{cursor:pointer}
     // In edit mode
     speedCode: {
       name: 'Ticket speed code', page: 'edit', fields: [codeField()],
+      wait: { seconds: 3, why: "Gives the speed code's template time to fill in the ticket." },
       about: "Types a speed code into the edit page's speed code box and picks it, so its template fills in the ticket. " +
         'It sets the fields its template sets, over what is in them.',
       run: (s, ctx) => applyCode(s.code, 'Ticket speed code', ctx),
@@ -5059,6 +5102,7 @@ label.set-label{cursor:pointer}
     // In a time entry
     timeCode: {
       name: 'Time entry speed code', page: 'time', fields: [codeField()],
+      wait: { seconds: 3, why: "Gives the speed code's template time to fill in the time entry." },
       about: "Types a speed code into the time entry's speed code box and picks it, so its template fills in the time entry.",
       run: (s, ctx) => applyCode(s.code, 'Time entry speed code', ctx),
     },
@@ -5099,7 +5143,7 @@ label.set-label{cursor:pointer}
     // Anywhere
     wait: {
       name: 'Wait', page: 'any',
-      about: 'Waits a few seconds, for Autotask to catch up (after a speed code, say).',
+      about: 'Waits a few seconds, for Autotask to catch up. One goes in by itself after a speed code you add.',
       fields: [{ id: 'seconds', label: 'Seconds', type: 'number', min: 1, max: 60, value: 3 }],
       run: async s => { await sleep(s.seconds * 1000); return {}; },
     },
@@ -5110,9 +5154,10 @@ label.set-label{cursor:pointer}
 
   const newMacroId = () => 'm' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
   const newBlock = type => Object.fromEntries([['type', type],
-    ...BLOCKS[type].fields.map(f => [f.id, f.value ?? (f.type === 'checkbox' ? false : '')])]);
+    ...BLOCKS[type].fields.map(f => [f.id, typeof f.value === 'object' ? JSON.parse(JSON.stringify(f.value)) : f.value ?? (f.type === 'checkbox' ? false : '')])]);
   // A block's value made safe to use: the right type, within range, one of the options
   function blockValue(f, v) {
+    if (f.type === 'conds') return cleanConds(v);
     if (f.type === 'checkbox') return v === true;
     if (f.type === 'number') { const n = Math.round(Number(v)); return Number.isFinite(n) ? Math.min(f.max, Math.max(f.min, n)) : f.value; }
     if (f.type === 'select') return f.options.some(([o]) => o === v) ? v : f.value;
@@ -5143,7 +5188,7 @@ label.set-label{cursor:pointer}
       const t = b && BLOCKS[b.type];
       if (!t) continue;
       const out = { type: b.type };
-      for (const f of t.fields) out[f.id] = blockValue(f, b[f.id]);
+      for (const f of t.fields) out[f.id] = blockValue(f, f.type === 'conds' ? condsOf(b) : b[f.id]);
       if (b.ask === true && t.fields.some(f => f.ask)) out.ask = true;
       blocks.push(out);
     }
@@ -5185,7 +5230,8 @@ label.set-label{cursor:pointer}
     if (problem) return problem.text;
     for (const [i, b] of def.blocks.entries()) {
       for (const f of BLOCKS[b.type].fields) {
-        if (f.required && !(f.ask && b.ask) && (!f.when || f.when(b)) && !clean(b[f.id])) return `Step ${i + 1}, ${BLOCKS[b.type].name}: ${f.required}`;
+        const p = f.problem ? f.problem(b) : f.required && !(f.ask && b.ask) && (!f.when || f.when(b)) && !clean(b[f.id]) ? f.required : '';
+        if (p) return `Step ${i + 1}, ${BLOCKS[b.type].name}: ${p}`;
       }
     }
     if (!def.blocks.some(b => BLOCKS[b.type].changes)) return 'Add a block that changes the ticket, such as Save ticket, Save time entry or Quick note.';
@@ -5194,13 +5240,16 @@ label.set-label{cursor:pointer}
 
   const opWord = op => OPS.find(([o]) => o === op)?.[1] || 'is';
   const short = t => { const s = clean(t); return s.length > 40 ? `"${s.slice(0, 38)}…"` : `"${s}"`; };
+  // "Status is New and Account is Fabrikam Ltd, or Priority is Critical"
+  const condsText = conds => conds.map((c, j) => `${j ? (c.join === 'or' ? ', or ' : ' and ') : ''}${c.field} ${opWord(c.op)}` +
+    (hasValue(c.op) ? ` ${c.ask ? '(asked each time)' : c.value}` : '')).join('');
   // A step in a few words: "Ticket speed code PWR", "Set Status to In Progress, if it's empty", "Only if Status is New"
   function blockSummary(b) {
     const t = BLOCKS[b.type];
     if (!t) return b.type;
     const v = x => (b.ask ? '(asked each time)' : x);
     switch (b.type) {
-      case 'onlyIf': return `Only if ${b.field} ${opWord(b.op)}${b.op === 'is' || b.op === 'not' ? ` ${v(b.value)}` : ''}`;
+      case 'onlyIf': return `Only if ${condsText(condsOf(b))}`;
       case 'speedCode': case 'timeCode': return `${t.name} ${v(b.code)}`;
       case 'setField': case 'timeField': return `Set ${b.field} to ${v(b.value)}${b.empty ? ", if it's empty" : ''}`;
       case 'hours': return `Hours worked ${v(b.hours)}`;
@@ -5214,23 +5263,29 @@ label.set-label{cursor:pointer}
   const didText = it => [...(it.did || []), it.kept?.length ? `kept its ${it.kept.join(' and ')}` : ''].filter(Boolean).join(' · ');
 
   // What a macro you built asks for each time it runs, as its window's fields (see macroField): one per block set
-  // to ask, starting on the value the block has
+  // to ask (b<step>), or an Only if's line set to (b<step>c<line>), starting on the value the block has
   function askedParams(def) {
     const out = [];
     def.blocks.forEach((b, i) => {
+      if (b.type === 'onlyIf') {
+        condsOf(b).forEach((c, j) => {
+          if (c.ask && hasValue(c.op)) out.push({ id: `b${i}c${j}`, step: i, line: j, label: `Only if ${c.field} ${opWord(c.op)}`, type: 'text', value: c.value, hint: VALUES_HINT });
+        });
+        return;
+      }
       const t = BLOCKS[b.type], f = t.fields.find(x => x.ask);
       if (!b.ask || !f) return;
-      const label = b.type === 'setField' || b.type === 'timeField' ? `${b.field}${b.empty ? ', if empty' : ''}`
-        : b.type === 'onlyIf' ? `Only if ${b.field} ${opWord(b.op)}` : t.name;
-      out.push({ id: 'b' + i, label, type: f.type === 'textarea' ? 'textarea' : 'text', value: b[f.id], recent: f.recent, hint: f.hint });
+      const label = b.type === 'setField' || b.type === 'timeField' ? `${b.field}${b.empty ? ', if empty' : ''}` : t.name;
+      out.push({ id: 'b' + i, step: i, label, type: f.type === 'textarea' ? 'textarea' : 'text', value: b[f.id], recent: f.recent, hint: f.hint });
     });
-    // Two the same ("Ticket speed code" twice): say which step each is
-    const n = {};
-    for (const p of out) n[p.label] = (n[p.label] || 0) + 1;
-    for (const p of out) {
-      if (n[p.label] > 1) p.label += ` (step ${Number(p.id.slice(1)) + 1})`;
-      p.required = `Fill in ${p.label}.`;
-    }
+    // Two the same ("Ticket speed code" twice): say which step each is, and which line of an Only if
+    const like = p => out.filter(q => q.label === p.label);
+    const more = out.map(p => {
+      const twins = like(p);
+      if (twins.length < 2) return '';
+      return ` (step ${p.step + 1}${p.line != null && twins.filter(q => q.step === p.step).length > 1 ? `, line ${p.line + 1}` : ''})`;
+    });
+    out.forEach((p, k) => { p.label += more[k]; p.required = `Fill in ${p.label}.`; });
     return out;
   }
   // A macro you built, as the Macros grid shows and runs it (see MACROS). only: the one way it runs (see macroWays).
@@ -5248,6 +5303,14 @@ label.set-label{cursor:pointer}
   function startCustom(def, values, way) {
     const steps = def.blocks.map((b, i) => {
       const { ask, ...s } = b;
+      if (b.type === 'onlyIf') {
+        s.conds = condsOf(b).map((c, j) => {
+          const { ask: asks, ...line } = c, v = values[`b${i}c${j}`];
+          if (asks && v != null) line.value = clean(v).slice(0, 200);
+          return line;
+        });
+        return s;
+      }
       const f = BLOCKS[b.type].fields.find(x => x.ask);
       if (ask && f && values['b' + i] != null) s[f.id] = blockValue(f, values['b' + i]);
       return s;
@@ -5497,13 +5560,29 @@ label.set-label{cursor:pointer}
     if (await waitSteps(took, MACRO.confirm)) return { text: clean(input.value) };
     return { note: `Typed "${text}" into ${f.label}, but the field didn't keep it` };
   }
-  // An Only if block, on the ticket's page: { ok }, or why the ticket is skipped, or fails (no such field to check)
+  // A field the ticket's page shows ('' when empty): one of its fields, or its heading's Ticket Category or Ticket
+  // Type. null: the page has no such field.
+  function shownField(f) {
+    const shown = ticketField(f.re);
+    if (shown != null) return shown;
+    const sel = AT.text.categoryLabel.test(f.label) ? AT.sel.ticketCategory : AT.text.typeLabel.test(f.label) ? AT.sel.ticketType : null;
+    const e = sel && [...document.querySelectorAll(sel)].find(notOurs);
+    return e ? clean(e.textContent) : null;
+  }
+  // An Only if block, on the ticket's page: { ok }, or why the ticket is skipped (what the fields it checked show), or
+  // fails (a field it can't find to check, whichever line it's on). And goes before or.
   function onlyIfResult(s) {
-    const f = fieldSpec(s.field), shown = ticketField(f.re);
-    if (shown == null) return { fail: `Couldn't find the ${f.label} field on the ticket's page` };
-    const listed = s.value.split(',').map(clean).filter(Boolean).some(v => same(v, shown));
-    const ok = s.op === 'empty' ? !shown : s.op === 'set' ? !!shown : s.op === 'not' ? !listed : listed;
-    return ok ? { ok } : { skip: shown ? `${f.label} is ${shown}` : `${f.label} is empty` };
+    const shows = [], runs = [[]]; // runs: the lines, split where they're joined by or
+    for (const [j, c] of condsOf(s).entries()) {
+      const f = fieldSpec(c.field), shown = shownField(f);
+      if (shown == null) return { fail: `Couldn't find the ${f.label} field on the ticket's page` };
+      if (!shows.some(([l]) => same(l, f.label))) shows.push([f.label, shown]);
+      const listed = String(c.value || '').split(',').map(clean).filter(Boolean).some(v => same(v, shown));
+      if (j && c.join === 'or') runs.push([]);
+      runs.at(-1).push(c.op === 'empty' ? !shown : c.op === 'set' ? !!shown : c.op === 'not' ? !listed : listed);
+    }
+    const ok = runs.some(r => r.every(Boolean));
+    return ok ? { ok } : { skip: shows.map(([l, v]) => (v ? `${l} is ${v}` : `${l} is empty`)).join(', ') };
   }
   // A ticket field it set that the ticket's page shows otherwise after Save (one the page doesn't show can't be checked)
   function setProblem(steps, picks) {
@@ -5982,6 +6061,7 @@ label.set-label{cursor:pointer}
   // ---------------------------------------------------------------------------
   const MB_ID = 'atqm-mb';
   const MB_DRAG = 'application/x-atqm-block'; // what a drag carries: not text, so a text box it's dropped on takes nothing
+  const ANOTHER_FIELD = '\u0000other'; // an Only if's field list: Another field… (typed in)
   let mb = null; // the open builder: { root, close() }
 
   // id: the macro to change (null: a new one). back: where focus goes back to when it closes. One with a
@@ -6166,6 +6246,11 @@ label.set-label{cursor:pointer}
     function addStep(type, at) {
       if (draft.blocks.length >= MAX_BLOCKS) return flash(`A macro can have up to ${MAX_BLOCKS} steps.`);
       draft.blocks.splice(at, 0, newBlock(type));
+      // One Autotask needs a moment after gets a Wait after it, unless there's one there already
+      const pause = BLOCKS[type].wait;
+      if (pause && draft.blocks[at + 1]?.type !== 'wait' && draft.blocks.length < MAX_BLOCKS) {
+        draft.blocks.splice(at + 1, 0, { ...newBlock('wait'), seconds: pause.seconds });
+      }
       drawSteps();
       const card = list.querySelector(`.mb-step[data-i="${at}"]`);
       (card?.querySelector('.mb-step-b input, .mb-step-b select, .mb-step-b textarea') || card?.querySelector('[data-act="out"]'))?.focus();
@@ -6268,6 +6353,7 @@ label.set-label{cursor:pointer}
       for (const f of t.fields) {
         if (f.when && !f.when(b)) continue;
         const id = `atqm-mb-${i}-${f.id}`;
+        if (f.type === 'conds') { box.append(condLines(b, i, redraw)); continue; }
         if (f.type === 'checkbox') {
           const lab = el('label', 'mb-chk'), c = el('input');
           c.type = 'checkbox';
@@ -6323,7 +6409,91 @@ label.set-label{cursor:pointer}
         }
         if (f.hint) box.append(el('div', 'mb-hint', f.hint));
       }
+      // A Wait after a block Autotask needs a moment after (one goes in by itself when that's added): why it's there
+      const after = b.type === 'wait' && BLOCKS[draft.blocks[i - 1]?.type]?.wait;
+      if (after) box.append(el('div', 'mb-hint', after.why));
       return box;
+    }
+    // An Only if's lines, each read as a sentence: If / and / or, the field (from the list, or Another field… typed
+    // in), what it checks, the value and Ask each time, and × to take the line out. + adds a line.
+    function condLines(b, i, redraw) {
+      const conds = b.conds, wrap = el('div', 'mb-conds');
+      const id = (j, part) => `atqm-mb-${i}-c${j}-${part}`;
+      // onchange may return the id of what to focus once it's redrawn (by default, this)
+      const pick = (sid, options, value, label, onchange) => {
+        const s = el('select');
+        s.id = sid;
+        s.setAttribute('aria-label', label);
+        for (const [v, text] of options) { const o = el('option', null, text); o.value = v; s.append(o); }
+        s.value = value;
+        s.onchange = () => redraw(onchange(s.value) || sid);
+        return s;
+      };
+      conds.forEach((c, j) => {
+        const row = el('div', 'mb-cond' + (j && c.join === 'or' ? ' or' : ''));
+        row.setAttribute('role', 'group');
+        row.setAttribute('aria-label', `Line ${j + 1}`);
+        if (j) {
+          const join = pick(id(j, 'join'), [['and', 'and'], ['or', 'or']], c.join, `Line ${j + 1}: and or or`, v => { c.join = v; });
+          join.className = 'mb-join';
+          row.append(join);
+        } else row.append(el('span', 'mb-if', 'If'));
+        // The field: one of the list, or another typed in
+        const listed = AT.text.checkFields.find(n => same(n, c.field));
+        row.append(pick(id(j, 'field'), [...AT.text.checkFields.map(n => [n, n]), [ANOTHER_FIELD, 'Another field…']], listed || ANOTHER_FIELD,
+          `Line ${j + 1}: field`, v => {
+            c.field = v === ANOTHER_FIELD ? '' : v;
+            return v === ANOTHER_FIELD ? id(j, 'other') : null;
+          }));
+        if (!listed) {
+          const other = el('input');
+          Object.assign(other, { type: 'text', id: id(j, 'other'), autocomplete: 'off', value: c.field, placeholder: 'As Autotask labels it' });
+          other.setAttribute('aria-label', `Line ${j + 1}: the field, as Autotask labels it`);
+          other.addEventListener('input', () => { c.field = other.value; update(); });
+          row.append(other);
+        }
+        row.append(pick(id(j, 'op'), OPS, c.op, `Line ${j + 1}: check`, v => { c.op = v; }));
+        if (hasValue(c.op)) {
+          const value = el('input');
+          Object.assign(value, { type: 'text', id: id(j, 'value'), autocomplete: 'off', value: c.value, placeholder: c.ask ? 'To start with (asked each time)' : 'Value' });
+          value.setAttribute('aria-label', `Line ${j + 1}: value${c.ask ? ', to start with' : ''}`);
+          value.addEventListener('input', () => { c.value = value.value; update(); });
+          const lab = el('label', 'mb-chk'), ask = el('input');
+          ask.type = 'checkbox';
+          ask.id = id(j, 'ask');
+          ask.checked = !!c.ask;
+          lab.title = 'Its window asks for this each time you run the macro, starting on what you put here';
+          ask.onchange = () => { if (ask.checked) c.ask = true; else delete c.ask; redraw(ask.id); };
+          lab.append(ask, 'Ask each time');
+          row.append(value, lab);
+        }
+        if (conds.length > 1) {
+          const x = el('button', 'mb-cond-x', '×');
+          x.type = 'button';
+          x.title = 'Take this line out';
+          x.setAttribute('aria-label', `Take out line ${j + 1}`);
+          x.onclick = () => {
+            conds.splice(j, 1);
+            if (conds[0]) delete conds[0].join;
+            redraw(conds[j] ? id(j, 'field') : id(j - 1, 'field'));
+          };
+          row.append(x);
+        }
+        wrap.append(row);
+      });
+      const add = el('button', 'mb-add', '+ Add a line');
+      add.type = 'button';
+      add.id = `atqm-mb-${i}-add`;
+      add.disabled = conds.length >= MAX_CONDS;
+      add.title = add.disabled ? `Up to ${MAX_CONDS} lines` : 'Check another field too (and), or instead (or)';
+      add.onclick = () => {
+        conds.push(newCond('and', AT.text.checkFields.find(n => !conds.some(c => same(c.field, n))) || 'Status'));
+        redraw(id(conds.length - 1, 'field'));
+      };
+      wrap.append(add);
+      const mixed = conds.some(c => c.join === 'and') && conds.some(c => c.join === 'or');
+      wrap.append(el('div', 'mb-hint', VALUES_HINT + (mixed ? ' And is checked before or: "A and B, or C" carries on when A and B both match, or when C does.' : '')));
+      return wrap;
     }
 
     function flash(t) {

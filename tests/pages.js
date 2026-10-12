@@ -8,9 +8,12 @@ const field = (label, value) => '<div class="ReadOnlyData QuickEditEnabled"><div
   `<div class="Text ClickEnabled"><span class="PrimaryText">${label}</span></div><div class="Required">*</div><div class="WalkMeIconPlaceholder"></div></div></div>` +
   `<div class="ReadOnlyValueContainer"><div class="Value">${value}</div></div></div>`;
 const linkTo = text => `<div class="LinkButtonWrapper2"><div class="LinkButton2" tabindex="0"><div class="Text2">${text}</div></div></div>`;
-// status: a Status field too, as a colour band (none unless given)
-const ticketPage = (id, account, { contact = 'Jo Bloggs', subIssue = 'Other', workType = 'Remote Support', status } = {}) => '<!doctype html><body>' +
+// status: a Status field too, as a colour band (none unless given). category: the heading too, with the ticket's
+// category and type (by the selectors in the docs; the heading's markup around them wasn't captured)
+const ticketPage = (id, account, { contact = 'Jo Bloggs', subIssue = 'Other', workType = 'Remote Support', status, category } = {}) => '<!doctype html><body>' +
   `<div class="TitleBarItem Title"><span class="Text">Ticket </span><span class="SecondaryText">- ${id} - Laptop</span></div>` +
+  (category ? `<div class="EntityHeadingContainer"><div class="CategoryChip"><div class="Name">${category}</div></div><div class="TypeChip">Incident</div>` +
+    `<div class="IdentificationText">${id}</div><div class="Title"><div class="Text">Laptop</div></div></div>` : '') +
   '<div class="ToolBar"><div class="Button2 ButtonIcon2 NormalBackground" id="edit" tabindex="0"><div class="Spacer"></div>' +
   '<div class="Icon2"><div class="StandardButtonIcon Edit"></div></div><div class="Text2">Edit</div><div class="Spacer"></div></div></div>' +
   '<div class="ReadOnlyDetailsContainer">' + field('Account', linkTo(account)) + field('Contact', linkTo(contact)) +

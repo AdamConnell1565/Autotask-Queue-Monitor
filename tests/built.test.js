@@ -149,6 +149,33 @@ test("on the ticket's page: its Only if is checked, then Enter edit mode presses
   wrong.close();
 });
 
+test("an Only if's lines: the Account, the Ticket Category in the heading, and goes before or; a field it can't find fails the ticket", async () => {
+  const run = async (opts, conds) => {
+    const env = load({ now: NOW, ...tab, html: ticketWithMore(opts), storage: job('open', [{ type: 'onlyIf', conds }, EDIT, PWR, SAVE]) });
+    fast(env.api);
+    await env.api.macroWork();
+    const it = item(env.api);
+    env.close();
+    return [it.state, it.note];
+  };
+  const fabrikam = { field: 'Account', op: 'is', value: 'Contoso, Fabrikam Ltd' }, isNew = { join: 'and', field: 'Status', op: 'is', value: 'New' };
+  const standard = { join: 'or', field: 'Ticket Category', op: 'is', value: 'Standard' };
+  // Account and Status both match
+  assert.deepEqual(await run({ status: 'New' }, [fabrikam, isNew]), ['run', '']);
+  // Only one does: skipped, with what both showed
+  assert.deepEqual(await run({ status: 'Complete' }, [fabrikam, isNew]), ['skipped', 'Account is Fabrikam Ltd, Status is Complete']);
+  // (Account and Status), or Ticket Category: the category alone is enough
+  assert.deepEqual(await run({ status: 'Complete', category: 'Standard' }, [fabrikam, isNew, standard]), ['run', '']);
+  assert.deepEqual(await run({ status: 'Complete', category: 'Project' }, [fabrikam, isNew, standard]),
+    ['skipped', 'Account is Fabrikam Ltd, Status is Complete, Ticket Category is Project']);
+  // Ticket Category, or (Account and Status): and still goes first, wherever it is
+  assert.deepEqual(await run({ status: 'New', category: 'Project' }, [{ ...standard, join: undefined }, { ...fabrikam, join: 'or' }, isNew]), ['run', '']);
+  // The Ticket Type, in the heading too
+  assert.deepEqual(await run({ status: 'New', category: 'Standard' }, [{ field: 'Ticket Type', op: 'not', value: 'Incident' }]), ['skipped', 'Ticket Type is Incident']);
+  // No heading on this page: the category can't be checked, whatever the other lines say
+  assert.deepEqual(await run({ status: 'New' }, [fabrikam, isNew, standard]), ['failed', "Couldn't find the Ticket Category field on the ticket's page"]);
+});
+
 test("Enter edit mode reads a field only filled in where it's empty off the ticket's page first; the edit page then leaves it alone", async () => {
   const steps = [EDIT, set('Work Type', 'Onsite', true), SAVE];
   const open = load({ now: NOW, ...tab, html: ticketPage(A, 'Fabrikam Ltd'), storage: job('open', steps) });

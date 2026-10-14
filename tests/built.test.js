@@ -4,14 +4,14 @@ process.env.TZ = 'UTC';
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { load } = require('./harness');
-const { ticketPage, realEditPage, editorLabel, itemPicker, dataPicker, section, autotaskPickers } = require('./pages');
+const { ticketPage, realEditPage, editorLabel, itemPicker, dataPicker, section, autotaskPickers, activityToolbar } = require('./pages');
 
 const NOW = Date.UTC(2026, 9, 7, 12, 0);
 const A = 'T20261007.0081', B = 'T20261007.0082';
 const plain = v => JSON.parse(JSON.stringify(v));
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const button = (root, re) => [...root.querySelectorAll('button')].find(b => re.test(b.textContent));
-const fast = api => Object.assign(api.MACRO, { settle: 0, pick: 300, retype: 0, confirm: 300, saved: 500 });
+const fast = api => Object.assign(api.MACRO, { settle: 0, pick: 300, retype: 0, confirm: 300, saved: 500, find: 300 });
 const item = api => plain(api.macroJob().items[0]);
 
 // The blocks
@@ -80,14 +80,9 @@ const timeDialog = ({ ticket = A, summary = '', internal = 'Called the customer.
   '</div></div>';
 const timePage = opts => '<!doctype html><body>' + timeDialog(opts) + '</body>';
 // The ticket page with its activity toolbar as captured (New Time Entry, New Note, New Attachment, Refresh), and a note
-// type list in its Quick note
-const ticketWithMore = (opts) => ticketPage(A, 'Fabrikam Ltd', opts)
-  .replace('<div class="QuickNote">', '<div class="ToolBar"><div class="ToolBarItem Left ButtonGroupStart"><div class="Button2 ButtonIcon2 NormalBackground" id="newtime" tabindex="0">' +
-    '<div class="Spacer"></div><div class="Icon2"><div class="StandardButtonIcon Time"></div></div><div class="Text2">New Time Entry</div><div class="Spacer"></div></div></div>' +
-    '<div class="ToolBarItem Left"><div class="Button2"><div class="Icon2"><div class="StandardButtonIcon Note"></div></div><div class="Text2">New Note</div></div></div>' +
-    '<div class="ToolBarItem Left ButtonGroupEnd"><div class="Button2"><div class="Icon2"><div class="StandardButtonIcon Attachment"></div></div><div class="Text2">New Attachment</div></div></div>' +
-    '<div class="ToolBarItem Left"><div class="Button2 IconOnly2"><div class="Icon2"><div class="StandardButtonIcon Refresh"></div></div><div class="Text2"></div></div></div></div>' +
-    '<div class="QuickNote">')
+// type list in its Quick note. toolbar: another toolbar ('' for none yet)
+const ticketWithMore = (opts = {}) => ticketPage(A, 'Fabrikam Ltd', opts)
+  .replace('<div class="QuickNote">', (opts.toolbar ?? activityToolbar()) + '<div class="QuickNote">')
   .replace('<textarea placeholder="Add a note..."></textarea>', '<textarea placeholder="Add a note..."></textarea>' +
     '<select class="DropDownList2"><option value="1">Task Detail</option><option value="2">Internal Note</option></select>');
 // The Quick note as it behaves: its Save comes on once something's typed; saved, the box empties and Save goes grey
@@ -450,6 +445,59 @@ test("the time entry as Autotask builds it, a dialog laid over the ticket's page
   assert.deepEqual(notes, [['Logged the time.', '1']]);
   assert.deepEqual(plain([item(api).state, item(api).did]), ['done',
     ['Time entry speed code PWR-100', 'Date: 02/01/2026', 'Start Time: 10:30', 'Status: Complete', 'Saved a time entry', 'Quick note']]);
+  close();
+});
+
+test('New time entry waits for the activity toolbar, built after the rest of the ticket page; one greyed out or hidden says so', async () => {
+  const steps = [NEW_TIME, { type: 'hours', hours: '1' }, SAVE_ENTRY];
+  const { api, window, close } = load({ now: NOW, ...tab, html: ticketWithMore({ toolbar: '' }), storage: job('open', steps) });
+  fast(api);
+  api.MACRO.find = 3000;
+  const doc = window.document;
+  // The toolbar a moment after the macro starts; New Time Entry lays the time entry over the page
+  setTimeout(() => {
+    doc.querySelector('.QuickNote').insertAdjacentHTML('beforebegin', activityToolbar());
+    doc.getElementById('newtime').addEventListener('click', () => doc.body.insertAdjacentHTML('beforeend', timeDialog()));
+  }, 600);
+  await api.macroWork();
+  assert.deepEqual(plain([item(api).state, item(api).step, item(api).navAt]), ['run', 1, null], 'pressed once it showed, and in the time entry');
+  assert.equal(api.pageKind(item(api)), 'time');
+  close();
+
+  const run = async toolbar => {
+    const env = load({ now: NOW, ...tab, html: ticketWithMore({ toolbar }), storage: job('open', steps) });
+    fast(env.api);
+    let pressed = 0;
+    env.window.document.getElementById('newtime').addEventListener('click', () => pressed++);
+    await env.api.macroWork();
+    const out = [item(env.api).state, item(env.api).note, pressed];
+    env.close();
+    return out;
+  };
+  assert.deepEqual(await run(activityToolbar({ greyed: true })), ['failed', "New Time Entry is greyed out on the ticket's page", 0]);
+  assert.deepEqual(await run(activityToolbar().replace('<div class="ToolBar">', '<div class="ToolBar" style="display:none">')),
+    ['failed', "New Time Entry is on the ticket's page, but hidden", 0]);
+});
+
+test("a time entry slow to show (in a dialog of Autotask's) isn't taken for a question; the page that pressed New Time Entry carries on in it", async () => {
+  const steps = [NEW_TIME, { type: 'hours', hours: '1' }, SAVE_ENTRY];
+  const { api, window, close } = load({ now: NOW, ...tab, html: ticketWithMore(), storage: job('open', steps) });
+  fast(api);
+  const doc = window.document;
+  window.Date.now = () => NOW + 1000; // pressed after this page loaded
+  // Its dialog shows at once, but without Save & Close yet, so it isn't a time entry to fill in until that's there (and
+  // no Quick note, whose Save would do)
+  doc.querySelector('.QuickNote').remove();
+  doc.getElementById('newtime').addEventListener('click', () => {
+    doc.body.insertAdjacentHTML('beforeend', '<div role="dialog" class="Dialog" id="shell">' + timeDialog().replace('Save &amp; Close', '') + '</div>');
+  });
+  await api.macroWork();
+  assert.deepEqual(plain([item(api).state, item(api).step, item(api).navAt]), ['run', 1, NOW + 1000], 'not failed: still loading');
+  doc.querySelector('#tsave .Text2').textContent = 'Save & Close';
+  doc.getElementById('tsave').addEventListener('click', () => doc.getElementById('shell').remove());
+  await api.macroWork();
+  assert.equal(doc.getElementById('shell'), null, 'filled in and saved');
+  assert.deepEqual(plain([item(api).step, item(api).did]), [3, ['Hours Worked: 1', 'Saved a time entry']]);
   close();
 });
 

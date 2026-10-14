@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.21.1 (2026-10-13)
+
+### Fixed
+
+- **New time entry failed on tickets that had the button.** The block looked for New Time Entry once, as soon as the ticket page showed, but the toolbar it's in seems to be built after the rest of the page. A built macro's buttons are now waited for, up to 10 seconds, and while they're greyed out. When one still can't be pressed, the note says whether it's greyed out, hidden, or not there at all.
+- **The Queue monitor and the dashboard showed inside tickets.** A ticket opened on its own in a tab or window without a link back to the page that opened it, such as one opened from the dashboard's ticket links, didn't count as a ticket pop-up. So it got the Queue monitor window, and could open the dashboard over itself. Any ticket shown on its own (its page is the whole window) now counts as a pop-up, however it was opened: with **Hide in ticket pop-up windows** on, as it is to start with, it gets its **Macros** button instead. The dashboard never opens over one. A page that only turns out to be a ticket once its title bar shows puts the window away within a few seconds, and so does turning the setting on.
+- **"Seen" showed on tickets you hadn't seen.** The button on a ticket with changes you haven't looked at said **Seen**, and went once you had looked. It now says **Unseen**, as a chip. Pressing it still marks the ticket as seen, and so does opening the ticket.
+- **A time entry slow to show could fail the ticket.** If the wait after New Time Entry ran out first, the time entry's own dialog was taken for Autotask asking a question ("New time entry didn't go through: Autotask asked…"). Once it did show, the page that pressed the button took itself for a page left behind and wouldn't carry on in it. Now neither happens.
+
 ## 0.21.0 (2026-10-12)
 
 ### Added

@@ -69,7 +69,7 @@ test('Next up: what you are doing first, then deadlines, then everything waiting
   close();
 });
 
-test('Seen clears a ticket\'s changes; it keeps its place in the list', () => {
+test('marking a ticket seen (its Unseen button) clears its changes; it keeps its place in the list', () => {
   const { api, close } = load({ now: NOW, storage });
   api.markTicketRead(REPLIED);
   api.markTicketRead(ARRIVED);

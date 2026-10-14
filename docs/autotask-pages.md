@@ -28,6 +28,7 @@ In Autotask's new layout, an outer page holds the top bar and side panels. Autot
 ```
 
 - **Two copies of the script.** It runs in both pages. The Queue monitor window, with its Macros tab, is in the outer page. The copy in the frame reads and clicks the page there: the queue grid, the ticket, the edit page.
+- **A ticket on its own.** A ticket can also be the whole window or tab, with no outer page around it: a pop-up Autotask opens, a tab opened from a ticket link, a macro tab. Its URL is `AT.path.ticketDetail`, and its title bar ("Ticket - T… - …", `AT.sel.ticketTitle`) is in the top document. `ticketAlone()` goes by either. Such a page counts as a ticket pop-up (`isPopup()`), whether or not it has an opener, so with `hideInPopups` on it gets the Macros button (`renderTicketPill()`) and not the Queue monitor window. The dashboard never opens over it. Before October 2026 only a window with an opener counted, so a ticket tab opened from the dashboard's links (`rel="noopener"`) got the whole Queue monitor, and could open the dashboard inside the ticket.
 - **The frame reports what it shows.** `reportPage()` sends the outer page a `page` message. It says which queue the frame shows (if it's one of My Workspace's), whether it shows a list of tickets, which tickets are ticked, and which ticket it shows. That's how the Macros tab in the outer page can see your ticks and the open ticket. `pageInfo()` in the outer page uses the report while it's less than 25 seconds old.
 - **Lists that aren't queues.** A dashboard widget's drill-down (`/Mvc/ServiceDesk/TicketGridWidgetDrilldown.mvc/PrimaryStandardDrilldown?…`) is a ticket grid without the queue menu. A macro can change the tickets you tick there, but the list isn't monitored.
 - **Ticked rows** are marked by the grid's own drawn tick box ([Ticket grids](#ticket-grids)), which the frame reads and reports.
@@ -144,12 +145,12 @@ Element IDs (`z` followed by 32 hex characters) change on every page load, so ne
 
 ### Activity toolbar
 
-Above the activity area, a toolbar of its own, built the same way. Captured October 2026.
+Above the activity area, a toolbar of its own, built the same way. Captured October 2026, and again the same when New time entry was failing.
 
 ```html
 <div class="ToolBar">
   <div class="ToolBarItem Left ButtonGroupStart"><div data-tabbing-system="1" data-alpha-id="z…">
-    <div class="Button2 ButtonIcon2 NormalBackground" id="z…" tabindex="0">
+    <div class="Button2 ButtonIcon2 NormalBackground" data-eii="…" id="z…" tabindex="0">
       <div class="Spacer"></div><div class="Icon2"><div class="StandardButtonIcon Time"></div></div>
       <div class="Text2">New Time Entry</div><div class="Spacer"></div>
     </div>
@@ -161,7 +162,10 @@ Above the activity area, a toolbar of its own, built the same way. Captured Octo
 </div>
 ```
 
+- Each button sits in a `<div data-tabbing-system="1">` whose `data-alpha-id` is the button's own id, and carries a `data-eii` code. Nothing uses either. `findButton()` goes by the `.Text2` label and clicks the `.Button2`, as for the main toolbar.
 - A built macro's **New time entry** presses New Time Entry with `findButton()` (the first of `AT.text.newTimeButtons`).
+- **It may not be there yet.** In October 2026 macros failed at New time entry on tickets whose page did have the button. The likeliest reason is that this toolbar is built after the rest of the page. The block looked once, as soon as the ticket page showed (its Edit button), and found nothing. So a built macro's button blocks now wait up to `MACRO.find` (10 s) for their button (`buttonFor()`), and for it to lose `Disabled2`.
+- **When it still can't be pressed**, the note says why: "New Time Entry is greyed out on the ticket's page" (it has `Disabled2`, as on a ticket you can't log time on), "…is on the ticket's page, but hidden" (its label is there but not visible), or "Couldn't find New Time Entry on the ticket's page" (no such label at all).
 - New Note opens a note: not captured, and no block uses it yet.
 
 ### Read-only fields
@@ -502,6 +506,7 @@ New Time Entry (the ticket page's [activity toolbar](#activity-toolbar)) opens i
 - **Save time entry** presses Save & Close (the first of `AT.text.timeSaveButtons`).
 - **The ticket it's for** is in `.IdentificationContainer .IdentificationText` (`AT.sel.formTicket`). `timeEntryPage()` doesn't take a time entry showing another ticket's number for this ticket's.
 - **The account alert** (`.MessageBarContainer`) is your own team's text about the customer: never copy it into a fixture or into this file.
+- **It's a dialog, not a question.** A message box that comes up after a block is taken as Autotask asking something, and the ticket fails (`answerDialog()`). A box holding a time entry's title (`isTimeEntry()`) is left out of those (`dialogs()`). Otherwise a time entry slow to be recognised, still in Autotask's dialog box when the wait after New Time Entry ran out, failed the ticket as "New time entry didn't go through: Autotask asked "New Ticket Time Entry…"".
 - **The speed code box** is the same `.FormTemplateSelector` as the edit page's, with its list (see [Speed code box](#speed-code-box)).
 
 **Its sections**, each a `.CollapsibleSectionContainer` with fields built as the edit page's (`.EditorLabelContainer1` and its editor):
@@ -521,8 +526,8 @@ New Time Entry (the ticket page's [activity toolbar](#activity-toolbar)) opens i
 **Not captured yet** (the capture stopped after Start Time):
 
 - End Time, Hours Worked, and Summary Notes and Internal Notes. Hours worked finds its field by `AT.text.hoursLabel`. **Summary notes** and **Internal notes** find a `<textarea>` or a box you type in (`contenteditable`) after their label (`AT.text.summaryLabel`, `internalLabel`, `findTextBox()`). A rich text editor in a frame of its own wouldn't be found, and the block says so.
-- **Where the dialog is**: laid over the ticket page in the same page, or in a frame of its own. The script handles both:
-  - **In the same page.** The ticket page counts as the time entry while the dialog shows (`pageKind()` looks for the time entry first). New time entry is through once it does, and Save time entry once Save & Close has gone.
+- **Where the dialog is**: it opens over the ticket page (seen October 2026), but whether in the same page or in a frame of its own isn't known yet. The script handles both:
+  - **In the same page.** The ticket page counts as the time entry while the dialog shows (`pageKind()` looks for the time entry first). New time entry is through once it does, and Save time entry once Save & Close has gone. One that takes longer to show than the wait after pressing (`MACRO.saved`) is still carried on in: the page that pressed New Time Entry remembers it did (`pressedHere`, the item's `navAt`), so it isn't taken for a page left behind.
   - **In a frame.** The copy of the script there does the time entry's steps (it knows the ticket from the macro tab's name). The ticket page waits, then loads again to carry on.
 - What Save & New and Save & Forward/Modify do. No block presses them.
 
@@ -535,7 +540,8 @@ The job keeps a step pointer per ticket (`item.step`). `runBuilt()` does the ste
 - **Leading to another page.** Where the ticket is up to (the next step, and `navAt`, when the button was pressed) is kept before the button is pressed, so the page it leads to carries on from there. `leadAway()` then waits:
   - for the page to go (a new page load) or the button to disappear (a page redrawn in place);
   - or for the page it leads to to show in this one (the time entry's dialog laid over the ticket page, its New Time Entry button still showing);
-  - or for a window of its own to open. Then this page is from before `navAt` (`PAGE_T0` is when each page loaded), so it waits. Once that window has had time to finish (`MACRO.stale`), the ticket page loads again to carry on.
+  - or for a window of its own to open. Then this page is from before `navAt` (`PAGE_T0` is when each page loaded), so it waits. Once that window has had time to finish (`MACRO.stale`), the ticket page loads again to carry on. A page from before `navAt` that pressed the button itself (`pressedHere`) isn't left behind: the page it led to has turned up in it.
+- **Finding the button.** A block's button is waited for, up to `MACRO.find`, while it isn't there yet or is greyed out (see [Activity toolbar](#activity-toolbar)). One in a drop-down menu counts as there: its menu is opened to press it.
   - If the page is still there after `MACRO.saved` and Autotask says why (a question, a marked field), the ticket fails. Otherwise it's left to load; one that never comes is given up on as stuck after `MACRO.stage`.
 - **Part-way.** While a step is under way its number is kept (`item.doing`). A page that loads again with one set fails the ticket rather than doing that step again, which could go round for ever.
 - **Fields by name.** A block names a field as you'd read it ("Sub-Issue Type"). `fieldSpec()` turns that into a label pattern like `AT.text`'s, allowing the trailing `*` and a space or hyphen either way. The names the builder offers are `AT.text.ticketFields` and `AT.text.timeFields`.

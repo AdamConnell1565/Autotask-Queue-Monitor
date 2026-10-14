@@ -298,9 +298,9 @@ test('boot: Next up shows the moves, the queues it is based on, and the change h
     // The minimised window shows the top move
     assert.match(doc.getElementById('atqm-mini').textContent, /Next: Resolution 10m overdue: T20261001\.0001/);
 
-    button(panel, /^Seen$/).click();
+    button(panel, /^Unseen$/).click();
     await sleep(50);
-    // Seen clears the change; the ticket still needs action, so it stays
+    // Unseen pressed clears the change; the ticket still needs action, so it stays
     assert.deepEqual(heads(), ['In progress', 'Waiting for you']);
     assert.equal(panel.querySelector('.atqm-chg'), null);
     assert.equal(doc.getElementById('atqm-tab-next').textContent, 'Next up (2)');

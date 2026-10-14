@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Autotask Queue Monitor
 // @namespace    autotask
-// @version      0.21.0
+// @version      0.21.1
 // @description  Track any My Workspace & Queues queue (My queue by default) in its own tab, with a live overview on every Autotask page
 // @author       AdamConnell1565
 // @homepageURL  https://github.com/AdamConnell1565/Autotask-Queue-Monitor
@@ -2031,8 +2031,8 @@
 .atqm-chip.ok{border-color:#3fb950}.atqm-chip.warn{border-color:#d29922}
 .atqm-hint.atqm-basis-hint{margin:0 0 8px}
 .atqm-tag.atqm-chg{background:#1f3350;color:#9cc8ff}
-.atqm-seen{background:#2b2f36;color:#c9d1d9;border:1px solid #444;border-radius:4px;padding:0 6px;margin-left:2px;cursor:pointer;font:inherit;font-size:11px}
-.atqm-seen:hover{background:#3a3e46}
+.atqm-seen{background:#1c2b40;color:#9cc8ff;border:1px solid #2f4b70;border-radius:999px;padding:0 7px;margin-left:4px;cursor:pointer;font:inherit;font-size:11px}
+.atqm-seen:hover{background:#24385a;border-color:#4ea1ff}
 .atqm-next li.doing::before{background:#4ea1ff;color:#0d1117}
 .atqm-list li.doing{border-color:#4ea1ff}.atqm-list li.doing .atqm-when{color:#9cc8ff;font-weight:600}
 .atqm-next li.atqm-next-more{font-weight:400}
@@ -3155,10 +3155,12 @@ label.set-label{cursor:pointer}
   const changeText = a => (a.to != null ? `${a.from || '?'} → ${a.to || '?'}` : a.text.split(': ').pop());
   const statusPair = a => (a.to != null ? [a.from, a.to] : a.text.split(': ').pop().split(' → '));
 
+  // On a ticket that has changed since you last looked: says so (Unseen), and pressed, marks it seen. It goes once
+  // you've seen it, here or by opening the ticket.
   function seenButton(t) {
-    const seen = el('button', 'atqm-seen', 'Seen');
-    seen.title = 'Mark the changes to this ticket as read';
-    seen.setAttribute('aria-label', `Mark the changes to ${t.id} as read`);
+    const seen = el('button', 'atqm-seen', 'Unseen');
+    seen.title = "Changed since you last looked. Press to mark it as seen (opening the ticket does too)";
+    seen.setAttribute('aria-label', `${t.id} has unseen changes: mark them as seen`);
     seen.onclick = () => { markTicketRead(t.id); render(); };
     return seen;
   }
@@ -3167,7 +3169,7 @@ label.set-label{cursor:pointer}
     set(K.alerts, get(K.alerts, []).map(a => (a.ticket === id && !a.read ? { ...a, read: true } : a)));
   }
 
-  // Opening a ticket counts as seeing its changes, without pressing Seen. While a ticket's page is open
+  // Opening a ticket counts as seeing its changes, without pressing Unseen. While a ticket's page is open
   // and in view its changes are marked read, and a status change the monitor notices meanwhile arrives
   // already read (see statusAlert).
   const VIEW_BEAT = 10000;
@@ -3178,6 +3180,13 @@ label.set-label{cursor:pointer}
       if (m) return m[0];
     }
     return null;
+  }
+  // A ticket on its own: its page is the whole window or tab, not in the frame of Autotask's outer page. However it
+  // was opened (Autotask's pop-up, or a link that leaves no opener, such as the dashboard's), it's a ticket pop-up:
+  // the Queue monitor window stays out of it (setting "Hide in ticket pop-up windows"; its Macros button instead),
+  // and the dashboard never opens over it.
+  function ticketAlone() {
+    return isTop && (location.pathname.toLowerCase().startsWith(AT.path.ticketDetail.toLowerCase()) || !!openTicketId());
   }
   function noteOpenTicket() {
     if (document.visibilityState === 'hidden' || macroPage()) return; // a macro opening it isn't you looking
@@ -3510,7 +3519,8 @@ label.set-label{cursor:pointer}
     { key: 'opacity', label: 'Opacity when expanded', unit: '%', type: 'number', min: 20, max: 100, step: 5 },
     { key: 'opacityMin', label: 'Opacity when minimised', unit: '%', type: 'number', min: 20, max: 100, step: 5,
       hint: 'The window turns fully opaque while the mouse is over it.' },
-    { key: 'hideInPopups', label: 'Hide in ticket pop-up windows', type: 'checkbox', hint: 'Takes effect on the next page load.' },
+    { key: 'hideInPopups', label: 'Hide in ticket pop-up windows', type: 'checkbox',
+      hint: "A ticket's page in a window or tab of its own, however it was opened: a Macros button in the corner instead." },
     { group: 'Dates and times', id: 'dates', icon: 'calendar', desc: 'How to read the dates and times Autotask shows.' },
     { key: 'dateOrder', label: 'Date format in Autotask', type: 'select',
       options: [['auto', 'Detect automatically'], ['DMY', 'Day/month (UK)'], ['MDY', 'Month/day (US)'], ['YMD', 'Year first (2026-10-02)']],
@@ -4327,9 +4337,10 @@ label.set-label{cursor:pointer}
   // Save (or another button that leads to another page) to go through; give up on a stuck step; load the ticket
   // again if it doesn't show the new account by then; load the ticket's page again once a page it led to, in a
   // window of its own, has had time to finish; how long a finished macro tab waits for the driving page to close
-  // it (or give it the next ticket) before it closes itself
+  // it (or give it the next ticket) before it closes itself; wait for a built macro's button to show (part of a
+  // page can be built after the rest: the ticket page's activity toolbar, with New Time Entry)
   const MACRO = { settle: 1500, pick: 3000, tries: 3, retype: 500, confirm: 3000, saved: 12000, stage: 120000, verify: 30000,
-    stale: 15000, linger: 3000 };
+    stale: 15000, linger: 3000, find: 10000 };
   const MACRO_ACTIVE = new Set(['open', 'edit', 'verify', 'run']);
   const MACRO_WORDS = {
     waiting: 'Waiting', open: 'Opening', edit: 'Editing', verify: 'Saving', run: 'Running', done: 'Done',
@@ -4350,6 +4361,7 @@ label.set-label{cursor:pointer}
   const macroTabs = new Map(); // ticket -> the tab this page opened for it
   let macroBusy = false;
   let reloading = false; // this page is loading again for its ticket's next step
+  let pressedHere = 0;   // when this page last pressed a built macro's button that leads on (the item's navAt)
 
   const macroJob = () => get(K.macro, null);
   // jobId: only while that job is still the one in hand (a page left over from a stopped one mustn't
@@ -4890,7 +4902,9 @@ label.set-label{cursor:pointer}
       : `Autotask didn't offer ${f.a} called "${name}" (tried ${MACRO.tries} times)` };
   }
 
-  const dialogs = () => [...document.querySelectorAll(AT.sel.dialog)].filter(d => notOurs(d) && visible(d) && clean(d.textContent));
+  // Message boxes showing. Not a time entry: a dialog too, but a page a block leads to, not a question.
+  const isTimeEntry = d => [...d.querySelectorAll(AT.sel.formTitle)].some(t => AT.text.timeTitle.test(clean((t.querySelector(AT.sel.ticketTitleKind) || t).textContent)));
+  const dialogs = () => [...document.querySelectorAll(AT.sel.dialog)].filter(d => notOurs(d) && visible(d) && clean(d.textContent) && !isTimeEntry(d));
   // A message box that came up while editing. One with just OK is acknowledged; one that asks something
   // isn't answered, so the ticket is left unsaved. Returns what it asked.
   function answerDialog(before) {
@@ -5374,7 +5388,9 @@ label.set-label{cursor:pointer}
     const still = () => macroItemState(item.id, jid) === from;
     const page = pageKind(item);
     if (!page || page !== (i < steps.length ? pages[i] : 'ticket')) return; // not this page's turn, or its page isn't up yet
-    if (item.navAt && PAGE_T0 < item.navAt) {
+    // From before the press that led on: a page left behind, waiting (Autotask opened the next one in a window of its
+    // own). Unless this page pressed it and the next one has turned up in it since (a time entry slow to show)
+    if (item.navAt && PAGE_T0 < item.navAt && item.navAt !== pressedHere) {
       if (page === 'ticket' && Date.now() - item.navAt > MACRO.stale && !reloading) { reloading = true; location.reload(); }
       return;
     }
@@ -5406,7 +5422,8 @@ label.set-label{cursor:pointer}
         // Where it's up to, kept before pressing: the page it leads to carries on from the next block. Save ticket
         // leaves the fields it set to be checked on the ticket's page.
         const leaves = !!t.to && t.to !== page;
-        patch({ step: i + 1, doing: null, navAt: Date.now(), did, kept, had, picks: leaves ? {} : picks, verify: s.type === 'saveTicket' ? picks : null });
+        pressedHere = Date.now();
+        patch({ step: i + 1, doing: null, navAt: pressedHere, did, kept, had, picks: leaves ? {} : picks, verify: s.type === 'saveTicket' ? picks : null });
         const res = await leadAway(r.go, before, r.done, leaves ? () => pageKind(item) === t.to : null);
         if (res.problem) return patch({ state: 'failed', note: t.changes ? `Not saved: ${res.problem}` : `${t.name} didn't go through: ${res.problem}` });
         if (res.how === 'opened' || res.how === 'pending') return; // a window of its own (or the page loading) carries on; this page waits
@@ -5442,20 +5459,30 @@ label.set-label{cursor:pointer}
     return done ? { problem: `pressed ${clean(btn.textContent)}, but it didn't finish` } : { how: 'pending' };
   }
   // A button by its names (the first there is), in one of the page's drop-down menus if need be (the menu opened to
-  // show it), as a block that leads on
+  // show it), as a block that leads on. Waited for, as part of a page can be built after the rest (the ticket page's
+  // activity toolbar, with New Time Entry), and while it's greyed out. Still not usable: whether it's greyed out,
+  // there but hidden, or not there at all.
   async function buttonFor(names, label, ctx, extra = {}) {
+    const on = PAGES[ctx?.page || 'ticket'].on;
+    const usable = b => !!b && !b.closest(AT.sel.disabledButton);
+    await waitSteps(() => names.some(n => usable(findButton(n)) || menuText(n)), MACRO.find);
     for (const n of names) {
       const b = await menuButton(n);
-      if (b) return { go: b, ...extra };
+      if (usable(b)) return { go: b, ...extra };
     }
-    return { fail: `Couldn't find ${label} ${PAGES[ctx?.page || 'ticket'].on}` };
+    if (names.some(findButton)) return { fail: `${label} is greyed out ${on}` };
+    const there = names.some(n => [...document.querySelectorAll(AT.sel.buttonText)].some(e => clean(e.textContent) === n && notOurs(e)));
+    return { fail: there ? `${label} is ${on}, but hidden` : `Couldn't find ${label} ${on}` };
   }
+  // A button's label in one of the page's drop-down menus (hidden until the menu opens)
+  const menuText = text => [...document.querySelectorAll(AT.sel.buttonText)]
+    .find(e => clean(e.textContent) === text && notOurs(e) && e.closest(AT.sel.menu) && e.closest(AT.sel.dropButton));
   // A button that may be in a drop-down menu (the edit page's Save & ..., Tools): showing already, or its menu opened
   // to show it. null if there's none.
   async function menuButton(text) {
     const shown = findButton(text);
     if (shown) return shown;
-    const hidden = [...document.querySelectorAll(AT.sel.buttonText)].find(e => clean(e.textContent) === text && notOurs(e) && e.closest(AT.sel.menu));
+    const hidden = menuText(text);
     const drop = hidden?.closest(AT.sel.dropButton), menu = hidden?.closest(AT.sel.menu);
     if (!drop) return null;
     const opener = [...drop.querySelectorAll(AT.sel.menuOpener)].find(e => !menu.contains(e) && visible(e)) || drop;
@@ -7151,8 +7178,8 @@ label.set-label{cursor:pointer}
 
   function renderDashboard(items) {
     let d = document.getElementById('atqm-dash');
-    // The Queue monitor window is put away while it's open, as for Settings
-    const open = isTop && dashOpen();
+    // The Queue monitor window is put away while it's open, as for Settings. Never over a ticket on its own.
+    const open = isTop && dashOpen() && !ticketAlone();
     document.documentElement.classList.toggle('atqm-dash-open', open);
     if (!open) {
       if (mcWin?.dash) closeMacroWindow();
@@ -7557,7 +7584,7 @@ label.set-label{cursor:pointer}
     w.querySelector('#atqm-toggle').textContent = get(K.enabled, false) ? 'Pause' : 'Start';
 
     renderPageBanner(w.querySelector('#atqm-page'), pg);
-    w.querySelector('#atqm-dashbtn').hidden = !CONFIG.dashboard;
+    w.querySelector('#atqm-dashbtn').hidden = !CONFIG.dashboard || ticketAlone();
     renderDashboard(nextItems);
 
     // The red count: tickets that need you within the hour (the unread changes are counted under Recent changes)
@@ -7943,12 +7970,21 @@ label.set-label{cursor:pointer}
       clearLaunch(); // nothing to click on the way: it takes whatever queue is showing first
     }
   }
-  const isPopup = () => isTop && !!W.opener && !launchedTab();
+  const isPopup = () => isTop && ((!!W.opener && !launchedTab()) || ticketAlone());
 
   const wantsWidget = () => !(CONFIG.hideInPopups && isPopup()) && (isTop || (topHasNoBody && gridPresent()));
+  // Put away again: a page that has turned out to be a ticket on its own (its title bar built after the page
+  // loaded), or the setting turned on meanwhile
+  function dropWidget() {
+    if (mcWin?.panel || mcWin?.dash) closeMacroWindow();
+    document.getElementById('atqm')?.remove();
+    document.getElementById('atqm-dash')?.remove();
+    document.documentElement.classList.remove('atqm-dash-open');
+  }
   if (wantsWidget()) createWidget();
   const boot = setInterval(() => {
     if (!document.getElementById('atqm') && wantsWidget()) createWidget();
+    else if (document.getElementById('atqm') && !wantsWidget()) dropWidget();
     renderTicketPill();
     ensureNavMenu(); // back in Autotask's top bar soon after it's redrawn
     placeOurPages(); // and the dashboard or Settings below it, should it have moved

@@ -783,10 +783,12 @@ test('boot: in a queue, the Macros tab (on the right) is a grid; Change account 
 });
 
 test('boot: on a ticket, Change account in the Macros tab changes just that ticket, in its own page', async () => {
+  // A ticket on its own has its Macros button instead of the window, unless Hide in ticket pop-up windows is off
   const { window, close } = load({
     boot: true,
     html: ticketPage(A, 'Fabrikam Ltd'),
     url: 'https://ww5.autotask.net/Mvc/ServiceDesk/TicketDetail.mvc?workspace=False&ticketId=111',
+    settings: { hideInPopups: false },
     storage: { 'atqm:macro:accounts': ['Northwind Ltd'] },
   });
   try {

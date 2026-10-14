@@ -117,4 +117,18 @@ function autotaskPickers(doc, { found: lists = { acc: ['Northwind Ltd'], work: W
   }
 }
 
-module.exports = { field, linkTo, ticketPage, editPage, typesPage, offer, editorLabel, itemPicker, dataPicker, WORK_TYPES, section, realEditPage, autotaskPickers };
+// The ticket page's activity toolbar as captured (see docs/autotask-pages.md): each button in a data-tabbing-system
+// <div>, its id (made up by Autotask; `id` here) the same as that <div>'s data-alpha-id. New Time Entry, New Note,
+// New Attachment, then Refresh (an icon only). greyed: New Time Entry has Disabled2, as a button you can't use does
+const activityButton = (id, icon, text, more = '') => `<div data-tabbing-system="1" data-alpha-id="${id}">` +
+  `<div class="Button2 ButtonIcon2${more} NormalBackground" data-eii="000001Bb" id="${id}" tabindex="0"><div class="Spacer"></div>` +
+  `<div class="Icon2"><div class="StandardButtonIcon ${icon}"></div></div><div class="Text2">${text}</div><div class="Spacer"></div></div></div>`;
+const activityToolbar = ({ id = 'newtime', greyed = false } = {}) => '<div class="ToolBar">' +
+  `<div class="ToolBarItem Left ButtonGroupStart">${activityButton(id, 'Time', 'New Time Entry', greyed ? ' Disabled2' : '')}</div>` +
+  `<div class="ToolBarItem Left">${activityButton('note', 'Note', 'New Note')}</div>` +
+  `<div class="ToolBarItem Left ButtonGroupEnd">${activityButton('attach', 'Attachment', 'New Attachment')}</div>` +
+  '<div class="ButtonGroupDivider"></div><div class="ToolBarItem Left ButtonGroupStart ButtonGroupEnd LockedWidth">' +
+  activityButton('refresh', 'Refresh', '', ' IconOnly2') + '</div><div class="Spacer"></div></div>';
+
+module.exports = { field, linkTo, ticketPage, editPage, typesPage, offer, editorLabel, itemPicker, dataPicker, WORK_TYPES, section, realEditPage, autotaskPickers,
+  activityToolbar };

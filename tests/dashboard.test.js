@@ -271,6 +271,57 @@ test('boot: tickets ticked on the dashboard can have a queue macro run on them, 
   }
 });
 
+// A ticket's page on its own, as a tab or window of its own shows it (not inside Autotask's outer page)
+const TICKET_URL = 'https://ww5.autotask.net/Mvc/ServiceDesk/TicketDetail.mvc?workspace=False&ticketId=111';
+const ticketAlone = '<!doctype html><body><div class="TitleBarItem Title"><span class="Text">Ticket </span>' +
+  '<span class="SecondaryText">- T20261001.0001 - Printer</span></div>' +
+  '<div class="ToolBar"><div class="Button2" id="edit" tabindex="0"><div class="Text2">Edit</div></div></div></body>';
+
+test("boot: a ticket on its own, however it was opened, gets its Macros button, not the Queue monitor window or the dashboard", async () => {
+  // Opened by a link that leaves no opener (the dashboard's), with the dashboard noted as open on this very page
+  const { window, close } = load({ boot: true, now: NOW, url: TICKET_URL, html: ticketAlone, settings: { dashboard: true }, storage: DASH_STORAGE,
+    session: { 'atqm:dash': '/Mvc/ServiceDesk/TicketDetail.mvc?workspace=False&ticketId=111' } });
+  try {
+    const doc = window.document;
+    assert.ok(!window.opener, 'no opener');
+    await sleep(1700);
+    assert.equal(doc.getElementById('atqm'), null, 'no Queue monitor window');
+    assert.equal(doc.getElementById('atqm-dash'), null, 'no dashboard');
+    assert.ok(doc.getElementById('atqm-tkpill'), 'its Macros button instead');
+  } finally {
+    close();
+  }
+
+  // Hide in ticket pop-up windows turned off: the window, but still no dashboard, nor its button
+  const off = load({ boot: true, now: NOW, url: TICKET_URL, html: ticketAlone, settings: { dashboard: true, hideInPopups: false }, storage: DASH_STORAGE,
+    session: { 'atqm:dash': '/Mvc/ServiceDesk/TicketDetail.mvc?workspace=False&ticketId=111' } });
+  try {
+    const doc = off.window.document;
+    await sleep(200);
+    assert.ok(doc.getElementById('atqm'));
+    assert.equal(doc.getElementById('atqm-dashbtn').hidden, true);
+    assert.equal(doc.getElementById('atqm-dash'), null);
+  } finally {
+    off.close();
+  }
+});
+
+test('boot: a page that turns out to be a ticket on its own (its title bar built after it loaded) puts the Queue monitor window away', async () => {
+  const { window, close } = load({ boot: true, now: NOW, url: 'https://ww5.autotask.net/Autotask/AutotaskExtend/ExecuteCommand.aspx?Code=OpenTicketDetail',
+    storage: DASH_STORAGE });
+  try {
+    const doc = window.document;
+    await sleep(200);
+    assert.ok(doc.getElementById('atqm'), 'nothing says ticket yet');
+    doc.body.insertAdjacentHTML('beforeend', ticketAlone.replace(/^<!doctype html><body>|<\/body>$/g, ''));
+    await sleep(3200);
+    assert.equal(doc.getElementById('atqm'), null);
+    assert.ok(doc.getElementById('atqm-tkpill'));
+  } finally {
+    close();
+  }
+});
+
 test('boot: the red count is the tickets that need you within the hour, not unread changes', async () => {
   const { window, close } = load({ boot: true, now: NOW, storage: DASH_STORAGE });
   try {

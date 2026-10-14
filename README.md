@@ -57,7 +57,7 @@ The first tab in the window lists what to do next, most urgent first, across eve
 
 Tickets without an SLA aren't forgotten: a ticket still in New status with no first response SLA gets a **response target** (1 hour by default, in Settings), so it lines up against your SLAs by time, and you get an alert when the target passes.
 
-Each ticket appears once, in its most urgent group. A ticket that has changed since you last looked shows what it was, with a **Seen** button to mark the change as read. Opening the ticket in Autotask does the same: its changes count as seen while its page is open in front of you, and a status change made while it's open (usually by you) arrives already seen, without a ping. The tab's count is the number of things in groups 1 to 5, and the minimised window shows the top one. The red count at the top of the window is the tickets that need you within the hour: overdue, or with a deadline in the next 60 minutes (hover it for the split).
+Each ticket appears once, in its most urgent group. A ticket that has changed since you last looked shows what it was, marked **Unseen**. Press **Unseen** to mark it as seen, and the mark goes. Opening the ticket in Autotask does the same: its changes count as seen while its page is open in front of you, and a status change made while it's open (usually by you) arrives already seen, without a ping. The tab's count is the number of things in groups 1 to 5, and the minimised window shows the top one. The red count at the top of the window is the tickets that need you within the hour: overdue, or with a deadline in the next 60 minutes (hover it for the split).
 
 What goes in the list follows your setup: which queues you track and how (a queue tracked for new tickets & first response only contributes new tickets and first responses), the "due soon" thresholds, the statuses that need action, the response target, and whether service calls are on. The top of the tab shows the queues and settings it's working from.
 
@@ -77,7 +77,7 @@ A ticket in any other status rests: it stays visible (in the dashboard's ticket 
 
 The **Macros** tab, on the right of the window, does repetitive jobs on tickets for you: **Change account**, which is built in, and any you build yourself in the [Macro builder](#macro-builder). Each macro is a square. Click one to open its window: fill in what it asks for, choose which tickets to run it on, and press **Run**. Nothing runs until you press **Run**, and Esc or **Cancel** closes the window. A macro that asks for nothing can also run straight from its square with a double-click (a single click only opens its window).
 
-Ticket pop-up windows don't show the Queue monitor window (unless you turn off **Hide in ticket pop-up windows**), so they get a small **Macros** button in the bottom right corner instead, with the same squares, for that ticket.
+Ticket pop-up windows don't show the Queue monitor window (unless you turn off **Hide in ticket pop-up windows**), so they get a small **Macros** button in the bottom right corner instead, with the same squares, for that ticket. A ticket pop-up is any ticket shown on its own in a window or tab, without Autotask's top bar, however it was opened (by Autotask, or from a ticket link in the dashboard). The dashboard never opens over one.
 
 Where a macro can run depends on the page:
 
@@ -160,7 +160,7 @@ Your macros show the same progress list as Change account, with the step each ti
 - **Skipped**: an Only if didn't match.
 - **Check it**: saved, but a field it set shows something else on the ticket afterwards.
 
-It fails a ticket when Autotask doesn't offer the speed code or value (or offers several that match), a field or button isn't on the page or is greyed out, Autotask asks a question (a box with only OK is acknowledged), Autotask says why it won't save, or a page loads again part-way through a step. Whatever was saved before that stays saved.
+It fails a ticket when Autotask doesn't offer the speed code or value (or offers several that match), a field or button isn't on the page or is greyed out (a button is waited for up to 10 seconds first, as part of a page, such as the toolbar with New Time Entry, can show after the rest; the note says whether it was missing, hidden or greyed out), Autotask asks a question (a box with only OK is acknowledged), Autotask says why it won't save, or a page loads again part-way through a step. Whatever was saved before that stays saved.
 
 **Not all checked against Autotask yet:** the time entry (a dialog over the ticket's page) has been captured down to its Start Time, but not its Hours Worked, Summary Notes or Internal Notes (see [docs/autotask-pages.md](docs/autotask-pages.md#time-entry)). Those blocks find their boxes by label and fail the ticket with a note if the time entry is built differently. Try a new macro on one ticket first.
 
@@ -184,7 +184,7 @@ The ⛶ button at the top of the window opens a dashboard over the page, below A
 - **Service call reminders** at the top, with **Dismiss**, as in the Queue monitor window (which is put away while the dashboard is open).
 - **The numbers:** overdue, due in the next hour, waiting for a first response (and how many are past your response target), changed since you looked, tickets in your queues, and your next service call.
 - **Next up** as a table: one line per ticket with when, status, priority, queue, title and deadline.
-- **Every ticket in My queue** (and any other queue tracked for all changes) in a table under it: those that need action first, most urgent at the top, then those in a status that needs nothing yet. Each row has the status, priority, title, next deadline (when any ticket has one) and age, and a **Seen** button when it has changed.
+- **Every ticket in My queue** (and any other queue tracked for all changes) in a table under it: those that need action first, most urgent at the top, then those in a status that needs nothing yet. Each row has the status, priority, title, next deadline (when any ticket has one) and age, and **Unseen** when it has changed since you last looked (press it to mark it as seen).
 - **Deadlines in the next 8 hours** (only when something is due): a column per hour. Hover or tab to a column for its tickets, or press **Table** for the same as a table.
 - **Queues:** each queue's status and its tickets per status.
 - **Recent changes**, with **Mark all read**.

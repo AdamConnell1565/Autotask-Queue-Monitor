@@ -62,11 +62,27 @@ Queues in My Workspace & Queues, and dashboard widgets' drill-down lists, show t
 - **Ticked rows:** there's no real checkbox. The first cell draws one: `td.ImageSelectionCell .Decoration.Icon.CheckBox`, which gets `Selected` when ticked, as does the row (`tr.Display.Selected`). `tickedTickets()` looks for `.ImageSelectionCell .CheckBox.Selected` (`AT.sel.rowTicked`). Before October 2026 the script only looked for real checkboxes, so it never saw a tick.
 - **Links aren't `<a>`s:** each link cell has an `onclick` calling `autotask.siteNavigation.__openPage(new Autotask.NewWindowPage(page, url, …, idName, id, …))`. The ticket's links carry `'ticketId','<id>'` and a URL listing every ticket in the grid (`ids[0]`, `ids[1]`, …, for next and previous). Inside the attribute the `&`s are written `&`. `findTicketRef()` reads the ID from `'ticketId','<id>'`, and falls back to the row's `data-row-key`.
 - **Columns** follow the grid's own column layout, which you choose with the Column Chooser. So the ticket number is found by its pattern, and the other columns by their header names (`HEADERS`).
+- **Resources** (`HEADERS.resources`) lists everyone working the ticket in one plain `TextCell`, separated by ` | `. The primary resource comes first, marked ` (primary)`, then the secondary resources, unmarked: `Doe, Jane (primary) | Smith, John`. Names are as Autotask shows them, "Surname, First name", so a name has a comma of its own; split on `|`, never on commas. Captured October 2026 from My Workspace's Open Tickets. See [Secondary resources](#secondary-resources) for how the script reads it.
 - **Cell styles:**
   - Status and priority cells are `ColorizedTextCell` with a `ColorN` class, which is where the colours the monitor shows come from.
   - Date cells (`DateTimeCell`) hold the date and the time in two `<div>`s. `cellText()` uses `innerText`, so the two stay apart.
   - Empty cells are `EmptyCell`.
   - Width and alignment classes (`FW`, `LW`, `HW` with a number; `AL`, `AC`) mean nothing to the script.
+
+### Secondary resources
+
+My Workspace's **Open Tickets** (My queue) lists every ticket you're a resource on: those where you're the primary resource, and those where you're a secondary resource and someone else is the primary. Only the primary resource is responsible for the ticket. The grid's Resources column is the only place a queue says which you are:
+
+```html
+<td class="TextCell SA LW100 HW200 R AL">Smith, John (primary) | Doe, Jane</td>
+```
+
+- **`parseResources(text)`** splits the cell into `{ names, primary }`. The primary is the name marked `(primary)`. A cell with one name and no mark counts that name as the primary. With several names and none marked, `primary` is `''` and the ticket is never taken for a secondary one. `none` or an empty cell is no resources.
+- **Your name** isn't on the page in a form the script reads. `myName()` takes **Your name in Autotask** from Settings (`CONFIG.myName`), or else the name `learnMyName()` worked out from My queue and saved under `atqm:me` (`K.me`). As you're on every ticket in My queue, it's the name on the most of them: at least half, and more than any other name. A name already saved stays while no other name is on more tickets, so a queue where every ticket has the same two people keeps it. With a tie and nothing saved, nothing is guessed. It's worked out on each scan of My queue (`scanFull`), only there.
+- **`secondaryOf(t)`** gives the primary's name on a ticket where you're listed but aren't the primary, and `null` otherwise, including when your name or the Resources column is unknown. Names are compared ignoring case and spacing (`same()`). Everything about secondary tickets goes through it, so that's the one place to change.
+- **Snapshots** keep the cell's text as `resources` on each ticket. Whether a ticket is secondary is worked out when it's shown, not saved, so setting your name or adding the column takes effect straight away.
+- **What uses it:** `nextUpItems()` moves secondary tickets into their own `second` group (not one of `URGENT_GROUPS`) and drops the deadline they were listed for. `dueOf()` returns `null` for that group, which keeps them out of the red count, the dashboard's Overdue and Due in the next hour numbers and its deadlines chart. `dashboardStats()` leaves them out of Waiting for a first response and Need action. The dashboard's queue table (`ticketTable()`) puts them in a Secondary resource group at the end. Every list and table marks them with `secondaryTag()` (a dashed **Secondary** tag naming the primary on hover) and the `second` class on the line.
+- **Not yet:** alerts, SLA warnings and the change history treat secondary tickets as before. Queues other than My queue mark a ticket secondary only if their grid has the Resources column too, and only once your name is known.
 
 ## Top bar
 

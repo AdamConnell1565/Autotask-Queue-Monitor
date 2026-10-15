@@ -52,8 +52,9 @@ The first tab in the window lists what to do next, most urgent first, across eve
 3. **Overdue**: first responses, SLAs and response targets that are past due.
 4. **Due soon**: first responses, SLAs and response targets due within your "due soon" thresholds.
 5. **Waiting for you**: every other ticket in My queue that needs action (Action Required, Escalated, New and so on), new tickets in queues tracked for new tickets, and tickets in those queues that changed back into needing action. Tickets with a deadline (an SLA or response target) come first, soonest first; then the rest, oldest first by the ticket's age.
-6. **Coming up**: everything else with a deadline, soonest first.
-7. **Service calls later today**.
+6. **Secondary resource**: tickets that need action where you're a secondary resource and someone else is the primary resource (see [Secondary resource tickets](#secondary-resource-tickets)).
+7. **Coming up**: everything else with a deadline, soonest first.
+8. **Service calls later today**.
 
 Tickets without an SLA aren't forgotten: a ticket still in New status with no first response SLA gets a **response target** (1 hour by default, in Settings), so it lines up against your SLAs by time, and you get an alert when the target passes.
 
@@ -64,6 +65,19 @@ What goes in the list follows your setup: which queues you track and how (a queu
 Every ticket shows its status (in its Autotask colour) and priority.
 
 Underneath is **Recent changes**, the full history: new tickets, status changes, tickets leaving a queue, SLA warnings and service call changes. **Mark read** marks them all as read.
+
+## Secondary resource tickets
+
+My queue (Open Tickets) lists every ticket you're a resource on, including those where you're only a secondary resource. On those, someone else is the primary resource, the one responsible for the ticket. With the **Resources** column in the queue's grid (it shows, say, "Smith, John (primary) | Doe, Jane"), the monitor tells these tickets apart:
+
+- They're marked **Secondary**, with a dashed outline. Hover over it to see who the primary resource is.
+- In Next up they're in a **Secondary resource** group of their own, after Waiting for you. They aren't counted as needing you: they're not in the tab's count, the red count, the dashboard's Overdue, Due in the next hour, Waiting for a first response and Need action numbers, or its deadlines chart. Their deadline is still shown on the line.
+- In the dashboard's table of your queue they're in a **Secondary resource** group at the end.
+- Elsewhere (the Overview lists) they keep their place, marked **Secondary**.
+
+Their changes are still alerted and still show in Recent changes, as before.
+
+To know which name is yours, the monitor looks at My queue: you're on every ticket in it, so it takes the name on the most of them. If it can't tell (say My queue has one ticket, with two people on it), or picks the wrong name, set **Your name in Autotask** in Settings → Deadlines and statuses, as the Resources column shows it. Without the Resources column, nothing is marked.
 
 ## Statuses that need action
 
@@ -184,7 +198,7 @@ The ⛶ button at the top of the window opens a dashboard over the page, below A
 - **Service call reminders** at the top, with **Dismiss**, as in the Queue monitor window (which is put away while the dashboard is open).
 - **The numbers:** overdue, due in the next hour, waiting for a first response (and how many are past your response target), changed since you looked, tickets in your queues, and your next service call.
 - **Next up** as a table: one line per ticket with when, status, priority, queue, title and deadline.
-- **Every ticket in My queue** (and any other queue tracked for all changes) in a table under it: those that need action first, most urgent at the top, then those in a status that needs nothing yet. Each row has the status, priority, title, next deadline (when any ticket has one) and age, and **Unseen** when it has changed since you last looked (press it to mark it as seen).
+- **Every ticket in My queue** (and any other queue tracked for all changes) in a table under it: those that need action first, most urgent at the top, then those in a status that needs nothing yet, then those you're a [secondary resource](#secondary-resource-tickets) on. Each row has the status, priority, title, next deadline (when any ticket has one) and age, and **Unseen** when it has changed since you last looked (press it to mark it as seen).
 - **Deadlines in the next 8 hours** (only when something is due): a column per hour. Hover or tab to a column for its tickets, or press **Table** for the same as a table.
 - **Queues:** each queue's status and its tickets per status.
 - **Recent changes**, with **Mark all read**.
@@ -228,6 +242,8 @@ The monitor reads the queue's grid, so the grid needs these columns:
 | New & first response | The same, plus Created |
 | Service calls | Account, Start Date, End Date, Status, Priority, Description |
 
+**Resources** is optional. With it in My queue (and any other ticket queue), tickets where you're a secondary resource are marked (see [Secondary resource tickets](#secondary-resource-tickets)). It isn't added for you: add it with the grid's Column Chooser.
+
 If a column is missing, the window says which one and offers **Add missing columns**, which adds it through the grid's Column Chooser. That changes your saved view for that grid, which is why it asks first. Turn on **Add missing columns automatically** in Settings to skip the question.
 
 If a queue has more tickets than one page of the grid shows, the window offers **Show up to N rows** for the same reason. Tickets that aren't on the page aren't monitored.
@@ -239,7 +255,7 @@ Press the cog (⚙) at the top of the window, or **Settings** on the dashboard. 
 The sections, and the settings most people change:
 
 - **Tracked queues**: each queue's light and status, how it's tracked (**All changes** or **New & first response**), and **Stop**. **Quick start** sits above it.
-- **Deadlines and statuses**: **Warn when an SLA / first response is due within** (the "due soon" thresholds, for alerts and for Next up), **Respond to tickets without an SLA within** (the response target for tickets in New with no first response SLA; 0 turns it off) and **Statuses that need action** (see [Statuses that need action](#statuses-that-need-action)). The statuses are chips in their Autotask colours: × removes one, type a name and press Enter to add one, or pick from the other statuses seen in your queues.
+- **Deadlines and statuses**: **Warn when an SLA / first response is due within** (the "due soon" thresholds, for alerts and for Next up), **Respond to tickets without an SLA within** (the response target for tickets in New with no first response SLA; 0 turns it off) **Statuses that need action** (see [Statuses that need action](#statuses-that-need-action)) and **Your name in Autotask** (see [Secondary resource tickets](#secondary-resource-tickets); leave it empty to have it worked out). The statuses are chips in their Autotask colours: × removes one, type a name and press Enter to add one, or pick from the other statuses seen in your queues.
 - **Alerts**: **Desktop notifications** and **Sound on new alerts**. **Send a test** checks both.
 - **Service calls**: **Service calls**, **Refresh service calls every** (10 minutes by default, separate from the queues) and **Call reminders**.
 - **Monitoring**: **Refresh queues every**, **Monitor all queues from one tab** (see [One tab for all queues](#one-tab-for-all-queues)) and **Lock monitoring tabs**.

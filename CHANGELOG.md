@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.22.0 (2026-10-15)
+
+### Added
+
+- **Tickets you're a secondary resource on show differently.** My queue lists every ticket you're a resource on, including those where someone else is the primary resource, responsible for the ticket. With the Resources column in the grid ("Smith, John (primary) | Doe, Jane"), those tickets are marked **Secondary**, with a dashed outline, and the primary resource's name on hover. In Next up they're in a **Secondary resource** group of their own, after Waiting for you. They don't count as needing you: not in the tab's count, the red count, the dashboard's numbers or its deadlines chart. In the dashboard's table of your queue they're in a Secondary resource group at the end. Their changes are still alerted.
+- **Your name in Autotask** (Settings → Deadlines and statuses), as the Resources column shows it. Leave it empty and it's worked out from My queue: you're on every ticket there, so it's the name on the most of them.
+
 ## 0.21.1 (2026-10-13)
 
 ### Fixed

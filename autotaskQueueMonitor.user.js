@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Autotask Queue Monitor
 // @namespace    autotask
-// @version      0.21.1
+// @version      0.22.0
 // @description  Track any My Workspace & Queues queue (My queue by default) in its own tab, with a live overview on every Autotask page
 // @author       AdamConnell1565
 // @homepageURL  https://github.com/AdamConnell1565/Autotask-Queue-Monitor
@@ -168,6 +168,8 @@
     slaDue: /sla.*due|event\s*due/i,
     frDue: /first\s*response.*(due|by)|response\s*due/i,
     due: /^due(\s*date)?(\s*\/?\s*time)?$/i,
+    // "Doe, Jane (primary) | Smith, John": the primary resource, then any secondary ones (see parseResources)
+    resources: /^(primary\s+)?resources?(\s*\(role\))?$/i,
   };
   const CALL_HEADERS = {
     account: /^account(\s*name)?$/i,
@@ -217,6 +219,7 @@
     // Statuses that need action. A ticket in any other status rests: visible, but no deadlines in Next up,
     // no SLA warnings, and an alert when it moves back into one of these.
     actionStatuses: 'New, First Response, In Progress, Action Required, Waiting Internal, Escalated, Workshop, Dispatch',
+    myName: '',                   // your name as the Resources column shows it; '' = worked out from My queue
     autoColumns: false,           // add missing columns via the grid's Column Chooser without asking
     autoPageSize: false,          // switch the grid to its largest page size without asking
     dateOrder: 'auto',            // 'auto', 'DMY' (UK), 'MDY' (US) or 'YMD' (year first)
@@ -281,6 +284,7 @@
     popups: P + 'popups',             // what opening tabs has shown: { state: 'blocked' | 'allowed', ts, dismissed }
     statusColors: P + 'status:colors',// status (lower case) -> its colour in Autotask's grid, or null for plain
     priorityColors: P + 'priority:colors', // the same for priorities
+    me: P + 'me',                     // your name, worked out from My queue's Resources column: { name, ts }
   };
 
   const CONFIG = { ...DEFAULTS };
@@ -898,6 +902,7 @@
         title: col(cells, cols?.title),
         priority: col(cells, cols?.priority),
         account: col(cells, cols?.account),
+        resources: noneToEmpty(col(cells, cols?.resources)),
       });
     }
     learnDateOrder(raw.flatMap(x => [x.due, x.frDue, x.created]));
@@ -930,6 +935,54 @@
     }
     const cur = get(storeKey, {});
     if (Object.entries(found).some(([k, v]) => cur[k] !== v)) set(storeKey, { ...cur, ...found });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Resources: who works a ticket. The grid's Resources column lists them as "Doe, Jane (primary) | Smith, John":
+  // the primary resource, marked, then any secondary resources. The primary resource is the one responsible for
+  // the ticket; on a ticket where you're only a secondary resource, someone else is.
+  // ---------------------------------------------------------------------------
+  const PRIMARY_RE = /\s*\(primary\)\s*$/i;
+  // { names, primary }: primary is '' when it can't be told (several names, none marked)
+  function parseResources(text) {
+    const parts = String(text || '').split('|').map(clean).filter(p => p && !/^none$/i.test(p));
+    const names = parts.map(p => clean(p.replace(PRIMARY_RE, '')));
+    let i = parts.findIndex(p => PRIMARY_RE.test(p));
+    if (i < 0 && parts.length === 1) i = 0; // the only resource is the primary one
+    return { names, primary: i < 0 ? '' : names[i] };
+  }
+  // Your name as Autotask shows it: from Settings, or else worked out from My queue
+  const myName = () => clean(CONFIG.myName) || get(K.me, null)?.name || '';
+  // My queue lists the tickets you're a resource on, so you're on every one of them: the name on the most of its
+  // tickets (at least half, and more than any other name) is yours. One you were already taken to be stays while
+  // it's still on as many as any other, as when every ticket has the same two people.
+  function learnMyName(tickets) {
+    const counts = new Map();
+    let listed = 0;
+    for (const t of tickets) {
+      const names = parseResources(t.resources).names;
+      if (!names.length) continue;
+      listed++;
+      for (const n of new Set(names.map(x => x.toLowerCase()))) {
+        const c = counts.get(n) || { name: names.find(x => x.toLowerCase() === n), n: 0 };
+        c.n++;
+        counts.set(n, c);
+      }
+    }
+    if (!listed) return;
+    const top = Math.max(...[...counts.values()].map(c => c.n));
+    const best = [...counts.values()].filter(c => c.n === top);
+    const cur = get(K.me, null)?.name || '';
+    if (cur && best.some(c => same(c.name, cur))) return;
+    if (best.length === 1 && top * 2 >= listed) set(K.me, { name: best[0].name, ts: Date.now() });
+  }
+  // On a ticket where you're a secondary resource (listed, but someone else is the primary): the primary's name.
+  // Otherwise null: you're its primary resource, or not on it, or the grid has no Resources column.
+  function secondaryOf(t) {
+    const me = myName();
+    if (!me || !t?.resources) return null;
+    const { names, primary } = parseResources(t.resources);
+    return primary && !same(primary, me) && names.some(n => same(n, me)) ? primary : null;
   }
 
   // ---------------------------------------------------------------------------
@@ -1078,6 +1131,7 @@
       c.tgt = targetState(c);
     }
     writeSnap(q, current);
+    if (q.key === 'my') learnMyName(grid.tickets);
 
     const n = grid.tickets.length;
     if (!prev) return setState(q, { mode: 'ok', lastScan: now, count: n, ...coverage(grid), note: 'Baseline saved' });
@@ -2010,6 +2064,9 @@
 .atqm-list li.callnow .atqm-when{color:#7ee2a0;font-weight:600}
 .atqm-list li.callpast{border-color:#6b6f76}
 .atqm-list li.paused{border-color:#6b7686}
+.atqm-list li.second{border-color:#6b7686;border-left-style:dashed;opacity:.8}
+.atqm-next li.second::before{background:#3a3d44;color:#c9d1d9}
+.atqm-tag.atqm-2nd{background:none;color:#9aa4b2;border:1px dashed #6b7686;padding:0 3px;margin:0 0 0 5px}
 .atqm-next li.callnow::before{background:#3fb950;color:#0d1117}
 .atqm-next li.callsoon::before{background:#4ea1ff;color:#0d1117}
 .atqm-next li.call::before{background:#8b7cf6;color:#fff}
@@ -2100,6 +2157,7 @@
 .dash-tt tr.callnow td:first-child{box-shadow:inset 3px 0 #3fb950}.dash-tt tr.call td:first-child{box-shadow:inset 3px 0 #8b7cf6}
 .dash-tt tr.overdue .when{color:#ff7b7f}.dash-tt tr.soon .when{color:#e3b341}
 .dash-tt tr.resting td{color:#9aa4b2}.dash-tt tr.resting .tt{color:#c9d1d9}
+.dash-tt tr.second td{color:#9aa4b2}.dash-tt tr.second .tt{color:#c9d1d9}.dash-tt tr.second td:first-child{box-shadow:inset 3px 0 #6b7686}
 .dash-chart{position:relative;height:150px;margin:18px 4px 24px 30px}
 .dash-gl,.dash-base{position:absolute;left:0;right:0;height:0;border-top:1px solid #2c2f35}
 .dash-base{border-top-color:#383835}
@@ -2608,6 +2666,17 @@ label.set-label{cursor:pointer}
     return meta;
   }
 
+  // "Secondary" on a ticket where you're a secondary resource: someone else (named on hover) is responsible for it
+  function secondaryTag(t) {
+    const primary = secondaryOf(t);
+    if (!primary) return '';
+    const tag = el('span', 'atqm-tag atqm-2nd', 'Secondary');
+    tag.title = `You're a secondary resource on this ticket. ${primary} is the primary resource, responsible for it.`;
+    return tag;
+  }
+  // A list line's class, with "second" added on a ticket where you're a secondary resource
+  const withSecond = (cls, t) => (secondaryOf(t) ? `${cls} second`.trim() : cls);
+
   function statusChip(s, n) {
     const c = chip(s, n, statusClass(s));
     const color = statusColor(s);
@@ -2659,10 +2728,10 @@ label.set-label{cursor:pointer}
     if (!items.length) list.append(el('li', 'atqm-empty', emptyText));
     for (const t of items) {
       const diff = t[dueKey] - Date.now();
-      const li = el('li', dueState(t[dueKey], soon));
+      const li = el('li', withSecond(dueState(t[dueKey], soon), t));
       li.title = [t.account, t.priority, new Date(t[dueKey]).toLocaleString()].filter(Boolean).join(' | ');
       li.append(el('span', 'atqm-when', diff < 0 ? `${dur(diff)} overdue` : `in ${dur(diff)}`),
-                el('span', 'atqm-at', `(${dueAt(t[dueKey])})`), ticketLink(t.id, t));
+                el('span', 'atqm-at', `(${dueAt(t[dueKey])})`), ticketLink(t.id, t), secondaryTag(t));
       li.append(document.createElement('br'), ticketMeta(t), el('span', 'atqm-sub', subFn(t)));
       list.append(li);
     }
@@ -2734,8 +2803,8 @@ label.set-label{cursor:pointer}
     const nl = el('ul', 'atqm-list');
     if (!newest.length) nl.append(el('li', 'atqm-empty', 'Nothing in New status right now.'));
     for (const t of newest) {
-      const li = el('li', 'new');
-      li.append(el('span', 'atqm-when', ago(t.created || t.firstSeen)), ticketLink(t.id, t));
+      const li = el('li', withSecond('new', t));
+      li.append(el('span', 'atqm-when', ago(t.created || t.firstSeen)), ticketLink(t.id, t), secondaryTag(t));
       li.append(document.createElement('br'), ticketMeta(t), el('span', 'atqm-sub', [t.account, t.title].filter(Boolean).join(': ')));
       nl.append(li);
     }
@@ -2759,8 +2828,8 @@ label.set-label{cursor:pointer}
     panel.append(el('div', 'atqm-h', `No action needed (${rest.length})`));
     const list = el('ul', 'atqm-list');
     for (const t of rest.slice(0, CONFIG.upcomingCount)) {
-      const li = el('li', 'paused');
-      li.append(ticketLink(t.id, t), ' ', ticketMeta(t));
+      const li = el('li', withSecond('paused', t));
+      li.append(ticketLink(t.id, t), secondaryTag(t), ' ', ticketMeta(t));
       li.append(document.createElement('br'), el('span', 'atqm-sub', [t.account, t.title].filter(Boolean).join(': ')));
       list.append(li);
     }
@@ -3133,6 +3202,7 @@ label.set-label{cursor:pointer}
     ['breached', 'Overdue'],
     ['soon', 'Due soon'],
     ['waiting', 'Waiting for you'],
+    ['second', 'Secondary resource'],
     ['later', 'Coming up'],
     ['calls', 'Service calls later today'],
   ];
@@ -3140,6 +3210,8 @@ label.set-label{cursor:pointer}
   const isInProgress = t => /^in progress$/i.test(clean(t.status));
   const ageOf = t => t.created || t.firstSeen;
   const urgentCount = items => items.filter(it => URGENT_GROUPS.has(it.g)).length;
+  // Shown as in progress: yours, or a secondary resource ticket its primary resource is working on
+  const doingNow = it => it.g === 'doing' || (it.g === 'second' && isInProgress(it.t));
 
   // Unread changes per ticket, oldest first
   function unreadByTicket() {
@@ -3224,6 +3296,13 @@ label.set-label{cursor:pointer}
     const add = (g, item) => {
       if (taken.has(item.t.id)) return;
       taken.add(item.t.id);
+      // A ticket you're only a secondary resource on is someone else's to do: it's listed on its own, after
+      // what's waiting for you, and doesn't count as needing you
+      if (secondaryOf(item.t)) {
+        const { due, soon, what, ...rest } = item;
+        g = 'second';
+        item = { ...rest, age: ageOf(item.t) };
+      }
       groups[g].push({ g, ...item, dl: deadlineOf.get(item.t.id) || null, changes: unread.get(item.t.id) || [] });
     };
 
@@ -3289,6 +3368,10 @@ label.set-label{cursor:pointer}
     // Everything else with a deadline, soonest first
     for (const d of deadlines) add('later', d);
 
+    // Secondary resource tickets as the others: deadlines first, soonest first, then oldest
+    const secondBy = x => x.dl?.due ?? Infinity;
+    groups.second.sort((a, b) => secondBy(a) - secondBy(b) || a.age - b.age);
+
     return NEXT_GROUPS.flatMap(([g]) => groups[g]);
   }
 
@@ -3303,15 +3386,15 @@ label.set-label{cursor:pointer}
 
   function nextUpRow(it, showQueue) {
     const t = it.t, now = Date.now();
-    const li = el('li', it.due ? dueState(it.due, it.soon) : it.g === 'doing' ? 'doing' : 'new');
+    const li = el('li', it.g === 'second' ? 'second' : it.due ? dueState(it.due, it.soon) : it.g === 'doing' ? 'doing' : 'new');
     li.title = [qWhere(it.q), t.account, t.priority, t.status].filter(Boolean).join(' | ');
     if (it.due) {
       li.append(el('span', 'atqm-when', it.due < now ? `${dur(now - it.due)} overdue` : `in ${dur(it.due - now)}`),
                 el('span', 'atqm-at', `(${dueAt(it.due)})`));
     } else {
-      li.append(el('span', 'atqm-when', it.g === 'doing' ? 'in progress' : `waiting ${dur(now - it.age)}`));
+      li.append(el('span', 'atqm-when', doingNow(it) ? 'in progress' : `waiting ${dur(now - it.age)}`));
     }
-    li.append(ticketLink(t.id, t));
+    li.append(ticketLink(t.id, t), secondaryTag(t));
     if (it.changes.length) li.append(seenButton(t));
     li.append(document.createElement('br'));
     if (showQueue) li.append(el('span', 'atqm-tag', qName(it.q)));
@@ -3465,6 +3548,14 @@ label.set-label{cursor:pointer}
       sanitize: v => String(v).split(',').map(clean).filter(Boolean).join(', '),
       hint: "Comma-separated. Tickets in any other status stay visible but don't ask for action: no deadlines in Next up and " +
         'no SLA warnings. You get an alert when one moves into one of these. Leave empty to treat every status as needing action.' },
+    { key: 'myName', label: 'Your name in Autotask', type: 'text', sanitize: v => clean(v),
+      hint: () => {
+        const learnt = get(K.me, null)?.name;
+        return 'As the Resources column shows it, such as "Doe, Jane". Tickets where someone else is the primary resource and ' +
+          "you're a secondary one are marked Secondary, and listed on their own. " +
+          (clean(CONFIG.myName) ? '' : learnt ? `Leave empty to use the name worked out from My queue: ${learnt}.`
+            : 'Leave empty to work it out from My queue, once it has the Resources column.');
+      } },
     { group: 'Alerts', id: 'alerts', icon: 'bell', desc: 'How the monitor gets your attention, and how much it remembers.' },
     { key: 'notify', label: 'Desktop notifications', type: 'checkbox' },
     { key: 'sound', label: 'Sound on new alerts', type: 'checkbox' },
@@ -6777,7 +6868,8 @@ label.set-label{cursor:pointer}
   const dashTicked = new Map();
   const dashCtx = () => ({ dash: true, ticked: [...dashTicked.values()] });
   let dashMacros = null; // the macros bar's squares (see macroGrid), kept between redraws
-  const dueOf = it => it.due || it.dl?.due || null;
+  // A secondary resource ticket's deadline is its primary resource's to meet, not yours
+  const dueOf = it => (it.g === 'second' ? null : it.due || it.dl?.due || null);
   // Tickets in Next up that need you within the hour: overdue, or a deadline in the next 60 minutes
   const needYouWithinHour = items => items.filter(it => it.kind !== 'call' && dueOf(it) && dueOf(it) - Date.now() <= 3600000);
 
@@ -6792,12 +6884,12 @@ label.set-label{cursor:pointer}
     const age = t => t.created || t.firstSeen;
     const overdue = items.filter(it => { const d = dueOf(it); return d && d < now; });
     const nextHour = items.filter(it => { const d = dueOf(it); return d && d >= now && d - now <= HOUR; }).sort((a, b) => dueOf(a) - dueOf(b));
-    const waiting = all.filter(t => /^new$/i.test(t.status || '') && !resting(t));
+    const waiting = all.filter(t => /^new$/i.test(t.status || '') && !resting(t) && !secondaryOf(t));
     const pastTarget = CONFIG.responseTarget > 0 ? waiting.filter(t => targetDue(t) && targetDue(t) < now).length : 0;
     const unread = unreadByTicket();
     const changed = all.filter(t => !resting(t) && (unread.get(t.id) || []).some(isChange)).length;
     const high = all.filter(t => isHighPriority(t.priority)).length;
-    const acting = all.filter(t => !resting(t)).length;
+    const acting = all.filter(t => !resting(t) && !secondaryOf(t)).length;
     const stats = [
       { label: 'Overdue', value: overdue.length, status: overdue.length ? 'critical' : '', icon: 'alert',
         sub: overdue.length ? `longest ${dur(now - Math.min(...overdue.map(dueOf)))}` : 'nothing past due' },
@@ -6954,7 +7046,7 @@ label.set-label{cursor:pointer}
     return tr;
   }
   function ticketCell(t, changes) {
-    const c = cell('tk', ticketLink(t.id, t));
+    const c = cell('tk', ticketLink(t.id, t), secondaryTag(t));
     if (changes.length) c.append(seenButton(t));
     return c;
   }
@@ -7041,8 +7133,8 @@ label.set-label{cursor:pointer}
     const t = it.t, now = Date.now();
     // The left edge: overdue and due soon as everywhere, otherwise what you're doing or what's waiting
     const state = it.due ? dueState(it.due, it.soon) : '';
-    const tr = el('tr', state === 'overdue' || state === 'soon' ? state : it.g === 'doing' ? 'doing' : it.g === 'waiting' ? 'fresh' : '');
-    const when = it.due ? relDue(it.due, now) : it.g === 'doing' ? 'in progress' : `waiting ${dur(now - it.age)}`;
+    const tr = el('tr', it.g === 'second' ? 'second' : state === 'overdue' || state === 'soon' ? state : it.g === 'doing' ? 'doing' : it.g === 'waiting' ? 'fresh' : '');
+    const when = it.due ? relDue(it.due, now) : doingNow(it) ? 'in progress' : `waiting ${dur(now - it.age)}`;
     const due = it.due || it.dl?.due, what = it.due ? it.what : it.dl?.what;
     tr.append(tickCell(t, 'Next up'), cell('when', when), ticketCell(t, it.changes), statusCell(t, it.changes), priorityCell(t.priority));
     if (showQueue) tr.append(cell('', el('span', 'atqm-tag', qName(it.q))));
@@ -7075,14 +7167,17 @@ label.set-label{cursor:pointer}
     const unread = unreadByTicket();
     const rows = tickets.map(t => ({ t, d: ticketDeadline(t, q, { all: true }), age: t.created || t.firstSeen, changes: unread.get(t.id) || [] }));
     const byUrgency = (a, b) => (a.d ? a.d.due : Infinity) - (b.d ? b.d.due : Infinity) || a.age - b.age;
-    const act = rows.filter(r => !resting(r.t)).sort(byUrgency);
-    const rest = rows.filter(r => resting(r.t)).sort((a, b) => clean(a.t.status).localeCompare(clean(b.t.status)) || a.age - b.age);
+    // Tickets you're a secondary resource on are someone else's: in a group of their own, at the end
+    const second = rows.filter(r => secondaryOf(r.t)).sort(byUrgency);
+    const yours = rows.filter(r => !secondaryOf(r.t));
+    const act = yours.filter(r => !resting(r.t)).sort(byUrgency);
+    const rest = yours.filter(r => resting(r.t)).sort((a, b) => clean(a.t.status).localeCompare(clean(b.t.status)) || a.age - b.age);
     // A deadline column only when some ticket has one
     const withDeadline = rows.some(r => r.d);
     const names = ['Ticket', 'Status', 'Priority', 'Title', ...(withDeadline ? ['Next deadline'] : []), 'Age'];
     const table = el('table', 'dash-table dash-tt dash-mq');
     table.append(tickHead(names, tickets, qName(q)));
-    for (const [name, list] of [['Needs action', act], ['No action needed', rest]]) {
+    for (const [name, list] of [['Needs action', act], ['No action needed', rest], ['Secondary resource', second]]) {
       if (!list.length) continue;
       table.append(groupRow(name, list.length, names.length + 1));
       for (const r of list) table.append(ticketRow(r, withDeadline, qName(q)));
@@ -7092,7 +7187,7 @@ label.set-label{cursor:pointer}
   }
   function ticketRow({ t, d, age, changes }, withDeadline, where) {
     const now = Date.now();
-    const tr = el('tr', resting(t) ? 'resting' : d ? dueState(d.due, d.soon) : '');
+    const tr = el('tr', secondaryOf(t) ? 'second' : resting(t) ? 'resting' : d ? dueState(d.due, d.soon) : '');
     tr.append(tickCell(t, where), ticketCell(t, changes), statusCell(t, changes), priorityCell(t.priority), titleCell(t.title, t.account));
     if (withDeadline) {
       const due = cell('dl');
@@ -7939,7 +8034,7 @@ label.set-label{cursor:pointer}
       rotate, rotationTab, rotationStep, switchToQueue, gridSignature, monitorElsewhere,
       openQueueTab, popupsBlocked,
       readableColor, statusColor, statusWord, alertText, targetDue, dashboardStats, deadlineBuckets,
-      needsAction, resting, ticketDeadline, priorityWord,
+      needsAction, resting, ticketDeadline, priorityWord, parseResources, learnMyName, myName, secondaryOf,
       pageInfo, MACRO, MACROS, macroJob, startMacro, stopMacro, macroStep, macroWork, patchMacroItem, accountField, fieldInput, ticketField, tickedTickets, renderTicketPill,
       BLOCKS, PAGES, macroDefs, saveMacroDefs, cleanMacroDef, macroProblem, macroFlow, fromV1, askedParams, customMacro, allMacros, startCustom, retryMacro,
       openBuilder, speedCodeBox, fieldSpec, exportSettings, pageKind, timeEntryPage, macroTabs,

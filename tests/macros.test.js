@@ -65,6 +65,41 @@ test("change account: each ticked ticket gets a tab of its own, up to the settin
   close();
 });
 
+test('with Tampermonkey, macro tabs open in the background, so you stay on the page you started it from', () => {
+  const { api, window, close } = load({ now: NOW, settings: { macroTabs: 2 }, storage: { 'atqm:snap:my-open-tickets': { [A]: { tid: '111', status: 'New' } } } });
+  const tabs = [];
+  window.GM_openInTab = (url, opts) => { const t = fakeTab(url); t.opts = opts; tabs.push(t); return t; };
+  window.open = () => assert.fail("the browser's own window.open brings the tab to the front");
+
+  api.startMacro([{ id: A }, { id: B }, { id: C }], 'Northwind Ltd');
+  assert.deepEqual(states(api), ['open', 'open', 'waiting']);
+  assert.deepEqual(tabs.map(t => t.opts.active), [false, false]);
+  // Its name, which it can't be given, comes in the address
+  assert.match(tabs[0].url, /TicketDetail\.mvc\?workspace=False&ticketId=111#atqm-tab=atqm_macro%3AT20261007\.0081$/);
+  assert.match(tabs[1].url, /TicketNumber=T20261007\.0082#atqm-tab=atqm_macro%3AT20261007\.0082$/);
+
+  // A finished ticket's tab is closed, and the next ticket gets a new background tab
+  api.patchMacroItem(A, { state: 'done' });
+  api.macroStep();
+  assert.ok(tabs[0].closed);
+  assert.equal(tabs.length, 3);
+  assert.equal(tabs[2].opts.active, false);
+  close();
+});
+
+test('a tab opened in the background takes its name from its address, and tidies the address', () => {
+  const ticket = 'https://ww5.autotask.net/Mvc/ServiceDesk/TicketDetail.mvc?workspace=False&ticketId=111';
+  let page = load({ url: `${ticket}#atqm-tab=atqm_macro%3A${A}` });
+  assert.equal(page.window.name, 'atqm_macro:' + A);
+  assert.equal(page.window.location.href, ticket);
+  page.close();
+  // Any other name is left alone
+  page = load({ url: `${ticket}#atqm-tab=atqm-my` });
+  assert.equal(page.window.name, '');
+  assert.equal(page.window.location.href, ticket);
+  page.close();
+});
+
 test("change account: when the browser won't open more tabs, it does fewer at once, and the next ticket goes in a finished one's tab", () => {
   const { api, window, close } = load({ now: NOW, settings: { macroTabs: 3 } });
   const tabs = [];
@@ -723,7 +758,7 @@ test('boot: in a queue, the Macros tab (on the right) is a grid; Change account 
     assert.match(way(/Ticked in this queue/).textContent, /1 ticked in Open Tickets/);
     assert.ok(way(/Ticked in this queue/).querySelector('input').checked);
     assert.equal(run.disabled, false);
-    assert.match(win.textContent, /Each ticket opens in a tab of its own, up to 5 at once, and its tab closes when it's done/);
+    assert.match(win.textContent, /Each ticket opens in a tab of its own in the background, up to 5 at once, and its tab closes when it's done/);
     sel.value = 'Contoso';
     sel.dispatchEvent(new window.Event('change', { bubbles: true }));
     // Another Work Type, and the Sub-Issue Type cleared to leave it alone

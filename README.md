@@ -98,7 +98,7 @@ Where a macro can run depends on the page:
 - **This ticket**, when the page shows a ticket: it runs right there, in that page.
 - **Ticked in this queue**, when the page shows a queue: tick the tickets in Autotask's grid (you can do this with the window open). Each ticket opens in a tab of its own, up to 5 at once (**Tickets at once**, in Settings → Macros). When a ticket is done its tab closes and the next ticket starts in its place. Keep the tab you started it from open until it finishes.
 
-More than one tab at once needs pop-ups allowed for autotask.net, because the browser only lets the script open one tab per click otherwise. Without that it does one ticket at a time, each in the tab the last one finished in, and says so.
+The tickets' tabs open in the background, next to the one you're in, so you stay on the queue and can carry on with something else while the macro runs. Tampermonkey opens them, so they don't need pop-ups allowed for autotask.net. (With a script manager other than Tampermonkey, the browser opens them instead: each comes to the front, and more than one at once needs pop-ups allowed, or it does one ticket at a time, each in the tab the last one finished in, and says so.)
 
 ### Change account
 

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Autotask Queue Monitor
 // @namespace    autotask
-// @version      0.22.0
+// @version      0.22.1
 // @description  Track any My Workspace & Queues queue (My queue by default) in its own tab, with a live overview on every Autotask page
 // @author       AdamConnell1565
 // @homepageURL  https://github.com/AdamConnell1565/Autotask-Queue-Monitor
@@ -10,7 +10,8 @@
 // @downloadURL  https://raw.githubusercontent.com/AdamConnell1565/Autotask-Queue-Monitor/main/autotaskQueueMonitor.user.js
 // @icon         data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2016%2016'%3E%3Crect%20width='16'%20height='16'%20rx='3'%20fill='%231e1f22'/%3E%3Crect%20x='3'%20y='4'%20width='10'%20height='2'%20rx='1'%20fill='%234ea1ff'/%3E%3Crect%20x='3'%20y='7'%20width='7'%20height='2'%20rx='1'%20fill='%233fb950'/%3E%3Crect%20x='3'%20y='10'%20width='8'%20height='2'%20rx='1'%20fill='%23e3b341'/%3E%3C/svg%3E
 // @match        *://*.autotask.net/*
-// @grant        none
+// @grant        GM_openInTab
+// @grant        unsafeWindow
 // @run-at       document-idle
 // ==/UserScript==
 
@@ -21,6 +22,17 @@
   // The latest release, as @downloadURL above (keep the two the same): opening it, Tampermonkey offers the install
   const UPDATE_URL = 'https://raw.githubusercontent.com/AdamConnell1565/Autotask-Queue-Monitor/main/autotaskQueueMonitor.user.js';
   const W = typeof unsafeWindow !== 'undefined' ? unsafeWindow : window;
+
+  // A macro tab opened in the background (see openMacroTab) can't be given its window name, so the name comes in
+  // the address, after MACRO_HASH. Take it before anything asks which tab this is, and tidy the address.
+  const MACRO_HASH = '#atqm-tab=';
+  try {
+    if (W.top === W && location.hash.startsWith(MACRO_HASH)) {
+      const name = decodeURIComponent(location.hash.slice(MACRO_HASH.length));
+      if (name.startsWith('atqm_macro:')) W.name = name; // MACRO_WIN, below
+      history.replaceState(history.state, '', location.href.slice(0, location.href.indexOf('#')));
+    }
+  } catch { /* not ours to change */ }
 
   // ---------------------------------------------------------------------------
   // Autotask page details. Everything that depends on how Autotask builds its pages is collected
@@ -3632,7 +3644,7 @@ label.set-label{cursor:pointer}
       desc: "Your own macros, built from blocks such as speed codes. They're squares in the Macros tab, and behind a ticket pop-up's Macros button." },
     { key: 'macroTabs', label: 'Tickets at once', type: 'number', min: 1, max: 10, step: 1,
       hint: 'A macro run on the tickets ticked in a queue opens each ticket in a tab of its own, this many at a time. When one is done ' +
-        'its tab closes and the next ticket starts. More than 1 needs pop-ups allowed for autotask.net.' },
+        'its tab closes and the next ticket starts. The tabs open in the background, so you can carry on with the page you\'re on.' },
   ];
 
   // A setting value made safe to use: the right type, within range, and one of the options
@@ -4515,11 +4527,17 @@ label.set-label{cursor:pointer}
     for (const win of macroTabs.values()) { try { win.close(); } catch { /* ignore */ } }
     macroTabs.clear();
   }
-  // A tab for this ticket: a new one, else one of `spare` (tabs whose tickets are finished with). The browser
-  // only opens a tab without your click when pop-ups are allowed for autotask.net. null: neither.
+  // A tab for this ticket: a new one, else one of `spare` (tabs whose tickets are finished with). null: neither.
+  // Tampermonkey opens it in the background, next to this one, so you can carry on with the page you're on while
+  // the macro runs. Without that (another script manager), the browser's own window.open brings each new tab to
+  // the front, and only opens one without your click when pop-ups are allowed for autotask.net.
   function openMacroTab(it, spare) {
     const name = MACRO_WIN + ':' + it.id, url = macroUrl(it);
     let win = null;
+    if (typeof GM_openInTab === 'function') {
+      try { win = GM_openInTab(url + MACRO_HASH + encodeURIComponent(name), { active: false, insert: true, setParent: true }); } catch { win = null; }
+      if (win) return win;
+    }
     try { win = W.open(url, name); } catch { /* blocked */ }
     if (win) return win;
     const reuse = spare.pop();
@@ -4636,19 +4654,21 @@ label.set-label{cursor:pointer}
   // Autotask may open it a moment after the click, so window.open is watched for a while.
   function pressWatching(btn, then) {
     const real = W.open;
-    let done = false;
+    let done = false, pageWatch = null;
     const restore = () => {
       if (done) return;
       done = true;
-      try { if (W.open === watch) W.open = real; } catch { /* ignore */ }
+      try { if (W.open === pageWatch) W.open = real; } catch { /* ignore */ }
     };
     function watch(...args) {
       const win = real.apply(this, args);
+      if (done) return win; // left in place (the page changed window.open meanwhile): passes calls on, nothing more
       restore();
       then(win);
       return win;
     }
-    try { W.open = watch; } catch { /* can't watch it: just press */ }
+    // In Firefox, Tampermonkey's sandbox has to hand the page a function it can call
+    try { pageWatch = typeof exportFunction === 'function' ? exportFunction(watch, W) : watch; W.open = pageWatch; } catch { /* can't watch it: just press */ }
     press(btn);
     setTimeout(restore, 5000);
   }
@@ -5755,8 +5775,8 @@ label.set-label{cursor:pointer}
   // The dashboard (ctx.dash) has only the tickets ticked on it.
   function macroWays(ctx, macro) {
     const n = Math.max(1, Math.round(CONFIG.macroTabs) || 1);
-    const tabsHow = n > 1 ? `Each ticket opens in a tab of its own, up to ${n} at once, and its tab closes when it's done. Keep this tab open until it finishes.`
-      : "Each ticket opens in a tab of its own, one at a time, and its tab closes when it's done. Keep this tab open until it finishes.";
+    const tabsHow = n > 1 ? `Each ticket opens in a tab of its own in the background, up to ${n} at once, and its tab closes when it's done. Keep this tab open until it finishes.`
+      : "Each ticket opens in a tab of its own in the background, one at a time, and its tab closes when it's done. Keep this tab open until it finishes.";
     if (ctx.dash) {
       const ids = ctx.ticked.map(t => t.id);
       const ways = [{

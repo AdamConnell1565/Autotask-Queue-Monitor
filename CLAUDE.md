@@ -9,6 +9,10 @@ Every change that ships raises the version: `@version` in the header of `autotas
 
 When unsure, it's a patch. Don't renumber versions already released.
 
+## Tampermonkey sandbox
+
+The script asks for `GM_openInTab` (macro tabs open in the background), so Tampermonkey runs it in its sandbox, not in the page. `window` there is Tampermonkey's, not the page's. Use `W` (`unsafeWindow`) for the page's own window: its `open`, `name`, `top`, `opener` and anything Autotask puts on it. A function handed to the page, such as one put in place of `W.open`, goes through `exportFunction` where it exists (Firefox). Ask for another `@grant` only when it's needed.
+
 ## Docs
 
 - `README.md` describes what the script does for the people using it. Update it with any change they'd notice.

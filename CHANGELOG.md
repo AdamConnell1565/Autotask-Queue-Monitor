@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.22.1 (2026-10-15)
+
+### Fixed
+
+- **Macro tabs took you away from the queue.** A macro run on ticked tickets opened each ticket's tab in front of the page you were on, so you were taken to every new tab as it opened. They now open in the background, next to the one you're in: you stay on the queue and can carry on while the macro runs. Tampermonkey opens them, so they don't need pop-ups allowed for autotask.net either. For this the script now asks Tampermonkey for `GM_openInTab`.
+
 ## 0.22.0 (2026-10-15)
 
 ### Added

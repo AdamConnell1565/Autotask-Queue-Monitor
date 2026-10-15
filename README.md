@@ -298,7 +298,7 @@ Written for Tampermonkey on current Chrome, Edge and Firefox. The script needs n
 - Everything specific to Autotask's pages (CSS selectors, button names, column names, page addresses) is in the `AT` section at the top of the script. [docs/autotask-pages.md](docs/autotask-pages.md) describes the pages those selectors match, such as the ticket page's fields and buttons.
 - Tests load the script into [jsdom](https://github.com/jsdom/jsdom) through a test hook that stops before the script starts its widget and timers (`tests/harness.js`). `tests/boot.test.js` runs the whole script.
 - The sample pages in `tests/fixtures`, and the ticket and edit pages `tests/pages.js` builds for the macro tests, are written by hand to match the `AT` selectors. To add a real Autotask page, save it from the browser and replace every ticket title, account name, person's name and ticket number before committing it (see [Capturing a page safely](docs/autotask-pages.md#capturing-a-page-safely)). Never commit personal information.
-- For a release, raise `@version` in the script header (Tampermonkey only updates when it goes up) and `version` in `package.json`, and add a [CHANGELOG](CHANGELOG.md) entry.
+- For a release, raise `@version` in the script header (Tampermonkey only updates when it goes up) and `version` in `package.json`, and add a [CHANGELOG](CHANGELOG.md) entry. Raise the middle number (0.x.0) only for a major feature; fixes and smaller changes raise the last (0.0.x). See [CLAUDE.md](CLAUDE.md).
 
 ## License
 
